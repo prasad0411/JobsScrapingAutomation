@@ -1,0 +1,35 @@
+# Credentials and tokens (IMPORTANT!)
+credentials.json
+gmail_credentials.json
+gmail_token.pickle
+
+# Log files
+*.log
+job_scraper.log
+
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+
+# Virtual environment
+venv/
+venw/
+ENV/
+env/
+
+# IDE settings
+.vscode/
+.idea/
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Session files
+*_session.py
+*_session.pkl
+handshake_session.pkl
+capture_handshake_session.py
