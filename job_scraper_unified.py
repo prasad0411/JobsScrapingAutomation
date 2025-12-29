@@ -3440,7 +3440,7 @@ class UnifiedJobAggregator:
                         print("Continuing without Jobright authentication\n")
             else:
                 print("No saved Jobright cookies - initiating login")
-                if not self.login_to_jobright_once():
+                if not self.login_to_jobright_once(): 
                     print("Continuing without Jobright authentication\n")
         else:
             print("Selenium not available - Jobright URL resolution disabled\n")
