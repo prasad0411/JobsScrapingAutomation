@@ -1,0 +1,132 @@
+[
+  {
+    "domain": ".jobright.ai",
+    "expiry": 1767118400,
+    "httpOnly": false,
+    "name": "_clsk",
+    "path": "/",
+    "sameSite": "Lax",
+    "secure": false,
+    "value": "1lzpz0%5E1767032000595%5E2%5E1%5El.clarity.ms%2Fcollect"
+  },
+  {
+    "domain": ".jobright.ai",
+    "expiry": 1800728000,
+    "httpOnly": false,
+    "name": "_uetvid",
+    "path": "/",
+    "sameSite": "Lax",
+    "secure": false,
+    "value": "eb66fb60e4e111f0b8dfc5d916eab2e2"
+  },
+  {
+    "domain": ".jobright.ai",
+    "expiry": 1767118400,
+    "httpOnly": false,
+    "name": "_uetsid",
+    "path": "/",
+    "sameSite": "Lax",
+    "secure": false,
+    "value": "eb66f970e4e111f0a4a113eea606d2da"
+  },
+  {
+    "domain": ".jobright.ai",
+    "expiry": 1800728023,
+    "httpOnly": false,
+    "name": "ttcsid",
+    "path": "/",
+    "sameSite": "Lax",
+    "secure": false,
+    "value": "1767031942765::Olx5l3UmD4_vqDaVk8ki.1.1767032023106.0"
+  },
+  {
+    "domain": ".jobright.ai",
+    "expiry": 1772215998,
+    "httpOnly": true,
+    "name": "SESSION_ID",
+    "path": "/",
+    "sameSite": "Lax",
+    "secure": true,
+    "value": "7791ea3130b341e5988dd975f5c85b6d"
+  },
+  {
+    "domain": ".jobright.ai",
+    "expiry": 1774807942,
+    "httpOnly": false,
+    "name": "_gcl_au",
+    "path": "/",
+    "sameSite": "Lax",
+    "secure": false,
+    "value": "1.1.1602707325.1767031942"
+  },
+  {
+    "domain": "jobright.ai",
+    "expiry": 1782583998,
+    "httpOnly": false,
+    "name": "g_state",
+    "path": "/",
+    "sameSite": "Lax",
+    "secure": false,
+    "value": "{\"i_l\":0,\"i_ll\":1767031944279}"
+  },
+  {
+    "domain": ".jobright.ai",
+    "expiry": 1798567942,
+    "httpOnly": false,
+    "name": "_clck",
+    "path": "/",
+    "sameSite": "Lax",
+    "secure": false,
+    "value": "ta51f1%5E2%5Eg29%5E0%5E2189"
+  },
+  {
+    "domain": ".jobright.ai",
+    "expiry": 1800727942,
+    "httpOnly": false,
+    "name": "_tt_enable_cookie",
+    "path": "/",
+    "sameSite": "Lax",
+    "secure": false,
+    "value": "1"
+  },
+  {
+    "domain": ".jobright.ai",
+    "expiry": 1800728023,
+    "httpOnly": false,
+    "name": "ttcsid_CM0IJ53C77U0797CAP10",
+    "path": "/",
+    "sameSite": "Lax",
+    "secure": false,
+    "value": "1767031942765::IKrPUNy-g86KXlAO7TDI.1.1767032023106.1"
+  },
+  {
+    "domain": ".jobright.ai",
+    "expiry": 1801592006,
+    "httpOnly": false,
+    "name": "_ga_ETKKWETCJD",
+    "path": "/",
+    "sameSite": "Lax",
+    "secure": false,
+    "value": "GS2.1.s1767031941$o1$g1$t1767032006$j55$l0$h1115366186"
+  },
+  {
+    "domain": ".jobright.ai",
+    "expiry": 1800727942,
+    "httpOnly": false,
+    "name": "_ttp",
+    "path": "/",
+    "sameSite": "Lax",
+    "secure": false,
+    "value": "01KDNMZBKBDJ49ZPCJHPF3V7HG_.tt.1"
+  },
+  {
+    "domain": ".jobright.ai",
+    "expiry": 1801591941,
+    "httpOnly": false,
+    "name": "_ga",
+    "path": "/",
+    "sameSite": "Lax",
+    "secure": false,
+    "value": "GA1.1.1239487074.1767031942"
+  }
+]
