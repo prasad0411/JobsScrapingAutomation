@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 # cSpell:disable
 """
-Google Sheets management module.
-Handles all sheet operations: reading, writing, formatting, coloring.
+Google Sheets management module - ENHANCED VERSION
+Handles all sheet operations with dynamic column widths for all columns.
 """
 
 import gspread
@@ -226,7 +226,7 @@ class SheetsManager:
             )
             time.sleep(3)
 
-        self._auto_resize_columns(self.valid_sheet, 5, 13)
+        self._auto_resize_all_columns_dynamic(self.valid_sheet, 13)
         print(f"Added {len(jobs)} valid jobs")
         return len(jobs)
 
@@ -243,7 +243,7 @@ class SheetsManager:
             rows = []
 
             for idx, job in enumerate(batch):
-                sr_no = start_discarded_sr = start_sr_no + i + idx
+                sr_no = start_sr_no + i + idx
                 rows.append(
                     [
                         sr_no,
@@ -267,7 +267,7 @@ class SheetsManager:
             )
             time.sleep(3)
 
-        self._auto_resize_columns(self.discarded_sheet, 5, 13)
+        self._auto_resize_all_columns_dynamic(self.discarded_sheet, 13)
         print(f"Added {len(jobs)} discarded jobs")
         return len(jobs)
 
@@ -421,92 +421,102 @@ class SheetsManager:
         except Exception as e:
             print(f"Color application error: {e}")
 
-    def _auto_resize_columns(self, sheet, url_column_index, total_columns):
-        """Auto-resize columns with smart width calculation."""
+    def _auto_resize_all_columns_dynamic(self, sheet, total_columns):
+        """
+        Auto-resize ALL columns dynamically based on content.
+        Each column width adjusts to fit the longest text in that column.
+        """
         try:
-            # Auto-resize all
-            self.spreadsheet.batch_update(
-                {
-                    "requests": [
-                        {
-                            "autoResizeDimensions": {
-                                "dimensions": {
-                                    "sheetId": sheet.id,
-                                    "dimension": "COLUMNS",
-                                    "startIndex": 0,
-                                    "endIndex": total_columns,
-                                }
-                            }
-                        }
-                    ]
-                }
-            )
-            time.sleep(1)
+            print(f"  → Auto-sizing {total_columns} columns dynamically...")
 
-            # Calculate dynamic status column width
+            # Get all data from sheet
             all_data = sheet.get_all_values()
-            max_status_width = 100
-            for row in all_data[1:]:
-                if len(row) > 1:
-                    text_width = len(row[1].strip()) * 8 + 20
-                    max_status_width = max(max_status_width, text_width)
-            max_status_width = min(max_status_width, 250)
 
-            # Fixed widths
-            fixed_widths = [
-                {
-                    "updateDimensionProperties": {
-                        "range": {
-                            "sheetId": sheet.id,
-                            "dimension": "COLUMNS",
-                            "startIndex": 1,
-                            "endIndex": 2,
-                        },
-                        "properties": {"pixelSize": max_status_width},
-                        "fields": "pixelSize",
-                    }
-                },
-                {
-                    "updateDimensionProperties": {
-                        "range": {
-                            "sheetId": sheet.id,
-                            "dimension": "COLUMNS",
-                            "startIndex": 4,
-                            "endIndex": 5,
-                        },
-                        "properties": {"pixelSize": 150},
-                        "fields": "pixelSize",
-                    }
-                },
-                {
-                    "updateDimensionProperties": {
-                        "range": {
-                            "sheetId": sheet.id,
-                            "dimension": "COLUMNS",
-                            "startIndex": url_column_index,
-                            "endIndex": url_column_index + 1,
-                        },
-                        "properties": {"pixelSize": 100},
-                        "fields": "pixelSize",
-                    }
-                },
-                {
-                    "updateDimensionProperties": {
-                        "range": {
-                            "sheetId": sheet.id,
-                            "dimension": "COLUMNS",
-                            "startIndex": 12,
-                            "endIndex": 13,
-                        },
-                        "properties": {"pixelSize": 110},
-                        "fields": "pixelSize",
-                    }
-                },
-            ]
+            if len(all_data) < 2:  # Only headers or empty
+                return
 
-            self.spreadsheet.batch_update({"requests": fixed_widths})
+            # Calculate optimal width for each column
+            column_widths = []
+
+            for col_idx in range(total_columns):
+                max_width = 50  # Minimum width
+
+                # Check header
+                if len(all_data[0]) > col_idx:
+                    header_text = str(all_data[0][col_idx])
+                    header_width = (
+                        len(header_text) * 10 + 30
+                    )  # Headers get more padding
+                    max_width = max(max_width, header_width)
+
+                # Check all data rows
+                for row in all_data[1:]:
+                    if len(row) > col_idx:
+                        cell_text = str(row[col_idx]).strip()
+                        if cell_text:
+                            # Calculate pixel width (approximate: 8 pixels per char + padding)
+                            text_width = len(cell_text) * 8 + 20
+                            max_width = max(max_width, text_width)
+
+                # Apply column-specific constraints
+                if col_idx == 0:  # Sr. No.
+                    max_width = min(max_width, 80)  # Cap at 80 pixels
+                elif col_idx == 1:  # Status/Discard Reason/Reason
+                    max_width = min(max_width, 300)  # Cap at 300 pixels
+                elif col_idx == 2:  # Company
+                    max_width = min(max_width, 250)  # Cap at 250 pixels
+                elif col_idx == 3:  # Title
+                    max_width = min(max_width, 400)  # Cap at 400 pixels
+                elif col_idx == 4:  # Date Applied or Job URL (depends on sheet)
+                    max_width = min(max_width, 150)  # Cap at 150 pixels
+                elif col_idx == 5:  # Job URL
+                    max_width = max(100, min(max_width, 120))  # 100-120 pixels
+                elif col_idx == 6:  # Job ID
+                    max_width = min(max_width, 120)  # Cap at 120 pixels
+                elif col_idx == 7:  # Job Type
+                    max_width = min(max_width, 120)  # Cap at 120 pixels
+                elif col_idx == 8:  # Location
+                    max_width = min(max_width, 200)  # Cap at 200 pixels
+                elif col_idx == 9:  # Remote?
+                    max_width = min(max_width, 100)  # Cap at 100 pixels
+                elif col_idx == 10:  # Entry Date/Moved Date
+                    max_width = min(max_width, 180)  # Cap at 180 pixels
+                elif col_idx == 11:  # Source
+                    max_width = min(max_width, 120)  # Cap at 120 pixels
+                elif col_idx == 12:  # Sponsorship
+                    max_width = min(max_width, 150)  # Cap at 150 pixels
+
+                column_widths.append(max_width)
+
+            # Build batch update request for all columns
+            resize_requests = []
+
+            for col_idx, width in enumerate(column_widths):
+                resize_requests.append(
+                    {
+                        "updateDimensionProperties": {
+                            "range": {
+                                "sheetId": sheet.id,
+                                "dimension": "COLUMNS",
+                                "startIndex": col_idx,
+                                "endIndex": col_idx + 1,
+                            },
+                            "properties": {"pixelSize": int(width)},
+                            "fields": "pixelSize",
+                        }
+                    }
+                )
+
+            # Execute resize in batches (max 100 requests per batch)
+            for i in range(0, len(resize_requests), 100):
+                batch = resize_requests[i : i + 100]
+                self.spreadsheet.batch_update({"requests": batch})
+                time.sleep(1)
+
+            print(f"  ✓ Resized columns with dynamic widths")
+
         except Exception as e:
-            print(f"Column resize error: {e}")
+            print(f"  ✗ Column resize error: {e}")
 
     def _format_headers(self, sheet, num_cols):
         """Format header row."""

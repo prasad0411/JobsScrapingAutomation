@@ -1,1489 +1,869 @@
 #!/usr/bin/env python3
 # cSpell:disable
 """
-Main job aggregation pipeline.
-Orchestrates extraction, processing, validation, and sheet updates.
+Processing module for job data validation, cleaning, and quality scoring - FINAL VERSION
+Handles title cleaning, location formatting, international filtering, and all validation checks.
 """
 
-import time
-import datetime
-import random
 import re
-from bs4 import BeautifulSoup
-
-from config import SIMPLIFY_URL, MAX_JOB_AGE_DAYS
-from extractors import (
-    EmailExtractor,
-    PageFetcher,
-    PageParser,
-    SourceParsers,
-    JobrightAuthenticator,
-    SimplifyGitHubScraper,
+import datetime
+from config import (
+    US_STATES,
+    CANADA_PROVINCES,
+    CITY_TO_STATE,
+    CANADA_CITIES,
+    MIN_QUALITY_SCORE,
+    SPECIAL_COMPANY_NAMES,
 )
-from processors import (
-    TitleProcessor,
-    LocationProcessor,
-    ValidationHelper,
-    QualityScorer,
-)
-from sheets_manager import SheetsManager
 
 
-class UnifiedJobAggregator:
-    """Main orchestrator for job aggregation pipeline."""
+class TitleProcessor:
+    """Processes and validates job titles."""
 
-    def __init__(self):
-        print("=" * 80)
-        print("INITIALIZING JOB AGGREGATOR")
-        print("=" * 80)
+    @staticmethod
+    def clean_title_aggressive(title):
+        """Aggressively clean title by removing years, seasons, brackets, etc."""
+        if not title or len(title) < 5:
+            return title
 
-        # Initialize components
-        self.sheets = SheetsManager()
-        self.email_extractor = EmailExtractor()
-        self.page_fetcher = PageFetcher()
-        self.jobright_auth = JobrightAuthenticator()
+        original = title
 
-        # Load existing data
-        existing = self.sheets.load_existing_jobs()
-        self.existing_jobs = existing["jobs"]
-        self.existing_urls = existing["urls"]
-        self.existing_job_ids = existing["job_ids"]
-        self.processed_cache = existing["cache"]
+        # Remove parentheses and brackets
+        title = re.sub(r"\s*[\(\[].+?[\)\]]", "", title)
 
-        self.processing_lock = set()
+        # Remove seasons + years
+        title = re.sub(
+            r"\s*(Summer|Fall|Winter|Spring)\s*20\d{2}\s*", " ", title, flags=re.I
+        )
 
-        # Job lists
-        self.valid_jobs = []
-        self.discarded_jobs = []
+        # Remove just years
+        title = re.sub(r"\s*20\d{2}\s*", " ", title)
 
-        # Statistics
-        self.outcomes = {
-            "valid": 0,
-            "discarded": 0,
-            "skipped_duplicate_url": 0,
-            "skipped_duplicate_company_title": 0,
-            "skipped_non_job": 0,
-            "skipped_marketing": 0,
-            "skipped_too_old": 0,
-            "skipped_wrong_season": 0,
-            "skipped_senior_role": 0,
-            "skipped_invalid_url": 0,
-            "failed_http": 0,
-            "failed_extraction": 0,
-            "low_quality": 0,
-            "kept_both_variants": 0,
-            "method_email_parsed": 0,
-            "url_resolved": 0,
-        }
+        # Remove "or X months"
+        title = re.sub(r",?\s*[Oo]r\s+\d+\s+months", "", title)
 
-        print(f"Loaded {len(self.existing_jobs)} existing jobs\n")
+        # Remove location suffixes
+        title = re.sub(
+            r"\s*[-,]\s*(Canada|UK|India|Remote|Hybrid).*$", "", title, flags=re.I
+        )
+        title = re.sub(r"\s*[-,]\s*[A-Z][a-z]+,\s*[A-Z]{2}.*$", "", title)
 
-    def run(self):
-        """Execute the complete job aggregation pipeline."""
-        start_time = time.time()
-        print("\nStarting job aggregation\n")
+        # Remove work type suffixes
+        title = re.sub(
+            r"\s*[-–]\s*(Remote|Hybrid|On-?site|Full[- ]time|Part[- ]time)\s*$",
+            "",
+            title,
+            flags=re.I,
+        )
 
-        # Step 1: Authenticate Jobright if needed
-        if not self.jobright_auth.cookies:
-            self.jobright_auth.login_interactive()
+        # Clean up
+        title = re.sub(r"\s*[-–—]\s*$", "", title)
+        title = re.sub(r"\s+", " ", title).strip()
 
-        # Step 2: Scrape SimplifyJobs GitHub
-        self._scrape_simplify_github()
+        # If we removed too much, return original
+        if len(title) < 10 and len(original) > 15:
+            return original
 
-        # Step 3: Process email jobs
+        return title
+
+    @staticmethod
+    def is_valid_job_title(title):
+        """Check if title is a valid job posting."""
+        if not title or title == "Unknown" or len(title) < 10:
+            return False, "Invalid title"
+
+        title_lower = title.lower()
+
+        # Check for marketing phrases
+        marketing = [
+            "meet your",
+            "join our team",
+            "learn more",
+            "discover how",
+            "explore our",
+            "contact us",
+            "get started",
+            "welcome to",
+        ]
+        for phrase in marketing:
+            if phrase in title_lower:
+                return False, f"Marketing: '{phrase}'"
+
+        # Must contain job keywords
+        job_keywords = [
+            "intern",
+            "engineer",
+            "developer",
+            "analyst",
+            "scientist",
+            "designer",
+            "manager",
+            "specialist",
+            "coordinator",
+            "associate",
+        ]
+        if not any(kw in title_lower for kw in job_keywords):
+            return False, "No job keywords"
+
+        return True, None
+
+    @staticmethod
+    def is_cs_engineering_role(title):
+        """Check if role is CS/Engineering related."""
+        title_lower = title.lower()
+
+        # Exclude non-CS roles
+        excluded = ["product management", "marketing", "sales", "hr", "finance"]
+        if any(kw in title_lower for kw in excluded):
+            return False
+
+        # Require CS keywords
+        required = [
+            "software",
+            "swe",
+            "engineer",
+            "developer",
+            "data",
+            "tech",
+            "algorithm",
+            "ml",
+            "ai",
+        ]
+        return any(kw in title_lower for kw in required)
+
+    @staticmethod
+    def is_internship_role(title):
+        """Check if role is internship/co-op (not senior/experienced/full-time)."""
+        title_lower = title.lower()
+
+        # Must contain internship indicators
+        internship_keywords = ["intern", "co-op", "coop"]
+        if not any(kw in title_lower for kw in internship_keywords):
+            return False, "Not internship/co-op role"
+
+        # Exclude senior/experienced roles
+        excluded_levels = [
+            "senior",
+            "sr.",
+            "sr ",
+            "staff",
+            "principal",
+            "lead",
+            "experienced",
+            "expert",
+            "architect",
+            "director",
+            "manager",
+        ]
+        for level in excluded_levels:
+            if level in title_lower:
+                return False, f"Senior/experienced role: contains '{level}'"
+
+        return True, None
+
+    @staticmethod
+    def check_season_requirement(title, page_text=""):
+        """Check if job is for acceptable season (Summer 2026+, Fall 2026+, no Spring/Winter)."""
+        combined_text = (title + " " + page_text).lower()
+
+        # Reject Spring 2026
+        if re.search(r"spring\s*2026", combined_text, re.I):
+            return False, "Spring 2026 posting (too early)"
+
+        # Reject Winter 2026
+        if re.search(r"winter\s*2026", combined_text, re.I):
+            return False, "Winter 2026 posting (too early)"
+
+        # Reject all 2025 postings
+        if re.search(r"(summer|fall|winter|spring)\s*2025", combined_text, re.I):
+            return False, "2025 posting (too old)"
+
+        # Accept Summer 2026+ and Fall 2026+
+        return True, None
+
+
+class LocationProcessor:
+    """Processes and validates job locations."""
+
+    @staticmethod
+    def extract_location_enhanced(soup, url):
+        """Enhanced location extraction with Simplify.jobs special handling."""
+
+        # Special handling for Simplify.jobs pages (CRITICAL FIX!)
+        if "simplify.jobs" in url.lower():
+            simplify_loc = LocationProcessor._extract_from_simplify_page(soup)
+            if simplify_loc and simplify_loc != "Unknown":
+                print(f"    [Simplify] Found location: '{simplify_loc}'")
+                return simplify_loc
+
+        # Method 1: JSON-LD structured data
+        json_loc = LocationProcessor._extract_from_json_ld(soup)
+        if json_loc and LocationProcessor.is_valid_us_location(json_loc):
+            return json_loc
+
+        # Method 2: Labeled fields
+        labeled_loc = LocationProcessor._extract_from_labels(soup)
+        if labeled_loc and LocationProcessor.is_valid_us_location(labeled_loc):
+            return labeled_loc
+
+        # Method 3: Workday URL parsing
+        if "workday" in url.lower():
+            match = re.search(r"/job/([^/]+)/", url)
+            if match:
+                location_raw = match.group(1)
+                if not location_raw.lower().startswith("remote"):
+                    workday_loc = LocationProcessor._parse_workday_location(
+                        location_raw
+                    )
+                    if workday_loc != "Unknown":
+                        return workday_loc
+
+        # Method 4: Page scanning
+        scanned_loc = LocationProcessor._scan_page(soup)
+        if scanned_loc and LocationProcessor.is_valid_us_location(scanned_loc):
+            return scanned_loc
+
+        # Method 5: Meta tags
+        meta_loc = LocationProcessor._extract_from_meta(soup)
+        if meta_loc and LocationProcessor.is_valid_us_location(meta_loc):
+            return meta_loc
+
+        return "Unknown"
+
+    @staticmethod
+    def _extract_from_simplify_page(soup):
+        """Extract location from Simplify.jobs page specifically - ENHANCED VERSION."""
         try:
-            email_data = self.email_extractor.fetch_job_emails()
-            if email_data:
-                self._process_email_jobs(email_data)
+            # Strategy 1: Look for location text patterns in entire page
+            page_text = soup.get_text()
+
+            # Pattern 1: "Montreal, QC, Canada" (most explicit)
+            match = re.search(
+                r"\b([A-Z][a-z]+(?:\s+[A-Z][a-z]+)?),\s*([A-Z]{2}),\s*(Canada|USA)\b",
+                page_text[:3000],
+            )
+            if match:
+                city, state, country = match.group(1), match.group(2), match.group(3)
+                return f"{city}, {state}, {country}"
+
+            # Pattern 2: "City, ST" where ST could be province or state
+            matches = re.findall(
+                r"\b([A-Z][a-z]+(?:\s+[A-Z][a-z]+)?),\s*([A-Z]{2})\b",
+                page_text[:3000],
+            )
+
+            for city, state in matches:
+                state_upper = state.upper()
+
+                # Check if it's a Canadian province
+                if state_upper in CANADA_PROVINCES:
+                    # Verify it's actually Canada by checking nearby context
+                    match_pos = page_text.find(f"{city}, {state}")
+                    if match_pos != -1:
+                        context = page_text[
+                            max(0, match_pos - 100) : min(
+                                len(page_text), match_pos + 100
+                            )
+                        ]
+                        # If "Canada" appears in context, it's definitely Canadian
+                        if "canada" in context.lower():
+                            return f"{city}, {state_upper}, Canada"
+                        # If no US states in context, assume Canada
+                        if not any(us_st in context for us_st in US_STATES.values()):
+                            return f"{city}, {state_upper}, Canada"
+
+                # Check if it's a US state
+                if state_upper in US_STATES.values():
+                    return f"{city}, {state_upper}"
+
+            # Strategy 2: Look in specific HTML elements
+            # Check for elements containing "Montreal", "Toronto", etc.
+            location_keywords = [
+                "Montreal",
+                "Toronto",
+                "Vancouver",
+                "Ottawa",
+                "Calgary",
+            ]
+            for keyword in location_keywords:
+                elements = soup.find_all(
+                    ["p", "div", "span", "li"], string=re.compile(keyword, re.I)
+                )
+                for elem in elements:
+                    text = elem.get_text().strip()
+                    # Extract full location from this element
+                    match = re.search(
+                        r"\b([A-Z][a-z]+(?:\s+[A-Z][a-z]+)?),\s*([A-Z]{2})(?:,\s*([A-Za-z]+))?\b",
+                        text,
+                    )
+                    if match:
+                        city, state, country = (
+                            match.group(1),
+                            match.group(2),
+                            match.group(3),
+                        )
+                        if country and country.lower() == "canada":
+                            return f"{city}, {state}, Canada"
+                        if state.upper() in CANADA_PROVINCES:
+                            return f"{city}, {state.upper()}, Canada"
+
+            return "Unknown"
         except Exception as e:
-            print(f"Email processing error: {e}")
+            print(f"    [Simplify extraction error]: {e}")
+            return "Unknown"
 
-        # Step 4: Ensure mutual exclusion
-        print("\nRunning mutual exclusion check")
-        self._ensure_mutual_exclusion()
-
-        # Step 5: Write to sheets
-        print(
-            f"\nFinal: {len([j for j in self.valid_jobs if j['source'] == 'GitHub'])} GitHub, "
-            f"{len([j for j in self.valid_jobs if j['source'] != 'GitHub'])} Email\n"
-        )
-
-        rows = self.sheets.get_next_row_numbers()
-        added_valid = self.sheets.add_valid_jobs(
-            self.valid_jobs, rows["valid"], rows["valid_sr_no"]
-        )
-        added_discarded = self.sheets.add_discarded_jobs(
-            self.discarded_jobs, rows["discarded"], rows["discarded_sr_no"]
-        )
-
-        # Print summary
-        elapsed = time.time() - start_time
-        self._print_summary(elapsed)
-        print(f"\nDONE: {added_valid} valid, {added_discarded} discarded")
-        print("=" * 80 + "\n")
-
-    def _scrape_simplify_github(self):
-        """Scrape SimplifyJobs GitHub README."""
-        print("Scraping SimplifyJobs GitHub")
-
-        github_jobs = SimplifyGitHubScraper.scrape()
-
-        for job in github_jobs:
-            company = job["company"]
-            title_raw = job["title"]
-            location = job["location"]
-            url = job["url"]
-            age = job["age"]
-            is_closed = job["is_closed"]
-
-            # Age filter
-            if self._parse_age(age) > 1:
-                continue
-
-            # Clean title
-            title = TitleProcessor.clean_title_aggressive(title_raw)
-
-            # Check duplicates
-            if self._is_duplicate(company, title, url):
-                self.outcomes["skipped_duplicate_url"] += 1
-                continue
-
-            # Validate title
-            is_valid, reason = TitleProcessor.is_valid_job_title(title)
-            if not is_valid:
-                self.outcomes["skipped_non_job"] += 1
-                continue
-
-            # Check if closed
-            if is_closed:
-                self._add_to_discarded(
-                    company,
-                    title,
-                    location,
-                    "Unknown",
-                    url,
-                    "N/A",
-                    "Position closed",
-                    "GitHub",
-                    "Unknown",
-                )
-                continue
-
-            # Check if CS role
-            if not TitleProcessor.is_cs_engineering_role(title):
-                self._add_to_discarded(
-                    company,
-                    title,
-                    location,
-                    "Unknown",
-                    url,
-                    "N/A",
-                    "Non-CS role",
-                    "GitHub",
-                    "Unknown",
-                )
-                continue
-            
-            # NEW: Check if internship (not senior)
-            is_intern, intern_reason = TitleProcessor.is_internship_role(title)
-            if not is_intern:
-                self.outcomes["skipped_senior_role"] += 1
-                self._add_to_discarded(
-                    company,
-                    title,
-                    location,
-                    "Unknown",
-                    url,
-                    "N/A",
-                    intern_reason,
-                    "GitHub",
-                    "Unknown",
-                )
-                continue
-
-            # Process the job by fetching the actual page
-            self._process_github_job(company, title, location, url)
-
-        print(
-            f"GitHub: {len([j for j in self.valid_jobs if j['source'] == 'GitHub'])} valid\n"
-        )
-
-    def _process_github_job(self, company, title, location, url):
-        """Process a single GitHub job by fetching and analyzing the page."""
+    @staticmethod
+    def _extract_from_json_ld(soup):
+        """Extract location from JSON-LD structured data."""
         try:
-            # Fetch page
-            response, final_url = self.page_fetcher.fetch_page(url)
+            json_ld_tags = soup.find_all("script", type="application/ld+json")
+            for json_ld in json_ld_tags:
+                try:
+                    import json
 
-            if not response:
-                self.outcomes["failed_http"] += 1
-                return
-
-            # Check for duplicates after redirect
-            clean_final = self._clean_url(final_url)
-            if clean_final in self.processing_lock or clean_final in self.existing_urls:
-                self.outcomes["skipped_duplicate_url"] += 1
-                self.existing_urls.add(self._clean_url(url))
-                return
-
-            self.processing_lock.add(clean_final)
-
-            soup = BeautifulSoup(response.text, "html.parser")
-
-            # NEW: Check season requirement
-            page_text_sample = soup.get_text()[:2000]
-            is_valid_season, season_reason = TitleProcessor.check_season_requirement(
-                title, page_text_sample
-            )
-            if not is_valid_season:
-                self.outcomes["skipped_wrong_season"] += 1
-                self._add_to_discarded(
-                    company,
-                    title,
-                    "Unknown",
-                    "Unknown",
-                    final_url,
-                    "N/A",
-                    season_reason,
-                    "GitHub",
-                    "Unknown",
-                )
-                return
-
-            # Check job age
-            job_age = PageParser.extract_job_age_days(soup)
-            if job_age is not None and job_age > MAX_JOB_AGE_DAYS:
-                self._add_to_discarded(
-                    company,
-                    title,
-                    "Unknown",
-                    "Unknown",
-                    final_url,
-                    "N/A",
-                    f"Posted {job_age} days ago (>3 days)",
-                    "GitHub",
-                    "Unknown",
-                )
-                return
-
-            # Check restrictions
-            restriction = ValidationHelper.check_page_restrictions(soup)
-            if restriction:
-                self._add_to_discarded(
-                    company,
-                    title,
-                    "Unknown",
-                    "Unknown",
-                    final_url,
-                    "N/A",
-                    restriction,
-                    "GitHub",
-                    "Unknown",
-                )
-                return
-
-            # Extract comprehensive data
-            job_id = PageParser.extract_job_id(soup, final_url)
-            location_extracted = LocationProcessor.extract_location_enhanced(
-                soup, final_url
-            )
-            remote = LocationProcessor.extract_remote_status_enhanced(
-                soup, location_extracted, final_url
-            )
-            sponsorship = ValidationHelper.check_sponsorship_status(soup)
-
-            print(f"  Extracted location: {location_extracted}")
-
-            # Check if international
-            intl_check = LocationProcessor.check_if_international(
-                location_extracted, soup
-            )
-            if intl_check:
-                country = self._detect_country_simple(location_extracted)
-                self._add_to_discarded(
-                    company,
-                    title,
-                    country,
-                    remote,
-                    final_url,
-                    job_id,
-                    intl_check,
-                    "GitHub",
-                    sponsorship,
-                )
-                return
-
-            # Format location
-            location_clean = LocationProcessor.format_location_clean(location_extracted)
-
-            # If location is still Unknown, it might be problematic
-            if location_clean == "Unknown":
-                print(f"  WARNING: Location extraction failed for {final_url[:80]}")
-
-            # Quality check
-            quality = QualityScorer.calculate_score(
-                {
-                    "company": company,
-                    "title": title,
-                    "location": location_clean,
-                    "job_id": job_id,
-                    "sponsorship": sponsorship,
-                }
-            )
-
-            if not QualityScorer.is_acceptable_quality(quality):
-                self.outcomes["low_quality"] += 1
-                return
-
-            # Add to valid
-            self._add_to_valid(
-                company,
-                title,
-                location_clean,
-                remote,
-                final_url,
-                job_id,
-                sponsorship,
-                "GitHub",
-            )
-
-        except Exception as e:
-            self.outcomes["failed_extraction"] += 1
-            print(f"  Error processing {url[:80]}: {e}")
-
-    def _process_email_jobs(self, email_data_list):
-        """Process jobs extracted from emails."""
-        print("=" * 80)
-        print(f"PROCESSING {len(email_data_list)} EMAIL URLS")
-        print("=" * 80 + "\n")
-
-        for idx, email_data in enumerate(email_data_list, 1):
-            url = email_data["url"]
-            email_html = email_data["email_html"]
-            sender = email_data["sender"]
-
-            print(f"[{idx}/{len(email_data_list)}] {url[:100]}")
-            print(f"  Sender: {sender}")
-
-            # NEW: Validate URL first
-            is_valid_url, url_reason = ValidationHelper.is_valid_job_url(url)
-            if not is_valid_url:
-                print(f"  → SKIP: {url_reason}")
-                self.outcomes["skipped_invalid_url"] += 1
-                continue
-
-            # Resolve Jobright URLs
-            if "jobright.ai/jobs/info/" in url.lower():
-                print(f"  Resolving Jobright URL...")
-                url, is_company_site = self.jobright_auth.resolve_jobright_url(url)
-                if url != email_data["url"]:
-                    self.outcomes["url_resolved"] += 1
-
-            # Check duplicates
-            clean_url = self._clean_url(url)
-            if clean_url in self.processing_lock or clean_url in self.existing_urls:
-                print(f"  → SKIP: URL already exists")
-                self.outcomes["skipped_duplicate_url"] += 1
-                continue
-
-            self.processing_lock.add(clean_url)
-
-            # Process the email job
-            result = self._process_single_email_job(
-                url, email_html, sender, idx, len(email_data_list)
-            )
-
-            if not result:
-                continue
-
-            decision = result["decision"]
-
-            if decision == "skip":
-                reason_type = result.get("reason_type", "non_job")
-                self.outcomes[f"skipped_{reason_type}"] += 1
-                print(f"  → SKIP: {result.get('reason')}")
-
-            elif decision == "discard":
-                self.discarded_jobs.append(
-                    {
-                        "company": result["company"],
-                        "title": result["title"],
-                        "location": result["location"],
-                        "job_type": self._determine_job_type(result["title"]),
-                        "remote": result["remote"],
-                        "url": result["url"],
-                        "job_id": result["job_id"],
-                        "reason": result["reason"],
-                        "source": result["source"],
-                        "sponsorship": result["sponsorship"],
-                        "entry_date": self._format_date(),
-                    }
-                )
-
-                normalized_key = self._normalize(
-                    f"{result['company']}_{result['title']}"
-                )
-                self.existing_jobs.add(normalized_key)
-                self.existing_urls.add(self._clean_url(result["url"]))
-
-                if result["job_id"] != "N/A":
-                    self.existing_job_ids.add(result["job_id"].lower())
-
-                self.outcomes["discarded"] += 1
-                print(f"  ✗ DISCARDED: {result['reason']}")
-
-            elif decision == "valid":
-                self.valid_jobs.append(
-                    {
-                        "company": result["company"],
-                        "job_id": result["job_id"],
-                        "title": result["title"],
-                        "job_type": self._determine_job_type(result["title"]),
-                        "location": result["location"],
-                        "remote": result["remote"],
-                        "entry_date": self._format_date(),
-                        "url": result["url"],
-                        "source": result["source"],
-                        "sponsorship": result["sponsorship"],
-                    }
-                )
-
-                normalized_key = self._normalize(
-                    f"{result['company']}_{result['title']}"
-                )
-                self.existing_jobs.add(normalized_key)
-                self.processed_cache[normalized_key] = {
-                    "company": result["company"],
-                    "title": result["title"],
-                    "job_id": result["job_id"],
-                    "url": result["url"],
-                }
-                self.existing_urls.add(self._clean_url(result["url"]))
-
-                if result["job_id"] != "N/A":
-                    self.existing_job_ids.add(result["job_id"].lower())
-
-                self.outcomes["valid"] += 1
-                print(f"  ✓ VALID: Added to valid_jobs")
-
-        print("\n" + "=" * 80)
-        print("EMAIL PROCESSING COMPLETE")
-        print("=" * 80 + "\n")
-
-    def _process_single_email_job(self, url, email_html, sender, current_idx, total):
-        """Process a single job from email."""
-        try:
-            time.sleep(random.uniform(1.5, 2.5))
-
-            # Try to parse from email first
-            soup_email = BeautifulSoup(email_html, "html.parser")
-            job_data = None
-
-            if "ziprecruiter" in sender.lower():
-                job_data = SourceParsers.parse_ziprecruiter_email(soup_email, url)
-            elif "jobright" in sender.lower():
-                job_data = SourceParsers.parse_jobright_email(
-                    soup_email, url, self.jobright_auth
-                )
-            elif "adzuna" in sender.lower():
-                job_data = SourceParsers.parse_adzuna_email(soup_email, url)
-
-            # If successfully parsed from email
-            if job_data:
-                self.outcomes["method_email_parsed"] += 1
-                return self._validate_parsed_job(job_data, sender)
-
-            # Fallback: Fetch the actual page
-            response, final_url = self.page_fetcher.fetch_page(url)
-
-            if not response:
-                self.outcomes["failed_http"] += 1
-                print(f"  → FAIL: Could not fetch page")
-                return None
-
-            # Check final URL for duplicates
-            clean_final = self._clean_url(final_url)
-            clean_original = self._clean_url(url)
-
-            if clean_final in self.processing_lock and clean_final != clean_original:
-                self.outcomes["skipped_duplicate_url"] += 1
-                print(f"  → SKIP: Final URL in processing lock")
-                return None
-
-            if clean_final in self.existing_urls:
-                self.outcomes["skipped_duplicate_url"] += 1
-                print(f"  → SKIP: Final URL duplicate")
-                self.existing_urls.add(clean_original)
-                return None
-
-            self.processing_lock.add(clean_final)
-            print(f"  Final URL: {final_url[:100]}")
-
-            soup = BeautifulSoup(response.text, "html.parser")
-
-            # NEW: Check season requirement
-            page_text_sample = soup.get_text()[:2000]
-            is_valid_season, season_reason = TitleProcessor.check_season_requirement(
-                title_raw, page_text_sample
-            )
-            if not is_valid_season:
-                print(f"  → DISCARD: {season_reason}")
-                self.outcomes["skipped_wrong_season"] += 1
-                company_extracted = PageParser.extract_company(soup, final_url)
-                title_extracted = PageParser.extract_title(soup)
-                return {
-                    "decision": "discard",
-                    "company": company_extracted if company_extracted else "Unknown",
-                    "title": title_extracted if title_extracted else "Unknown",
-                    "location": "Unknown",
-                    "remote": "Unknown",
-                    "url": final_url,
-                    "job_id": "N/A",
-                    "reason": season_reason,
-                    "source": sender,
-                    "sponsorship": "Unknown",
-                }
-
-            # Check job age
-            job_age_days = PageParser.extract_job_age_days(soup)
-            if job_age_days is not None and job_age_days > MAX_JOB_AGE_DAYS:
-                print(f"  → DISCARD: Job too old ({job_age_days} days)")
-                company = PageParser.extract_company(soup, final_url)
-                title_ext = PageParser.extract_title(soup)
-                return {
-                    "decision": "discard",
-                    "company": company if company else "Unknown",
-                    "title": title_ext if title_ext else "Unknown",
-                    "location": "Unknown",
-                    "remote": "Unknown",
-                    "url": final_url,
-                    "job_id": "N/A",
-                    "reason": f"Posted {job_age_days} days ago (>3 days)",
-                    "source": sender,
-                    "sponsorship": "Unknown",
-                }
-
-            # Process scraped page
-            return self._process_scraped_page(soup, final_url, url, sender)
-
-        except Exception as e:
-            self.outcomes["failed_extraction"] += 1
-            print(f"  → EXCEPTION: {str(e)[:100]}")
+                    data = json.loads(json_ld.string)
+                    if isinstance(data, dict):
+                        job_loc = data.get("jobLocation", {})
+                        if isinstance(job_loc, dict):
+                            addr = job_loc.get("address", {})
+                            if isinstance(addr, dict):
+                                city = addr.get("addressLocality", "")
+                                state = addr.get("addressRegion", "")
+                                if (
+                                    city
+                                    and state
+                                    and state.upper() in US_STATES.values()
+                                ):
+                                    return f"{city}, {state.upper()}"
+                except:
+                    continue
+            return None
+        except:
             return None
 
-    def _validate_parsed_job(self, job_data, sender):
-        """Validate job data parsed from email."""
-        company = job_data["company"]
-        title_raw = job_data["title"]
-        location_raw = job_data.get("location", "Unknown")
-        url = job_data["url"]
-        remote = job_data.get("remote", "Unknown")
+    @staticmethod
+    def _extract_from_labels(soup):
+        """Extract from labeled fields."""
+        try:
+            labels = [
+                "location:",
+                "office location:",
+                "work location:",
+                "job location:",
+            ]
 
-        print(f"  Processing email-parsed data")
-        print(f"  Company: {company}")
-        print(f"  Title: {title_raw[:80]}")
-        print(f"  Location (raw): {location_raw}")
+            for label in labels:
+                # Check dt/dd pairs
+                dt = soup.find("dt", string=re.compile(label, re.I))
+                if dt:
+                    dd = dt.find_next_sibling("dd")
+                    if dd:
+                        location = dd.get_text().strip()
+                        if len(location) < 100 and "," in location:
+                            return location
 
-        # Clean title
-        title = TitleProcessor.clean_title_aggressive(title_raw)
+                # Check spans/divs
+                for tag in soup.find_all(
+                    ["span", "div", "p"], string=re.compile(label, re.I)
+                ):
+                    parent = tag.parent
+                    if parent:
+                        siblings = parent.find_next_siblings()
+                        if siblings:
+                            location = siblings[0].get_text().strip()
+                            if len(location) < 100:
+                                return location
 
-        # NEW: Check if internship (not senior)
-        is_intern, intern_reason = TitleProcessor.is_internship_role(title)
-        if not is_intern:
-            print(f"  → DISCARD: {intern_reason}")
-            self.outcomes["skipped_senior_role"] += 1
-            return {
-                "decision": "discard",
-                "company": company,
-                "title": title,
-                "location": "Unknown",
-                "remote": "Unknown",
-                "url": url,
-                "job_id": "N/A",
-                "reason": intern_reason,
-                "source": sender,
-                "sponsorship": "Unknown (Email)",
-            }
-
-        # Validate title
-        is_valid_title, title_reason = TitleProcessor.is_valid_job_title(title)
-        if not is_valid_title:
-            print(f"  → SKIP: {title_reason}")
-            return {
-                "decision": "skip",
-                "reason": title_reason,
-                "reason_type": "marketing" if "Marketing" in title_reason else "non_job",
-            }
-
-        # Check if CS role
-        if not TitleProcessor.is_cs_engineering_role(title):
-            print(f"  → DISCARD: Non-CS role")
-            return {
-                "decision": "discard",
-                "company": company,
-                "title": title,
-                "location": "Unknown",
-                "remote": "Unknown",
-                "url": url,
-                "job_id": "N/A",
-                "reason": "Non-CS role",
-                "source": sender,
-                "sponsorship": "Unknown (Email)",
-            }
-
-        # Validate company
-        is_valid_co, fixed_co, co_reason = ValidationHelper.validate_company_field(
-            company, title, url
-        )
-
-        if not is_valid_co:
-            print(f"  → DISCARD: {co_reason}")
-            return {
-                "decision": "discard",
-                "company": company,
-                "title": title,
-                "location": "Unknown",
-                "remote": "Unknown",
-                "url": url,
-                "job_id": "N/A",
-                "reason": co_reason,
-                "source": sender,
-                "sponsorship": "Unknown (Email)",
-            }
-
-        company = fixed_co
-
-        # Check duplicates (company+title)
-        normalized_key = self._normalize(f"{company}_{title}")
-
-        if normalized_key in self.existing_jobs:
-            print(f"  Company+Title already exists - checking if different job")
-
-            existing_job = self.processed_cache.get(normalized_key)
-
-            new_job_data = {
-                "company": company,
-                "title": title,
-                "job_id": "N/A",
-                "url": url,
-            }
-
-            if existing_job and self._should_keep_both_jobs(new_job_data, existing_job):
-                self.outcomes["kept_both_variants"] += 1
-            else:
-                self.outcomes["skipped_duplicate_company_title"] += 1
-                return None
-
-        # NEW: Check if location indicates international (before formatting)
-        if location_raw and location_raw != "Unknown":
-            intl_check = LocationProcessor.check_if_international(location_raw, None)
-            if intl_check:
-                print(f"  → DISCARD: {intl_check} (from email)")
-                return {
-                    "decision": "discard",
-                    "company": company,
-                    "title": title,
-                    "location": location_raw,
-                    "remote": remote,
-                    "url": url,
-                    "job_id": "N/A",
-                    "reason": intl_check,
-                    "source": sender,
-                    "sponsorship": "Unknown (Email)",
-                }
-
-        # Format location
-        location_formatted = LocationProcessor.format_location_clean(location_raw)
-
-        # Quality check
-        quality_score = QualityScorer.calculate_score(
-            {
-                "company": company,
-                "title": title,
-                "location": location_formatted,
-                "job_id": "N/A",
-                "sponsorship": "Unknown (Email)",
-            }
-        )
-
-        print(f"  Quality score: {quality_score}/7")
-
-        if not QualityScorer.is_acceptable_quality(quality_score):
-            print(f"  → DISCARD: Low quality")
-            return {
-                "decision": "discard",
-                "company": company,
-                "title": title,
-                "location": location_formatted,
-                "remote": remote,
-                "url": url,
-                "job_id": "N/A",
-                "reason": f"Low quality: {quality_score}/7",
-                "source": sender,
-                "sponsorship": "Unknown (Email)",
-            }
-
-        print(f"  ✓ VALID (from email)")
-
-        self.processed_cache[normalized_key] = {
-            "company": company,
-            "title": title,
-            "job_id": "N/A",
-            "url": url,
-        }
-
-        return {
-            "decision": "valid",
-            "company": company,
-            "title": title,
-            "location": location_formatted,
-            "remote": remote,
-            "url": url,
-            "job_id": "N/A",
-            "source": sender,
-            "sponsorship": "Unknown (Email)",
-        }
-
-    def _process_scraped_page(self, soup, final_url, original_url, sender):
-        """Process job by analyzing scraped page."""
-        print(f"  Extracting from scraped page")
-
-        # Handle Jobright pages specially
-        if "jobright.ai/jobs/info/" in final_url.lower():
-            print(f"  Platform: JOBRIGHT")
-
-            jobright_data = PageParser.extract_jobright_data(
-                soup, final_url, self.jobright_auth
-            )
-
-            if jobright_data:
-                company = jobright_data["company"]
-                title_raw = jobright_data["title"]
-                location = jobright_data["location"]
-                sponsorship = jobright_data["sponsorship"]
-                remote = jobright_data["remote"]
-                actual_url = jobright_data["url"]
-
-                print(f"  Jobright: {company} - {title_raw[:60]}")
-                print(f"  Actual URL: {actual_url[:100]}")
-
-                title = TitleProcessor.clean_title_aggressive(title_raw)
-                
-                # NEW: Check if internship
-                is_intern, intern_reason = TitleProcessor.is_internship_role(title)
-                if not is_intern:
-                    print(f"  → DISCARD: {intern_reason}")
-                    self.outcomes["skipped_senior_role"] += 1
-                    return {
-                        "decision": "discard",
-                        "company": company,
-                        "title": title,
-                        "location": location,
-                        "remote": remote,
-                        "url": actual_url,
-                        "job_id": "N/A",
-                        "reason": intern_reason,
-                        "source": sender,
-                        "sponsorship": sponsorship,
-                    }
-
-                return self._validate_and_decide(
-                    company,
-                    title,
-                    location,
-                    remote,
-                    sponsorship,
-                    actual_url,
-                    "N/A",
-                    sender,
-                    soup,
-                )
-            else:
-                print(f"  Jobright extraction failed")
-                return None
-
-        # Extract basic data
-        company = PageParser.extract_company(soup, final_url)
-        title_raw = PageParser.extract_title(soup)
-
-        if not company or not title_raw:
-            self.outcomes["failed_extraction"] += 1
-            print(f"  → FAIL: No company or title")
+            return None
+        except:
             return None
 
-        title = TitleProcessor.clean_title_aggressive(title_raw)
-
-        print(f"  Company: {company}")
-        print(f"  Title: {title[:80]}")
-
-        # NEW: Check if internship (not senior)
-        is_intern, intern_reason = TitleProcessor.is_internship_role(title)
-        if not is_intern:
-            print(f"  → DISCARD: {intern_reason}")
-            self.outcomes["skipped_senior_role"] += 1
-            return {
-                "decision": "discard",
-                "company": company,
-                "title": title,
-                "location": "Unknown",
-                "remote": "Unknown",
-                "url": final_url,
-                "job_id": "N/A",
-                "reason": intern_reason,
-                "source": sender,
-                "sponsorship": "Unknown",
-            }
-
-        # Validate title
-        is_valid_title, title_reason = TitleProcessor.is_valid_job_title(title)
-        if not is_valid_title:
-            print(f"  → SKIP: {title_reason}")
-            return {
-                "decision": "skip",
-                "reason": title_reason,
-                "reason_type": "marketing" if "Marketing" in title_reason else "non_job",
-            }
-
-        # Check if CS role
-        if not TitleProcessor.is_cs_engineering_role(title):
-            print(f"  → DISCARD: Non-CS role")
-            return {
-                "decision": "discard",
-                "company": company,
-                "title": title,
-                "location": "Unknown",
-                "remote": "Unknown",
-                "url": final_url,
-                "job_id": "N/A",
-                "reason": "Non-CS role",
-                "source": sender,
-                "sponsorship": "Unknown",
-            }
-
-        # Validate company
-        is_valid_company, fixed_company, company_reason = (
-            ValidationHelper.validate_company_field(company, title, final_url)
-        )
-
-        if not is_valid_company:
-            print(f"  → DISCARD: {company_reason}")
-            return {
-                "decision": "discard",
-                "company": company,
-                "title": title,
-                "location": "Unknown",
-                "remote": "Unknown",
-                "url": final_url,
-                "job_id": "N/A",
-                "reason": company_reason,
-                "source": sender,
-                "sponsorship": "Unknown",
-            }
-
-        company = fixed_company
-
-        # Check duplicates
-        normalized_key = self._normalize(f"{company}_{title}")
-
-        if normalized_key in self.existing_jobs:
-            print(f"  Company+Title exists - comparing")
-
-            existing_job = self.processed_cache.get(normalized_key)
-            job_id = PageParser.extract_job_id(soup, final_url)
-
-            new_job_data = {
-                "company": company,
-                "title": title,
-                "job_id": job_id,
-                "url": final_url,
-            }
-
-            if existing_job and self._should_keep_both_jobs(new_job_data, existing_job):
-                self.outcomes["kept_both_variants"] += 1
-            else:
-                self.outcomes["skipped_duplicate_company_title"] += 1
-                return None
-
-        # NEW: Check season
-        page_text_sample = soup.get_text()[:2000]
-        is_valid_season, season_reason = TitleProcessor.check_season_requirement(
-            title, page_text_sample
-        )
-        if not is_valid_season:
-            print(f"  → DISCARD: {season_reason}")
-            self.outcomes["skipped_wrong_season"] += 1
-            return {
-                "decision": "discard",
-                "company": company,
-                "title": title,
-                "location": "Unknown",
-                "remote": "Unknown",
-                "url": final_url,
-                "job_id": "N/A",
-                "reason": season_reason,
-                "source": sender,
-                "sponsorship": "Unknown",
-            }
-
-        # Check restrictions
-        print(f"  Checking page restrictions...")
-        restriction = ValidationHelper.check_page_restrictions(soup)
-
-        if restriction:
-            print(f"  → DISCARD: {restriction}")
-            job_id = PageParser.extract_job_id(soup, final_url)
-            location = LocationProcessor.extract_location_enhanced(soup, final_url)
-            sponsorship = ValidationHelper.check_sponsorship_status(soup)
-
-            country_only = self._detect_country_simple(location)
-
-            return {
-                "decision": "discard",
-                "company": company,
-                "title": title,
-                "location": country_only,
-                "remote": "Unknown",
-                "url": final_url,
-                "job_id": job_id,
-                "reason": restriction,
-                "source": sender,
-                "sponsorship": sponsorship,
-            }
-
-        # Extract comprehensive data
-        print(f"  Extracting location...")
-        job_id = PageParser.extract_job_id(soup, final_url)
-        location_extracted = LocationProcessor.extract_location_enhanced(
-            soup, final_url
-        )
-        remote = LocationProcessor.extract_remote_status_enhanced(
-            soup, location_extracted, final_url
-        )
-        sponsorship = ValidationHelper.check_sponsorship_status(soup)
-
-        print(f"  Location: {location_extracted}")
-        print(f"  Job ID: {job_id}")
-
-        # Check if international
-        location_intl_check = LocationProcessor.check_if_international(
-            location_extracted, soup
-        )
-
-        if location_intl_check:
-            print(f"  → DISCARD: {location_intl_check}")
-
-            country_only = self._detect_country_simple(location_extracted)
-
-            return {
-                "decision": "discard",
-                "company": company,
-                "title": title,
-                "location": country_only,
-                "remote": remote,
-                "url": final_url,
-                "job_id": job_id,
-                "reason": location_intl_check,
-                "source": sender,
-                "sponsorship": sponsorship,
-            }
-
-        # Format location
-        location_formatted = LocationProcessor.format_location_clean(location_extracted)
-
-        print(f"  Formatted location: {location_formatted}")
-
-        # Quality check
-        quality_score = QualityScorer.calculate_score(
-            {
-                "company": company,
-                "title": title,
-                "location": location_formatted,
-                "job_id": job_id,
-                "sponsorship": sponsorship,
-            }
-        )
-
-        print(f"  Quality score: {quality_score}/7")
-
-        if not QualityScorer.is_acceptable_quality(quality_score):
-            print(f"  → DISCARD: Low quality")
-            return {
-                "decision": "discard",
-                "company": company,
-                "title": title,
-                "location": location_formatted,
-                "remote": remote,
-                "url": final_url,
-                "job_id": job_id,
-                "reason": f"Low quality: {quality_score}/7",
-                "source": sender,
-                "sponsorship": sponsorship,
-            }
-
-        print(f"  ✓ VALID JOB - All checks passed")
-
-        self.processed_cache[normalized_key] = {
-            "company": company,
-            "title": title,
-            "job_id": job_id,
-            "url": final_url,
-        }
-
-        return {
-            "decision": "valid",
-            "company": company,
-            "title": title,
-            "location": location_formatted,
-            "remote": remote,
-            "url": final_url,
-            "job_id": job_id,
-            "source": sender,
-            "sponsorship": sponsorship,
-        }
-
-    def _validate_and_decide(
-        self,
-        company,
-        title_raw,
-        location,
-        remote,
-        sponsorship,
-        url,
-        job_id,
-        sender,
-        soup,
-    ):
-        """Validate and decide on a job (used for Jobright and special cases)."""
-        title = TitleProcessor.clean_title_aggressive(title_raw)
-
-        # NEW: Check if internship
-        is_intern, intern_reason = TitleProcessor.is_internship_role(title)
-        if not is_intern:
-            print(f"  → DISCARD: {intern_reason}")
-            return {
-                "decision": "discard",
-                "company": company,
-                "title": title,
-                "location": location,
-                "remote": remote,
-                "url": url,
-                "job_id": job_id,
-                "reason": intern_reason,
-                "source": sender,
-                "sponsorship": sponsorship,
-            }
-
-        is_valid, reason = TitleProcessor.is_valid_job_title(title)
-        if not is_valid:
-            return {"decision": "skip", "reason": reason, "reason_type": "non_job"}
-
-        if not TitleProcessor.is_cs_engineering_role(title):
-            return {
-                "decision": "discard",
-                "company": company,
-                "title": title,
-                "location": "Unknown",
-                "remote": "Unknown",
-                "url": url,
-                "job_id": job_id,
-                "reason": "Non-CS",
-                "source": sender,
-                "sponsorship": sponsorship,
-            }
-
-        is_valid_co, fixed_co, co_reason = ValidationHelper.validate_company_field(
-            company, title, url
-        )
-        if not is_valid_co:
-            return {
-                "decision": "discard",
-                "company": company,
-                "title": title,
-                "location": "Unknown",
-                "remote": "Unknown",
-                "url": url,
-                "job_id": job_id,
-                "reason": co_reason,
-                "source": sender,
-                "sponsorship": sponsorship,
-            }
-
-        company = fixed_co
-
-        # Check duplicates
-        norm_key = self._normalize(f"{company}_{title}")
-        if norm_key in self.existing_jobs:
-            existing = self.processed_cache.get(norm_key)
-            if existing and self._should_keep_both_jobs(
-                {"company": company, "title": title, "job_id": job_id, "url": url},
-                existing,
-            ):
-                self.outcomes["kept_both_variants"] += 1
-            else:
-                self.outcomes["skipped_duplicate_company_title"] += 1
-                return None
-
-        # Check restrictions
-        if soup:
-            restriction = ValidationHelper.check_page_restrictions(soup)
-            if restriction:
-                country = self._detect_country_simple(location)
-                return {
-                    "decision": "discard",
-                    "company": company,
-                    "title": title,
-                    "location": country,
-                    "remote": remote,
-                    "url": url,
-                    "job_id": job_id,
-                    "reason": restriction,
-                    "source": sender,
-                    "sponsorship": sponsorship,
-                }
-
-        # Check international
-        intl_check = LocationProcessor.check_if_international(location, soup)
-        if intl_check:
-            country = self._detect_country_simple(location)
-            print(f"  → DISCARD: {intl_check}")
-            return {
-                "decision": "discard",
-                "company": company,
-                "title": title,
-                "location": country,
-                "remote": remote,
-                "url": url,
-                "job_id": job_id,
-                "reason": intl_check,
-                "source": sender,
-                "sponsorship": sponsorship,
-            }
-
-        # Format location
-        location_fmt = LocationProcessor.format_location_clean(location)
-
-        # Quality check
-        quality = QualityScorer.calculate_score(
-            {
-                "company": company,
-                "title": title,
-                "location": location_fmt,
-                "job_id": job_id,
-                "sponsorship": sponsorship,
-            }
-        )
-
-        if not QualityScorer.is_acceptable_quality(quality):
-            return {
-                "decision": "discard",
-                "company": company,
-                "title": title,
-                "location": location_fmt,
-                "remote": remote,
-                "url": url,
-                "job_id": job_id,
-                "reason": f"Low quality: {quality}/7",
-                "source": sender,
-                "sponsorship": sponsorship,
-            }
-
-        self.processed_cache[norm_key] = {
-            "company": company,
-            "title": title,
-            "job_id": job_id,
-            "url": url,
-        }
-
-        return {
-            "decision": "valid",
-            "company": company,
-            "title": title,
-            "location": location_fmt,
-            "remote": remote,
-            "url": url,
-            "job_id": job_id,
-            "source": sender,
-            "sponsorship": sponsorship,
-        }
-
-    def _add_to_valid(
-        self, company, title, location, remote, url, job_id, sponsorship, source
-    ):
-        """Add job to valid list."""
-        self.valid_jobs.append(
-            {
-                "company": company,
-                "title": title,
-                "location": location,
-                "remote": remote,
-                "url": url,
-                "job_id": job_id,
-                "job_type": "Co-op" if "co-op" in title.lower() else "Internship",
-                "entry_date": self._format_date(),
-                "source": source,
-                "sponsorship": sponsorship,
-            }
-        )
-
-        # Update tracking
-        key = self._normalize(f"{company}_{title}")
-        self.existing_jobs.add(key)
-        self.existing_urls.add(self._clean_url(url))
-        self.processed_cache[key] = {
-            "company": company,
-            "title": title,
-            "job_id": job_id,
-            "url": url,
-        }
-
-        if job_id != "N/A":
-            self.existing_job_ids.add(job_id.lower())
-
-        self.outcomes["valid"] += 1
-
-    def _add_to_discarded(
-        self,
-        company,
-        title,
-        location,
-        remote,
-        url,
-        job_id,
-        reason,
-        source,
-        sponsorship,
-    ):
-        """Add job to discarded list."""
-        self.discarded_jobs.append(
-            {
-                "company": company,
-                "title": title,
-                "location": location,
-                "remote": remote,
-                "url": url,
-                "job_id": job_id,
-                "job_type": "Co-op" if "co-op" in title.lower() else "Internship",
-                "entry_date": self._format_date(),
-                "reason": reason,
-                "source": source,
-                "sponsorship": sponsorship,
-            }
-        )
-
-        key = self._normalize(f"{company}_{title}")
-        self.existing_jobs.add(key)
-        self.existing_urls.add(self._clean_url(url))
-
-        if job_id != "N/A":
-            self.existing_job_ids.add(job_id.lower())
-
-        self.outcomes["discarded"] += 1
-
-    def _is_duplicate(self, company, title, url, job_id="N/A"):
-        """Check if job is duplicate."""
-        key = self._normalize(f"{company}_{title}")
-        if key in self.existing_jobs:
-            return True
-        if self._clean_url(url) in self.existing_urls:
-            return True
-        if job_id != "N/A" and job_id.lower() in self.existing_job_ids:
-            return True
-        return False
-
-    def _should_keep_both_jobs(self, new_job, existing_job):
-        """Determine if both job variants should be kept."""
-        new_id = new_job.get("job_id", "N/A")
-        existing_id = existing_job.get("job_id", "N/A")
-
-        # If both have IDs and they're different, keep both
-        if new_id != "N/A" and existing_id != "N/A":
-            return new_id.lower() != existing_id.lower()
-
-        # If companies are different (after normalization), keep both
-        new_company_norm = self._normalize(new_job.get("company", ""))
-        existing_company_norm = self._normalize(existing_job.get("company", ""))
-
-        if new_company_norm != existing_company_norm:
-            return True
-
-        # If titles are different (after normalization), keep both
-        new_title_norm = self._normalize(new_job.get("title", ""))
-        existing_title_norm = self._normalize(existing_job.get("title", ""))
-
-        if new_title_norm != existing_title_norm:
-            return True
-
-        return False
-
-    def _ensure_mutual_exclusion(self):
-        """Remove jobs that appear in both valid and discarded lists."""
-        if not self.valid_jobs or not self.discarded_jobs:
-            print("Mutual exclusion: No overlap possible")
-            return
-
-        valid_keys = {
-            (
-                self._normalize(j["company"]),
-                self._normalize(j["title"]),
-                self._clean_url(j["url"]),
-            )
-            for j in self.valid_jobs
-        }
-
-        discarded_keys = {
-            (
-                self._normalize(j["company"]),
-                self._normalize(j["title"]),
-                self._clean_url(j["url"]),
-            )
-            for j in self.discarded_jobs
-        }
-
-        overlap = valid_keys & discarded_keys
-
-        if overlap:
-            print(f"⚠ MUTUAL EXCLUSION: {len(overlap)} jobs in BOTH lists")
-
-            overlap_simple = {(c, t) for c, t, u in overlap}
-
-            removed = [
-                j
-                for j in self.valid_jobs
-                if (self._normalize(j["company"]), self._normalize(j["title"]))
-                in overlap_simple
+    @staticmethod
+    def _parse_workday_location(location_str):
+        """Parse location from Workday URL format."""
+        try:
+            location_str = re.sub(r"^[0-9]+[A-Z]+\s*[-–]?\s*", "", location_str)
+            location_str = location_str.replace("-", " ").replace("_", " ")
+            parts = [p.strip() for p in location_str.split() if p.strip()]
+
+            if not parts:
+                return "Unknown"
+
+            state = None
+            city_words = []
+
+            for i in range(len(parts) - 1, -1, -1):
+                word_upper = parts[i].upper()
+                if not state and word_upper in US_STATES.values():
+                    state = word_upper
+                    continue
+                if state:
+                    city_words.insert(0, parts[i])
+                    potential_city = " ".join(city_words).lower()
+                    if potential_city in CITY_TO_STATE:
+                        if CITY_TO_STATE[potential_city] == state:
+                            return f"{' '.join(city_words).title()} - {state}"
+
+            if state and city_words:
+                facility = ["hospital", "building", "pkwy", "patient"]
+                cleaned = [w for w in city_words if w.lower() not in facility]
+                if cleaned:
+                    return f"{' '.join(cleaned).title()} - {state}"
+
+            return "Unknown"
+        except:
+            return "Unknown"
+
+    @staticmethod
+    def _scan_page(soup):
+        """Scan page text for location patterns."""
+        try:
+            page_text = soup.get_text()[:6000]
+
+            # City, State pattern
+            pattern = r"\b([A-Z][a-z]+(?:\s+[A-Z][a-z]+)?),\s*([A-Z]{2})\b"
+            matches = re.findall(pattern, page_text)
+
+            for city, state in matches:
+                if state.upper() in US_STATES.values():
+                    full_match = f"{city}, {state}"
+                    context = page_text[
+                        max(0, page_text.find(full_match) - 50) : page_text.find(
+                            full_match
+                        )
+                        + 100
+                    ]
+
+                    if not any(
+                        skip in context.lower() for skip in ["copyright", "reserved"]
+                    ):
+                        return f"{city}, {state.upper()}"
+
+            # Known cities
+            for city, state in list(CITY_TO_STATE.items())[:100]:
+                if re.search(r"\b" + city + r"\b", page_text, re.I):
+                    return f"{city.title()}, {state}"
+
+            return None
+        except:
+            return None
+
+    @staticmethod
+    def _extract_from_meta(soup):
+        """Extract location from meta tags."""
+        try:
+            meta_tags = [
+                ("property", "og:locality"),
+                ("property", "og:region"),
+                ("name", "location"),
+                ("name", "geo.placename"),
             ]
 
-            for job in removed:
-                print(f"  Removed: {job['company']} - {job['title'][:60]}")
+            for attr, value in meta_tags:
+                meta = soup.find("meta", {attr: value})
+                if meta and meta.get("content"):
+                    return meta.get("content").strip()
 
-            self.valid_jobs = [
-                j
-                for j in self.valid_jobs
-                if (self._normalize(j["company"]), self._normalize(j["title"]))
-                not in overlap_simple
-            ]
+            return None
+        except:
+            return None
 
-            self.outcomes["valid"] = len(self.valid_jobs)
-            print(f"  After exclusion: {len(self.valid_jobs)} valid remain")
-        else:
-            print("Mutual exclusion: No overlap - clean!")
-
-    def _detect_country_simple(self, location):
-        """Simple country detection for display purposes."""
+    @staticmethod
+    def format_location_clean(location):
+        """Clean and format location to City - State format."""
         if not location or location == "Unknown":
             return "Unknown"
 
+        location = location.strip()
+
+        # Multiple locations
+        if "|" in location or location.count(",") > 2:
+            us_count = sum(1 for state in US_STATES.values() if state in location)
+            if us_count >= 2:
+                return "Multiple US Locations"
+            return location
+
+        # Remove USA suffix
+        location = re.sub(r",?\s*(USA?|United States)$", "", location, flags=re.I)
+
+        # Extract City, State
+        match = re.search(r"([^,]+),\s*([A-Z]{2})(?:,|\s|$)", location)
+        if match:
+            city, state = match.group(1).strip(), match.group(2).upper()
+            if state in US_STATES.values():
+                return f"{city} - {state}"
+            elif state in CANADA_PROVINCES:
+                return f"{city}, {state}"
+
+        # Just state code
+        if location.upper() in US_STATES.values():
+            return location.upper()
+
+        return re.sub(r"\s+", " ", location).strip()
+
+    @staticmethod
+    def is_valid_us_location(location):
+        """Check if location is valid US location (not Canada or other countries)."""
+        if not location or location == "Unknown":
+            return False
+
         location_lower = location.lower()
 
-        from config import CANADA_PROVINCES
+        # Explicitly reject if contains "Canada"
+        if "canada" in location_lower:
+            return False
 
-        if "canada" in location_lower or any(
-            f", {p}" in location for p in CANADA_PROVINCES
-        ):
-            return "Canada"
-        if "uk" in location_lower or "united kingdom" in location_lower:
-            return "UK"
-        if "india" in location_lower:
-            return "India"
-        if "china" in location_lower:
-            return "China"
-        if "australia" in location_lower:
-            return "Australia"
-        if "singapore" in location_lower:
-            return "Singapore"
+        # Reject if has Canadian province (with context check)
+        for prov in CANADA_PROVINCES:
+            if prov in location:
+                # Check if it's after a comma or at end (real province code)
+                if re.search(r",\s*" + prov + r"\b", location) or location.endswith(
+                    prov
+                ):
+                    return False
 
-        return location
+        # Reject if has Canadian city
+        has_canadian_city = any(city in location_lower for city in CANADA_CITIES.keys())
+        if has_canadian_city:
+            # Double-check it's not also a US location
+            has_us_state = any(state in location for state in US_STATES.values())
+            if not has_us_state:
+                return False
 
-    def _print_summary(self, elapsed):
-        """Print processing summary."""
-        print("\n" + "=" * 80)
-        print("PROCESSING SUMMARY:")
-        print("=" * 80)
-        print(f"  ✓ Valid jobs: {self.outcomes['valid']}")
-        print(f"  ✗ Discarded: {self.outcomes['discarded']}")
-        print(f"  ⊘ Skipped (duplicate URL): {self.outcomes['skipped_duplicate_url']}")
-        print(
-            f"  ⊘ Skipped (duplicate company+title): {self.outcomes['skipped_duplicate_company_title']}"
+        has_us_state = any(state in location for state in US_STATES.values())
+        has_us_city = any(
+            city in location_lower for city in list(CITY_TO_STATE.keys())[:50]
         )
-        print(f"  ⊘ Skipped (non-job): {self.outcomes['skipped_non_job']}")
-        print(f"  ⊘ Skipped (wrong season): {self.outcomes['skipped_wrong_season']}")
-        print(f"  ⊘ Skipped (senior role): {self.outcomes['skipped_senior_role']}")
-        print(f"  ⊘ Skipped (invalid URL): {self.outcomes['skipped_invalid_url']}")
-        print(f"  ⊘ Skipped (too old): {self.outcomes['skipped_too_old']}")
-        print(f"  ⚠ Failed (HTTP): {self.outcomes['failed_http']}")
-        print(f"  ⚠ Failed (extraction): {self.outcomes['failed_extraction']}")
-        print(f"  ⚠ Low quality: {self.outcomes['low_quality']}")
-        print(f"  ✓ Kept both variants: {self.outcomes['kept_both_variants']}")
-        print(f"  🔄 URLs resolved: {self.outcomes['url_resolved']}")
-        print("")
-        print("EXTRACTION METHODS USED:")
-        print(f"  Standard requests: {self.page_fetcher.outcomes['method_standard']}")
-        print(
-            f"  Rotating UA: {self.page_fetcher.outcomes['method_rotating_agent']}"
-        )
-        print(f"  Selenium: {self.page_fetcher.outcomes['method_selenium']}")
-        print(f"  Email parsing: {self.outcomes['method_email_parsed']}")
-        print("=" * 80)
-        print(f"\nExecution time: {elapsed/60:.1f} minutes")
+
+        return has_us_state or has_us_city
 
     @staticmethod
-    def _normalize(text):
-        """Normalize text for deduplication."""
-        if not text:
-            return ""
-        return re.sub(r"[^a-z0-9]", "", text.lower())
+    def check_if_international(location, soup):
+        """Check if location is international (non-US). Returns reason string or None."""
+        if not location or location == "Unknown":
+            if soup:
+                country = LocationProcessor._detect_country_from_page(soup)
+                if country and country not in ["USA", "United States", "US"]:
+                    return f"Location: {country}"
+            return None
+
+        location_lower = location.lower()
+
+        # PRIORITY CHECK 1: Explicit "Canada" in location string
+        if "canada" in location_lower:
+            return "Location: Canada"
+
+        # PRIORITY CHECK 2: Canadian cities (very specific)
+        canadian_cities_definite = [
+            "toronto",
+            "montreal",
+            "vancouver",
+            "ottawa",
+            "calgary",
+            "edmonton",
+            "winnipeg",
+            "quebec",
+            "markham",
+            "mississauga",
+            "hamilton",
+            "kitchener",
+            "waterloo",
+            "halifax",
+            "victoria",
+            "oakville",
+            "burlington",
+            "brampton",
+            "windsor",
+            "london",
+        ]
+
+        for city in canadian_cities_definite:
+            if city in location_lower:
+                # Make absolutely sure it's not a US location
+                if not any(us_state in location for us_state in US_STATES.values()):
+                    return "Location: Canada"
+
+        # PRIORITY CHECK 3: Canadian provinces (strict matching)
+        for prov in CANADA_PROVINCES:
+            # Must be after comma or at end: ", ON" or "ON$"
+            if re.search(r",\s*" + prov + r"\b", location) or re.search(
+                r"\b" + prov + r"$", location
+            ):
+                return "Location: Canada"
+
+        # Other international locations
+        if re.search(r"\b(uk|united kingdom)\b", location_lower):
+            return "Location: UK"
+
+        countries = {
+            "australia": "Australia",
+            "india": "India",
+            "singapore": "Singapore",
+            "china": "China",
+            "japan": "Japan",
+            "germany": "Germany",
+        }
+        for key, name in countries.items():
+            if re.search(r"\b" + key + r"\b", location_lower):
+                return f"Location: {name}"
+
+        return None
 
     @staticmethod
-    def _clean_url(url):
-        """Clean URL for comparison."""
-        if not url:
-            return ""
+    def _detect_country_from_page(soup):
+        """Detect country from page content with strict patterns."""
+        try:
+            page_text = soup.get_text()[:5000]
 
-        # Handle Jobright URLs specially
-        if "jobright.ai/jobs/info/" in url.lower():
-            match = re.search(r"(jobright\.ai/jobs/info/[a-f0-9]+)", url, re.I)
+            # Very specific Canada patterns
+            canada_patterns = [
+                r"\b(?:Toronto|Montreal|Vancouver|Ottawa|Calgary),\s*(?:ON|QC|BC|AB),?\s*Canada\b",
+                r"\bCanada\s+only\b",
+                r"\bMust\s+reside\s+in\s+Canada\b",
+                r"\bauthorized\s+to\s+work\s+in\s+Canada\b",
+                r"\bCanadian\s+work\s+authorization\b",
+                r"\brelocation\s+to\s+(?:a\s+)?Toronto\b",
+            ]
+
+            for pattern in canada_patterns:
+                if re.search(pattern, page_text, re.I):
+                    return "Canada"
+
+            # Don't flag if multiple US cities mentioned
+            us_mentions = sum(
+                1
+                for city in list(CITY_TO_STATE.keys())[:20]
+                if city in page_text.lower()
+            )
+            if us_mentions >= 2:
+                return None
+
+            return None
+        except:
+            return None
+
+    @staticmethod
+    def extract_remote_status_enhanced(soup, location, url):
+        """Extract remote status from multiple sources."""
+        if "remote" in url.lower():
+            return "Remote"
+
+        if location:
+            location_lower = location.lower()
+            if "remote" in location_lower:
+                return "Remote"
+            if "hybrid" in location_lower:
+                return "Hybrid"
+
+        try:
+            page_text = soup.get_text()[:3000].lower()
+
+            if re.search(
+                r"\b(100%\s*remote|fully\s*remote|remote\s*work)\b", page_text
+            ):
+                return "Remote"
+            if re.search(r"\bhybrid\b", page_text):
+                return "Hybrid"
+            if re.search(r"\b(on[-\s]?site|in[-\s]?person)\b", page_text):
+                return "On Site"
+
+            if location and location != "Unknown":
+                return "On Site"
+
+            return "Unknown"
+        except:
+            return "Unknown"
+
+
+class ValidationHelper:
+    """Validates company names, URLs, and checks page restrictions."""
+
+    @staticmethod
+    def validate_company_field(company, title, url):
+        """Validate and fix company field."""
+        if not company or company == "Unknown":
+            fixed = ValidationHelper.extract_company_from_domain(url)
+            return True, fixed if fixed != "Unknown" else company, None
+
+        company_lower = company.lower().strip()
+        title_lower = title.lower().strip()
+
+        # Company == Title is bad data
+        if company_lower == title_lower:
+            fixed = ValidationHelper.extract_company_from_domain(url)
+            if fixed != "Unknown" and fixed.lower() != title_lower:
+                return True, fixed, None
+            return False, company, "Bad data: Company=Title"
+
+        # Year in company name
+        if re.search(r"20\d{2}", company):
+            return False, company, "Bad data: Year in company"
+
+        # "Intern" in company name
+        if re.search(r"\bintern(ship)?\b", company, re.I):
+            return False, company, "Bad data: Intern in company"
+
+        return True, company, None
+
+    @staticmethod
+    def extract_company_from_domain(url):
+        """Extract company name from domain."""
+        try:
+            if "workday" in url.lower():
+                match = re.search(r"https?://([^.]+)\.(?:wd\d+\.)?myworkdayjobs", url)
+                if match:
+                    slug = match.group(1).lower().replace(" ", "")
+                    if slug in SPECIAL_COMPANY_NAMES:
+                        return SPECIAL_COMPANY_NAMES[slug]
+                    return match.group(1).replace("-", " ").title()
+
+            match = re.search(r"https?://(?:www\.)?([^./]+)", url)
             if match:
-                return match.group(1).lower()
+                slug = (
+                    match.group(1)
+                    .lower()
+                    .replace("-", " ")
+                    .replace("_", " ")
+                    .replace(" ", "")
+                )
+                if slug in SPECIAL_COMPANY_NAMES:
+                    return SPECIAL_COMPANY_NAMES[slug]
+                return match.group(1).replace("-", " ").replace("_", " ").title()
 
-        url = re.sub(r"\?.*$", "", url)
-        url = re.sub(r"#.*$", "", url)
-        return url.lower().rstrip("/")
-
-    @staticmethod
-    def _remove_emojis(text):
-        """Remove emojis from text."""
-        if not text:
-            return text
-        emoji_pattern = re.compile(
-            "["
-            "\U0001f600-\U0001f64f"
-            "\U0001f300-\U0001f5ff"
-            "\U0001f680-\U0001f6ff"
-            "\U0001f1e0-\U0001f1ff"
-            "\U00002500-\U00002bef"
-            "]+",
-            flags=re.UNICODE,
-        )
-        text = emoji_pattern.sub("", text)
-        text = re.sub(r"[↳🇺🇸🛂\*🔒❌✅]+", "", text)
-        return re.sub(r"\s+", " ", text).strip()
+            return "Unknown"
+        except:
+            return "Unknown"
 
     @staticmethod
-    def _parse_age(age_str):
-        """Parse age string like '1d' to days."""
-        match = re.search(r"(\d+)d", age_str.lower()) if age_str else None
-        return int(match.group(1)) if match else 999
+    def check_page_restrictions(soup):
+        """Check for citizenship, clearance, or degree requirements that disqualify."""
+        try:
+            page_text = soup.get_text().lower()
+
+            # Security clearance
+            if "security clearance" in page_text:
+                return "Security clearance required"
+
+            # US citizenship
+            if "us citizen only" in page_text or "must be a us citizen" in page_text:
+                return "US citizenship required"
+
+            # Bachelor's degree requirement (COMPREHENSIVE CHECK)
+            bachelor_only_patterns = [
+                r"undergraduate\s+students?\s+only",
+                r"bachelor'?s?\s+degree\s+in\s+progress",
+                r"currently\s+pursuing\s+a\s+bachelor'?s?(?!\s+(or|and)\s+master)",  # "bachelor's" but NOT "bachelor's or master's"
+                r"enrolled\s+in\s+(?:a|an)\s+undergraduate\s+degree",
+                r"must\s+be\s+enrolled\s+in\s+(?:a|an)\s+undergraduate",
+            ]
+
+            for pattern in bachelor_only_patterns:
+                match = re.search(pattern, page_text, re.I)
+                if match:
+                    # Check 200 chars before and after for "master" or "graduate"
+                    context_start = max(0, match.start() - 200)
+                    context_end = min(len(page_text), match.end() + 200)
+                    context = page_text[context_start:context_end]
+
+                    # If master's/graduate mentioned nearby, it's okay
+                    if not re.search(
+                        r"(master'?s?|graduate|grad\s+student)", context, re.I
+                    ):
+                        return "Bachelor's degree requirement (undergrad only)"
+
+            return None
+        except:
+            return None
 
     @staticmethod
-    def _format_date():
-        """Format current date/time."""
-        return datetime.datetime.now().strftime("%d %B, %I:%M %p")
+    def check_sponsorship_status(soup):
+        """Check H1B sponsorship status from page."""
+        try:
+            page_text = soup.get_text().lower()
+
+            positive = [
+                "visa sponsorship available",
+                "h1b sponsorship",
+                "will sponsor",
+                "opt eligible",
+            ]
+            for indicator in positive:
+                if indicator in page_text:
+                    return "Yes"
+
+            negative = ["no visa sponsorship", "does not sponsor", "cannot sponsor"]
+            for indicator in negative:
+                if indicator in page_text:
+                    return "No"
+
+            return "Unknown"
+        except:
+            return "Unknown"
 
     @staticmethod
-    def _determine_job_type(title):
-        """Determine if job is Co-op or Internship."""
-        return "Co-op" if "co-op" in title.lower() else "Internship"
+    def is_valid_job_url(url):
+        """Validate that URL is a specific job posting, not a list/recommendation page."""
+        if not url or not url.startswith("http"):
+            return False, "Invalid URL format"
+
+        url_lower = url.lower()
+
+        # Reject Jobright recommendation/list pages
+        if "jobright.ai" in url_lower:
+            if "/jobs/recommend" in url_lower:
+                return False, "Jobright recommendation page (not specific job)"
+            if "/jobs/info/" not in url_lower:
+                return False, "Invalid Jobright URL (not specific job)"
+
+        # Reject Chrome Web Store and other non-job URLs
+        if "chromewebstore.google.com" in url_lower:
+            return False, "Chrome Web Store link (not a job)"
+
+        # Reject other listing/search pages
+        invalid_patterns = [
+            "/jobs/search",
+            "/job-search",
+            "/search?",
+            "/jobs?",
+            "/opportunities",
+            "/job-board",
+            "/careers?",
+            "/job-listing",
+        ]
+
+        for pattern in invalid_patterns:
+            if pattern in url_lower:
+                return False, f"Job listing page: {pattern}"
+
+        return True, None
 
 
-if __name__ == "__main__":
-    aggregator = UnifiedJobAggregator()
-    aggregator.run()
+class QualityScorer:
+    """Scores job quality based on available data."""
+
+    @staticmethod
+    def calculate_score(job_data):
+        """Calculate quality score (0-7)."""
+        score = 0
+
+        if job_data.get("company") and job_data["company"] != "Unknown":
+            score += 2
+
+        if job_data.get("location") and job_data["location"] != "Unknown":
+            score += 2
+
+        if job_data.get("job_id") and job_data["job_id"] != "N/A":
+            score += 1
+
+        if job_data.get("title") and 15 < len(job_data["title"]) < 120:
+            score += 1
+
+        if job_data.get("sponsorship") not in ["Unknown", "Unknown (Email)"]:
+            score += 1
+
+        return score
+
+    @staticmethod
+    def is_acceptable_quality(score):
+        """Check if quality meets minimum threshold."""
+        return score >= MIN_QUALITY_SCORE
