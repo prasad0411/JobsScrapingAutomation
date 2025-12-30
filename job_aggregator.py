@@ -20,6 +20,7 @@ from extractors import (
     SourceParsers,
     JobrightAuthenticator,
     SimplifyGitHubScraper,
+    HandshakeExtractor,
 )
 from processors import (
     TitleProcessor,
@@ -43,6 +44,7 @@ class UnifiedJobAggregator:
         self.email_extractor = EmailExtractor()
         self.page_fetcher = PageFetcher()
         self.jobright_auth = JobrightAuthenticator()
+        self.handshake_extractor = HandshakeExtractor()
 
         # Load existing data
         existing = self.sheets.load_existing_jobs()
@@ -74,6 +76,7 @@ class UnifiedJobAggregator:
             "low_quality": 0,
             "kept_both_variants": 0,
             "method_email_parsed": 0,
+            "method_handshake": 0,
             "url_resolved": 0,
         }
 
@@ -90,6 +93,10 @@ class UnifiedJobAggregator:
 
         # Step 2: Scrape SimplifyJobs GitHub
         self._scrape_simplify_github()
+        try:
+            self._scrape_handshake()
+        except Exception as e:
+            print(f"Handshake error: {e}")
 
         # Step 3: Process email jobs
         try:
@@ -164,16 +171,30 @@ class UnifiedJobAggregator:
             # Check if closed
             if is_closed:
                 self._add_to_discarded(
-                    company, title, location, "Unknown", url, "N/A",
-                    "Position closed", "GitHub", "Unknown"
+                    company,
+                    title,
+                    location,
+                    "Unknown",
+                    url,
+                    "N/A",
+                    "Position closed",
+                    "GitHub",
+                    "Unknown",
                 )
                 continue
 
             # Check if CS role
             if not TitleProcessor.is_cs_engineering_role(title):
                 self._add_to_discarded(
-                    company, title, location, "Unknown", url, "N/A",
-                    "Non-CS role", "GitHub", "Unknown"
+                    company,
+                    title,
+                    location,
+                    "Unknown",
+                    url,
+                    "N/A",
+                    "Non-CS role",
+                    "GitHub",
+                    "Unknown",
                 )
                 continue
 
@@ -219,8 +240,15 @@ class UnifiedJobAggregator:
                 print(f"  ✗ WRONG SEASON: {season_reason}")
                 self.outcomes["skipped_wrong_season"] += 1
                 self._add_to_discarded(
-                    company, title, "Unknown", "Unknown", final_url, "N/A",
-                    season_reason, "GitHub", "Unknown"
+                    company,
+                    title,
+                    "Unknown",
+                    "Unknown",
+                    final_url,
+                    "N/A",
+                    season_reason,
+                    "GitHub",
+                    "Unknown",
                 )
                 return
 
@@ -229,8 +257,15 @@ class UnifiedJobAggregator:
             if job_age is not None and job_age > MAX_JOB_AGE_DAYS:
                 print(f"  ✗ TOO OLD: {job_age} days")
                 self._add_to_discarded(
-                    company, title, "Unknown", "Unknown", final_url, "N/A",
-                    f"Posted {job_age} days ago (>3 days)", "GitHub", "Unknown"
+                    company,
+                    title,
+                    "Unknown",
+                    "Unknown",
+                    final_url,
+                    "N/A",
+                    f"Posted {job_age} days ago (>3 days)",
+                    "GitHub",
+                    "Unknown",
                 )
                 return
 
@@ -239,15 +274,26 @@ class UnifiedJobAggregator:
             if restriction:
                 print(f"  ✗ RESTRICTED: {restriction}")
                 self._add_to_discarded(
-                    company, title, "Unknown", "Unknown", final_url, "N/A",
-                    restriction, "GitHub", "Unknown"
+                    company,
+                    title,
+                    "Unknown",
+                    "Unknown",
+                    final_url,
+                    "N/A",
+                    restriction,
+                    "GitHub",
+                    "Unknown",
                 )
                 return
 
             # Extract comprehensive data
             job_id = PageParser.extract_job_id(soup, final_url)
-            location_extracted = LocationProcessor.extract_location_enhanced(soup, final_url)
-            remote = LocationProcessor.extract_remote_status_enhanced(soup, location_extracted, final_url)
+            location_extracted = LocationProcessor.extract_location_enhanced(
+                soup, final_url
+            )
+            remote = LocationProcessor.extract_remote_status_enhanced(
+                soup, location_extracted, final_url
+            )
             sponsorship = ValidationHelper.check_sponsorship_status(soup)
 
             print(f"  → Location extracted: '{location_extracted}'")
@@ -255,13 +301,22 @@ class UnifiedJobAggregator:
             print(f"  → Job ID: {job_id}")
 
             # CHECK 5: International location
-            intl_check = LocationProcessor.check_if_international(location_extracted, soup)
+            intl_check = LocationProcessor.check_if_international(
+                location_extracted, soup
+            )
             if intl_check:
                 print(f"  ✗ INTERNATIONAL: {intl_check}")
                 country = self._detect_country_simple(location_extracted)
                 self._add_to_discarded(
-                    company, title, country, remote, final_url, job_id,
-                    intl_check, "GitHub", sponsorship
+                    company,
+                    title,
+                    country,
+                    remote,
+                    final_url,
+                    job_id,
+                    intl_check,
+                    "GitHub",
+                    sponsorship,
                 )
                 return
 
@@ -270,10 +325,15 @@ class UnifiedJobAggregator:
             print(f"  → Location formatted: '{location_clean}'")
 
             # CHECK 6: Quality
-            quality = QualityScorer.calculate_score({
-                "company": company, "title": title, "location": location_clean,
-                "job_id": job_id, "sponsorship": sponsorship
-            })
+            quality = QualityScorer.calculate_score(
+                {
+                    "company": company,
+                    "title": title,
+                    "location": location_clean,
+                    "job_id": job_id,
+                    "sponsorship": sponsorship,
+                }
+            )
             print(f"  → Quality score: {quality}/7")
 
             if not QualityScorer.is_acceptable_quality(quality):
@@ -284,13 +344,86 @@ class UnifiedJobAggregator:
             # Add to valid
             print(f"  ✓ VALID - Adding to sheet")
             self._add_to_valid(
-                company, title, location_clean, remote, final_url,
-                job_id, sponsorship, "GitHub"
+                company,
+                title,
+                location_clean,
+                remote,
+                final_url,
+                job_id,
+                sponsorship,
+                "GitHub",
             )
 
         except Exception as e:
             self.outcomes["failed_extraction"] += 1
             print(f"  ✗ EXCEPTION: {str(e)[:150]}")
+
+    def _scrape_handshake(self):
+        jobs = self.handshake_extractor.scrape_jobs()
+        if not jobs:
+            return
+        for job in jobs:
+            company, title_raw, location_raw, url = (
+                job.get("company", "Unknown"),
+                job.get("title", "Unknown"),
+                job.get("location", "Unknown"),
+                job["url"],
+            )
+            job_id, remote, work_auth, spons = (
+                job.get("job_id", "N/A"),
+                job.get("remote", "Unknown"),
+                job.get("work_authorization_required", "Unknown"),
+                job.get("sponsorship", "Unknown"),
+            )
+            if work_auth == "Yes" or self._clean_url(url) in self.existing_urls:
+                continue
+            self.processing_lock.add(self._clean_url(url))
+            from processors import (
+                TitleProcessor,
+                ValidationHelper,
+                LocationProcessor,
+                QualityScorer,
+            )
+
+            title = TitleProcessor.clean_title_aggressive(title_raw)
+            if (
+                not TitleProcessor.is_valid_job_title(title)[0]
+                or not TitleProcessor.is_internship_role(title)[0]
+                or not TitleProcessor.is_cs_engineering_role(title)
+            ):
+                continue
+            is_valid_co, company, _ = ValidationHelper.validate_company_field(
+                company, title, url
+            )
+            if (
+                not is_valid_co
+                or self._normalize(f"{company}_{title}") in self.existing_jobs
+                or LocationProcessor.check_if_international(location_raw, None)
+            ):
+                continue
+            location_clean = LocationProcessor.format_location_clean(location_raw)
+            if QualityScorer.is_acceptable_quality(
+                QualityScorer.calculate_score(
+                    {
+                        "company": company,
+                        "title": title,
+                        "location": location_clean,
+                        "job_id": job_id,
+                        "sponsorship": spons,
+                    }
+                )
+            ):
+                self._add_to_valid(
+                    company,
+                    title,
+                    location_clean,
+                    remote,
+                    url,
+                    job_id,
+                    spons,
+                    "Handshake",
+                )
+                self.outcomes["method_handshake"] += 1
 
     def _process_email_jobs(self, email_data_list):
         """Process jobs extracted from emails."""
@@ -348,21 +481,25 @@ class UnifiedJobAggregator:
 
             elif decision == "discard":
                 print(f"  ✗ DISCARD: {result['reason']}")
-                self.discarded_jobs.append({
-                    "company": result["company"],
-                    "title": result["title"],
-                    "location": result["location"],
-                    "job_type": self._determine_job_type(result["title"]),
-                    "remote": result["remote"],
-                    "url": result["url"],
-                    "job_id": result["job_id"],
-                    "reason": result["reason"],
-                    "source": result["source"],
-                    "sponsorship": result["sponsorship"],
-                    "entry_date": self._format_date(),
-                })
+                self.discarded_jobs.append(
+                    {
+                        "company": result["company"],
+                        "title": result["title"],
+                        "location": result["location"],
+                        "job_type": self._determine_job_type(result["title"]),
+                        "remote": result["remote"],
+                        "url": result["url"],
+                        "job_id": result["job_id"],
+                        "reason": result["reason"],
+                        "source": result["source"],
+                        "sponsorship": result["sponsorship"],
+                        "entry_date": self._format_date(),
+                    }
+                )
 
-                normalized_key = self._normalize(f"{result['company']}_{result['title']}")
+                normalized_key = self._normalize(
+                    f"{result['company']}_{result['title']}"
+                )
                 self.existing_jobs.add(normalized_key)
                 self.existing_urls.add(self._clean_url(result["url"]))
 
@@ -373,20 +510,24 @@ class UnifiedJobAggregator:
 
             elif decision == "valid":
                 print(f"  ✓ VALID - Adding to sheet")
-                self.valid_jobs.append({
-                    "company": result["company"],
-                    "job_id": result["job_id"],
-                    "title": result["title"],
-                    "job_type": self._determine_job_type(result["title"]),
-                    "location": result["location"],
-                    "remote": result["remote"],
-                    "entry_date": self._format_date(),
-                    "url": result["url"],
-                    "source": result["source"],
-                    "sponsorship": result["sponsorship"],
-                })
+                self.valid_jobs.append(
+                    {
+                        "company": result["company"],
+                        "job_id": result["job_id"],
+                        "title": result["title"],
+                        "job_type": self._determine_job_type(result["title"]),
+                        "location": result["location"],
+                        "remote": result["remote"],
+                        "entry_date": self._format_date(),
+                        "url": result["url"],
+                        "source": result["source"],
+                        "sponsorship": result["sponsorship"],
+                    }
+                )
 
-                normalized_key = self._normalize(f"{result['company']}_{result['title']}")
+                normalized_key = self._normalize(
+                    f"{result['company']}_{result['title']}"
+                )
                 self.existing_jobs.add(normalized_key)
                 self.processed_cache[normalized_key] = {
                     "company": result["company"],
@@ -462,8 +603,8 @@ class UnifiedJobAggregator:
             page_text_sample = soup.get_text()[:2000]
             title_from_page = PageParser.extract_title(soup)
             is_valid_season, season_reason = TitleProcessor.check_season_requirement(
-                title_from_page if title_from_page != "Unknown" else "", 
-                page_text_sample
+                title_from_page if title_from_page != "Unknown" else "",
+                page_text_sample,
             )
             if not is_valid_season:
                 print(f"  ✗ WRONG SEASON: {season_reason}")
@@ -548,7 +689,9 @@ class UnifiedJobAggregator:
             return {
                 "decision": "skip",
                 "reason": title_reason,
-                "reason_type": "marketing" if "Marketing" in title_reason else "non_job",
+                "reason_type": (
+                    "marketing" if "Marketing" in title_reason else "non_job"
+                ),
             }
 
         # CHECK 3: CS role
@@ -594,7 +737,12 @@ class UnifiedJobAggregator:
 
         if normalized_key in self.existing_jobs:
             existing_job = self.processed_cache.get(normalized_key)
-            new_job_data = {"company": company, "title": title, "job_id": "N/A", "url": url}
+            new_job_data = {
+                "company": company,
+                "title": title,
+                "job_id": "N/A",
+                "url": url,
+            }
 
             if existing_job and self._should_keep_both_jobs(new_job_data, existing_job):
                 self.outcomes["kept_both_variants"] += 1
@@ -625,13 +773,15 @@ class UnifiedJobAggregator:
         location_formatted = LocationProcessor.format_location_clean(location_raw)
 
         # CHECK 7: Quality
-        quality_score = QualityScorer.calculate_score({
-            "company": company,
-            "title": title,
-            "location": location_formatted,
-            "job_id": "N/A",
-            "sponsorship": "Unknown (Email)",
-        })
+        quality_score = QualityScorer.calculate_score(
+            {
+                "company": company,
+                "title": title,
+                "location": location_formatted,
+                "job_id": "N/A",
+                "sponsorship": "Unknown (Email)",
+            }
+        )
 
         print(f"  → Quality: {quality_score}/7")
 
@@ -715,8 +865,15 @@ class UnifiedJobAggregator:
                     }
 
                 return self._validate_and_decide(
-                    company, title, location, remote, sponsorship,
-                    actual_url, "N/A", sender, soup
+                    company,
+                    title,
+                    location,
+                    remote,
+                    sponsorship,
+                    actual_url,
+                    "N/A",
+                    sender,
+                    soup,
                 )
             else:
                 print(f"  ✗ Jobright extraction failed")
@@ -760,7 +917,9 @@ class UnifiedJobAggregator:
             return {
                 "decision": "skip",
                 "reason": title_reason,
-                "reason_type": "marketing" if "Marketing" in title_reason else "non_job",
+                "reason_type": (
+                    "marketing" if "Marketing" in title_reason else "non_job"
+                ),
             }
 
         # CHECK 3: CS role
@@ -869,7 +1028,9 @@ class UnifiedJobAggregator:
 
         # Extract comprehensive data
         job_id = PageParser.extract_job_id(soup, final_url)
-        location_extracted = LocationProcessor.extract_location_enhanced(soup, final_url)
+        location_extracted = LocationProcessor.extract_location_enhanced(
+            soup, final_url
+        )
         remote = LocationProcessor.extract_remote_status_enhanced(
             soup, location_extracted, final_url
         )
@@ -905,13 +1066,15 @@ class UnifiedJobAggregator:
         print(f"  → Location formatted: '{location_formatted}'")
 
         # CHECK 9: Quality
-        quality_score = QualityScorer.calculate_score({
-            "company": company,
-            "title": title,
-            "location": location_formatted,
-            "job_id": job_id,
-            "sponsorship": sponsorship,
-        })
+        quality_score = QualityScorer.calculate_score(
+            {
+                "company": company,
+                "title": title,
+                "location": location_formatted,
+                "job_id": job_id,
+                "sponsorship": sponsorship,
+            }
+        )
 
         print(f"  → Quality: {quality_score}/7")
 
@@ -952,7 +1115,16 @@ class UnifiedJobAggregator:
         }
 
     def _validate_and_decide(
-        self, company, title_raw, location, remote, sponsorship, url, job_id, sender, soup
+        self,
+        company,
+        title_raw,
+        location,
+        remote,
+        sponsorship,
+        url,
+        job_id,
+        sender,
+        soup,
     ):
         """Final validation for special cases like Jobright."""
         title = TitleProcessor.clean_title_aggressive(title_raw)
@@ -1071,13 +1243,15 @@ class UnifiedJobAggregator:
         location_fmt = LocationProcessor.format_location_clean(location)
 
         # CHECK 8: Quality
-        quality = QualityScorer.calculate_score({
-            "company": company,
-            "title": title,
-            "location": location_fmt,
-            "job_id": job_id,
-            "sponsorship": sponsorship,
-        })
+        quality = QualityScorer.calculate_score(
+            {
+                "company": company,
+                "title": title,
+                "location": location_fmt,
+                "job_id": job_id,
+                "sponsorship": sponsorship,
+            }
+        )
 
         if not QualityScorer.is_acceptable_quality(quality):
             print(f"  ✗ LOW QUALITY: {quality}/7")
@@ -1119,18 +1293,20 @@ class UnifiedJobAggregator:
         self, company, title, location, remote, url, job_id, sponsorship, source
     ):
         """Add job to valid list."""
-        self.valid_jobs.append({
-            "company": company,
-            "title": title,
-            "location": location,
-            "remote": remote,
-            "url": url,
-            "job_id": job_id,
-            "job_type": "Co-op" if "co-op" in title.lower() else "Internship",
-            "entry_date": self._format_date(),
-            "source": source,
-            "sponsorship": sponsorship,
-        })
+        self.valid_jobs.append(
+            {
+                "company": company,
+                "title": title,
+                "location": location,
+                "remote": remote,
+                "url": url,
+                "job_id": job_id,
+                "job_type": "Co-op" if "co-op" in title.lower() else "Internship",
+                "entry_date": self._format_date(),
+                "source": source,
+                "sponsorship": sponsorship,
+            }
+        )
 
         # Update tracking
         key = self._normalize(f"{company}_{title}")
@@ -1152,19 +1328,21 @@ class UnifiedJobAggregator:
         self, company, title, location, remote, url, job_id, reason, source, sponsorship
     ):
         """Add job to discarded list."""
-        self.discarded_jobs.append({
-            "company": company,
-            "title": title,
-            "location": location,
-            "remote": remote,
-            "url": url,
-            "job_id": job_id,
-            "job_type": "Co-op" if "co-op" in title.lower() else "Internship",
-            "entry_date": self._format_date(),
-            "reason": reason,
-            "source": source,
-            "sponsorship": sponsorship,
-        })
+        self.discarded_jobs.append(
+            {
+                "company": company,
+                "title": title,
+                "location": location,
+                "remote": remote,
+                "url": url,
+                "job_id": job_id,
+                "job_type": "Co-op" if "co-op" in title.lower() else "Internship",
+                "entry_date": self._format_date(),
+                "reason": reason,
+                "source": source,
+                "sponsorship": sponsorship,
+            }
+        )
 
         key = self._normalize(f"{company}_{title}")
         self.existing_jobs.add(key)
@@ -1215,12 +1393,20 @@ class UnifiedJobAggregator:
             return
 
         valid_keys = {
-            (self._normalize(j["company"]), self._normalize(j["title"]), self._clean_url(j["url"]))
+            (
+                self._normalize(j["company"]),
+                self._normalize(j["title"]),
+                self._clean_url(j["url"]),
+            )
             for j in self.valid_jobs
         }
 
         discarded_keys = {
-            (self._normalize(j["company"]), self._normalize(j["title"]), self._clean_url(j["url"]))
+            (
+                self._normalize(j["company"]),
+                self._normalize(j["title"]),
+                self._clean_url(j["url"]),
+            )
             for j in self.discarded_jobs
         }
 
@@ -1232,7 +1418,8 @@ class UnifiedJobAggregator:
             overlap_simple = {(c, t) for c, t, u in overlap}
 
             removed = [
-                j for j in self.valid_jobs
+                j
+                for j in self.valid_jobs
                 if (self._normalize(j["company"]), self._normalize(j["title"]))
                 in overlap_simple
             ]
@@ -1241,7 +1428,8 @@ class UnifiedJobAggregator:
                 print(f"  Removed: {job['company']} - {job['title'][:60]}")
 
             self.valid_jobs = [
-                j for j in self.valid_jobs
+                j
+                for j in self.valid_jobs
                 if (self._normalize(j["company"]), self._normalize(j["title"]))
                 not in overlap_simple
             ]
@@ -1285,7 +1473,9 @@ class UnifiedJobAggregator:
         print(f"  ✓ Valid jobs: {self.outcomes['valid']}")
         print(f"  ✗ Discarded: {self.outcomes['discarded']}")
         print(f"  ⊘ Skipped (duplicate URL): {self.outcomes['skipped_duplicate_url']}")
-        print(f"  ⊘ Skipped (duplicate company+title): {self.outcomes['skipped_duplicate_company_title']}")
+        print(
+            f"  ⊘ Skipped (duplicate company+title): {self.outcomes['skipped_duplicate_company_title']}"
+        )
         print(f"  ⊘ Skipped (non-job): {self.outcomes['skipped_non_job']}")
         print(f"  ⊘ Skipped (wrong season): {self.outcomes['skipped_wrong_season']}")
         print(f"  ⊘ Skipped (senior role): {self.outcomes['skipped_senior_role']}")
@@ -1302,6 +1492,7 @@ class UnifiedJobAggregator:
         print(f"  Rotating UA: {self.page_fetcher.outcomes['method_rotating_agent']}")
         print(f"  Selenium: {self.page_fetcher.outcomes['method_selenium']}")
         print(f"  Email parsing: {self.outcomes['method_email_parsed']}")
+        print(f"  Handshake: {self.outcomes['method_handshake']}")
         print("=" * 80)
         print(f"\nExecution time: {elapsed/60:.1f} minutes")
 

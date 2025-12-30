@@ -386,3 +386,25 @@ STATUS_COLORS = {
     "Offer accepted": {"red": 0.16, "green": 0.65, "blue": 0.27},
     "Assessment": {"red": 0.89, "green": 0.89, "blue": 0.89},
 }
+
+HANDSHAKE_COOKIES_FILE = "handshake_cookies.json"
+
+HANDSHAKE_CONFIG = {
+    "search_url": "PASTE_YOUR_HANDSHAKE_FILTER_URL_HERE",
+    "max_jobs_per_session": 50,
+    "max_sessions_per_day": 1,
+    "scrape_only_weekdays": True,
+    "scrape_hours": (8, 20),
+    "delay_between_jobs": (5, 15),
+    "scroll_delay": (1, 3),
+    "read_time_per_job": (45, 90),
+    "blank_click_probability": 0.3,
+    "scroll_probability": 0.7,
+    "extract_full_description": True,
+    "extract_work_authorization": True,
+    "extract_deadline": True,
+    "posted_within_hours": 24,
+    "stop_on_captcha": True,
+    "retry_on_failure": False,
+    "fail_silently": True,
+}

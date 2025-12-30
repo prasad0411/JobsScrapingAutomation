@@ -1,0 +1,239 @@
+[
+  {
+    "domain": "app.joinhandshake.com",
+    "httpOnly": true,
+    "name": "_trajectory_session",
+    "path": "/",
+    "sameSite": "Lax",
+    "secure": true,
+    "value": "ITm4JMSMcDugTtw8%2F8PY4CiZTiSMk4lpETd98hHZGow%2Bsa1fbZjYFH2ZYyrWag6iXMAcbz5sRAGZoFiWqoi8yhpJOBiBH3emo2BApE%2FrjIwRnSGn6%2BhzIV7cGDkYkpoV4o0Bd6GZIl0YL9f9VTf5dOy9jLd%2BZ4x1OwdiOJBy7gnggul2tRN2AVBxbUVK9fj%2BMTQpFqK%2B4dSppQ0ADNP4NGN5VPTUjchH67leJRzQDnKY8AY2P22g9iikLqw9Ao4zn3tNe2Xn1QZBzsU1Wotn%2F3gmUvCX5aTBttbO4YlmKK3TPctQhJN3E8Hbg2YOQMlpngUNcRQ5AGYMwKH2XY%2B8VyWYBmq7Pcw6x1NwI0ss7QQs0EpaIwiIr5AUQL9ZdQdkQFz5nUZcDYuG%2Bnj7d3m74a%2Firkrx2W1AyL42X0bp5dWu5GDC%2FuFUToiBZN%2BOB0PMaSNjzx%2FgRTHxEZ%2BRW%2Fd9Ce4JcxzIj2p6bz8DP1PLLCqYKNfGf9E%2FtSKVsmUkWHs7nK99VeqzEL%2FGnV7fhbarcwsme2dV6Cy%2FiIJsSkeGaCvez3gxB3eWjsoiFx3dpg%3D%3D--wBlahr4NziO%2BtBGA--9tfMFkz%2FPL0%2FE1Fu6I2Iqw%3D%3D"
+  },
+  {
+    "domain": ".joinhandshake.com",
+    "expiry": 1801684391,
+    "httpOnly": false,
+    "name": "_ga",
+    "path": "/",
+    "sameSite": "Lax",
+    "secure": false,
+    "value": "GA1.1.146169520.1767124340"
+  },
+  {
+    "domain": ".joinhandshake.com",
+    "expiry": 1800820399,
+    "httpOnly": false,
+    "name": "ttcsid_D15H40JC77UBTE66SJ6G",
+    "path": "/",
+    "sameSite": "Lax",
+    "secure": false,
+    "value": "1767124340368::zqNSDNi_VdD_MSkL2MrZ.1.1767124399480.1"
+  },
+  {
+    "domain": ".joinhandshake.com",
+    "expiry": 1800820391,
+    "httpOnly": false,
+    "name": "_tt_enable_cookie",
+    "path": "/",
+    "sameSite": "Lax",
+    "secure": false,
+    "value": "1"
+  },
+  {
+    "domain": ".joinhandshake.com",
+    "expiry": 1800820399,
+    "httpOnly": false,
+    "name": "ttcsid",
+    "path": "/",
+    "sameSite": "Lax",
+    "secure": false,
+    "value": "1767124340368::grT1K97C2xfLyYWXfGPq.1.1767124399480.0"
+  },
+  {
+    "domain": "app.joinhandshake.com",
+    "expiry": 1801684340,
+    "httpOnly": false,
+    "name": "_gd_visitor",
+    "path": "/",
+    "sameSite": "None",
+    "secure": true,
+    "value": "515b31d9-899b-44ff-853c-49ae782ed1ea"
+  },
+  {
+    "domain": ".joinhandshake.com",
+    "expiry": 1774900391,
+    "httpOnly": false,
+    "name": "_rdt_uuid",
+    "path": "/",
+    "sameSite": "Strict",
+    "secure": true,
+    "value": "1767124340197.e77b93bf-51c1-4556-8c67-d9c0d8ee370e"
+  },
+  {
+    "domain": ".joinhandshake.com",
+    "expiry": 1774900389,
+    "httpOnly": true,
+    "name": "hss-global",
+    "path": "/",
+    "sameSite": "Lax",
+    "secure": true,
+    "value": "eyJhbGciOiJkaXIiLCJjdHkiOiJKV1QiLCJlbmMiOiJBMjU2Q0JDLUhTNTEyIiwidHlwIjoiSldUIn0..QNATdvSDqj1WX139cdNNzA.wUmGIB9cid7Qli6J-c2pMEoJc77WmiKh78x_iMcQipI-NM62TVr4nHSi-Ld4vSLxdSRcjSRj7eqi2BM0innU1MZhetmupTrdGkCbXDSQvcbpR2CCLrG6h5IJI_SMt5q6-3eeCz1ftxfKWrZRTVGnwtvz7vLBpQKT7RpGklWNQPac6fn7ekBo-KS08hITjCnF9DuVqX13NfjZ793RBZUMK8qwOwHZGi-Ze_iUhUtDbM4NSTDTNzJRELKsgKtgXdDYWZB1eytw08WpmSHe02OkD3PqE2G87MnJqZMozYKtTWOXmZQwVibweHoQODKis1XBaVIHyKzOcWHZT9V7LPDeaMMHn7vEu3DzJEimIjaGTmYjMrDx9fSO0154VoU14SqI.KX5uu9kwZzbF9p-IhSA-gwlQ92hQLgh-EQLONP1YilM"
+  },
+  {
+    "domain": "app.joinhandshake.com",
+    "expiry": 1774900389,
+    "httpOnly": false,
+    "name": "production_current_user",
+    "path": "/",
+    "sameSite": "Lax",
+    "secure": true,
+    "value": "65639211"
+  },
+  {
+    "domain": ".joinhandshake.com",
+    "expiry": 1800820391,
+    "httpOnly": false,
+    "name": "_ttp",
+    "path": "/",
+    "sameSite": "Lax",
+    "secure": false,
+    "value": "01KDRD33MFR9T3514C3A3SX16C_.tt.1"
+  },
+  {
+    "domain": ".joinhandshake.com",
+    "expiry": 1801684354,
+    "httpOnly": true,
+    "name": "production_submitted_email_address",
+    "path": "/",
+    "sameSite": "Lax",
+    "secure": true,
+    "value": "eyJfcmFpbHMiOnsibWVzc2FnZSI6IkltdGhibUZrWlM1d2NtRkFibTl5ZEdobFlYTjBaWEp1TG1Wa2RTST0iLCJleHAiOiIyMDQ1LTEyLTMwVDE5OjUyOjM0LjI5NVoiLCJwdXIiOm51bGx9fQ%3D%3D--395a38f0d8aacad80ca96f2016a47608729e0d6c"
+  },
+  {
+    "domain": ".joinhandshake.com",
+    "expiry": 1801684399,
+    "httpOnly": false,
+    "name": "_ga_4M16ZMP2G5",
+    "path": "/",
+    "sameSite": "Lax",
+    "secure": false,
+    "value": "GS2.1.s1767124340$o1$g1$t1767124399$j1$l0$h0"
+  },
+  {
+    "domain": "app.joinhandshake.com",
+    "expiry": 1801684340,
+    "httpOnly": false,
+    "name": "_gd_svisitor",
+    "path": "/",
+    "sameSite": "None",
+    "secure": true,
+    "value": "161028178ef40f00742d5469d2010000db6f0b00"
+  },
+  {
+    "domain": "app.joinhandshake.com",
+    "expiry": 1782676355,
+    "httpOnly": false,
+    "name": "g_state",
+    "path": "/",
+    "sameSite": "Lax",
+    "secure": false,
+    "value": "{\"i_l\":0,\"i_ll\":1767124355488,\"i_b\":\"24saNmCUQCmq/8HPZB8fyNQSJCkczYtoJqeRiyaXWMk\",\"i_e\":{\"enable_itp_optimization\":0}}"
+  },
+  {
+    "domain": "app.joinhandshake.com",
+    "expiry": 1767138740,
+    "httpOnly": false,
+    "name": "_gd_session",
+    "path": "/",
+    "sameSite": "None",
+    "secure": true,
+    "value": "a560710f-0965-42f7-87ca-2e878211b7b2"
+  },
+  {
+    "domain": ".joinhandshake.com",
+    "expiry": 1774900389,
+    "httpOnly": false,
+    "name": "_gcl_au",
+    "path": "/",
+    "sameSite": "Lax",
+    "secure": false,
+    "value": "1.1.1659992564.1767124389"
+  },
+  {
+    "domain": "app.joinhandshake.com",
+    "expiry": 1767125305,
+    "httpOnly": false,
+    "name": "_dd_s",
+    "path": "/",
+    "sameSite": "Strict",
+    "secure": false,
+    "value": "aid=2648971b-656c-4e39-a0ca-9a764bc5d31a&rum=0&expire=1767125303420&logs=1&id=5ae77c47-93d2-4c4d-92a2-a51b64f7aa6f&created=1767124390938"
+  },
+  {
+    "domain": ".joinhandshake.com",
+    "expiry": 1774900391,
+    "httpOnly": false,
+    "name": "_fbp",
+    "path": "/",
+    "sameSite": "Lax",
+    "secure": false,
+    "value": "fb.1.1767124340338.68608054698455550"
+  },
+  {
+    "domain": "app.joinhandshake.com",
+    "expiry": 1798660340,
+    "httpOnly": false,
+    "name": "__pdst",
+    "path": "/",
+    "sameSite": "Strict",
+    "secure": false,
+    "value": "7d5d8195dc3642f3be765a09ac6316c7"
+  },
+  {
+    "domain": ".joinhandshake.com",
+    "expiry": 1767126139,
+    "httpOnly": true,
+    "name": "__cf_bm",
+    "path": "/",
+    "sameSite": "None",
+    "secure": true,
+    "value": "VxphtJvN_1yEg7Y5wBd6xCAzmczRgPEwGoz3kz_u5Lo-1767124339-1.0.1.1-uUXJd6WRgnMl1RdyydYkPSycTsw_FlsbQlemgKtk2vypCnijcvJx9pfgnjnwOXOFl25HZwvOz2Azcm_gfqtdPMpsxOUAEJsZCft.9gbO6gQ"
+  },
+  {
+    "domain": "app.joinhandshake.com",
+    "httpOnly": false,
+    "name": "request_method",
+    "path": "/",
+    "sameSite": "Lax",
+    "secure": true,
+    "value": "POST"
+  },
+  {
+    "domain": ".joinhandshake.com",
+    "httpOnly": true,
+    "name": "_cfuvid",
+    "path": "/",
+    "sameSite": "None",
+    "secure": true,
+    "value": "BjN1p00gFx.YBAsL61XLoKYzh_cH5pemjJdd8g2LqWk-1767124339063-0.0.1.1-604800000"
+  },
+  {
+    "domain": ".joinhandshake.com",
+    "expiry": 1798660392,
+    "httpOnly": false,
+    "name": "ajs_user_id",
+    "path": "/",
+    "sameSite": "Lax",
+    "secure": false,
+    "value": "65639211"
+  },
+  {
+    "domain": ".joinhandshake.com",
+    "expiry": 1798660392,
+    "httpOnly": false,
+    "name": "ajs_anonymous_id",
+    "path": "/",
+    "sameSite": "Lax",
+    "secure": false,
+    "value": "3de73875-5cec-49e4-8817-c8c726da82c2"
+  }
+]
