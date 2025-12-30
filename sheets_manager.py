@@ -2,7 +2,7 @@
 # cSpell:disable
 """
 Google Sheets management module - ENHANCED VERSION
-Handles all sheet operations with dynamic column widths for all columns.
+Dynamic column widths for all columns with optimized constraints.
 """
 
 import gspread
@@ -424,7 +424,8 @@ class SheetsManager:
     def _auto_resize_all_columns_dynamic(self, sheet, total_columns):
         """
         Auto-resize ALL columns dynamically based on content.
-        Each column width adjusts to fit the longest text in that column.
+        Company, Title, and Discard Reason columns fully dynamic.
+        URL column reduced by 5 pixels.
         """
         try:
             print(f"  → Auto-sizing {total_columns} columns dynamically...")
@@ -441,12 +442,12 @@ class SheetsManager:
             for col_idx in range(total_columns):
                 max_width = 50  # Minimum width
 
-                # Check header
+                # Check header (headers get 10px per character + extra padding)
                 if len(all_data[0]) > col_idx:
                     header_text = str(all_data[0][col_idx])
                     header_width = (
-                        len(header_text) * 10 + 30
-                    )  # Headers get more padding
+                        len(header_text) * 10 + 40
+                    )  # Extra padding for headers
                     max_width = max(max_width, header_width)
 
                 # Check all data rows
@@ -454,37 +455,54 @@ class SheetsManager:
                     if len(row) > col_idx:
                         cell_text = str(row[col_idx]).strip()
                         if cell_text:
-                            # Calculate pixel width (approximate: 8 pixels per char + padding)
-                            text_width = len(cell_text) * 8 + 20
+                            # Calculate pixel width (8 pixels per char + 20px padding)
+                            text_width = len(cell_text) * 8 + 25
                             max_width = max(max_width, text_width)
 
                 # Apply column-specific constraints
                 if col_idx == 0:  # Sr. No.
-                    max_width = min(max_width, 80)  # Cap at 80 pixels
-                elif col_idx == 1:  # Status/Discard Reason/Reason
-                    max_width = min(max_width, 300)  # Cap at 300 pixels
-                elif col_idx == 2:  # Company
-                    max_width = min(max_width, 250)  # Cap at 250 pixels
-                elif col_idx == 3:  # Title
-                    max_width = min(max_width, 400)  # Cap at 400 pixels
-                elif col_idx == 4:  # Date Applied or Job URL (depends on sheet)
-                    max_width = min(max_width, 150)  # Cap at 150 pixels
-                elif col_idx == 5:  # Job URL
-                    max_width = max(100, min(max_width, 120))  # 100-120 pixels
+                    max_width = min(max_width, 80)
+
+                elif col_idx == 1:  # Status / Discard Reason / Reason - FULLY DYNAMIC
+                    # Allow to expand but with reasonable max
+                    max_width = min(max_width, 400)  # Increased from 300
+
+                elif col_idx == 2:  # Company - FULLY DYNAMIC
+                    # Allow to expand to fit company names
+                    max_width = min(max_width, 350)  # Increased from 250
+
+                elif col_idx == 3:  # Title - FULLY DYNAMIC
+                    # Allow to expand to fit full titles
+                    max_width = min(max_width, 500)  # Increased from 400
+
+                elif col_idx == 4:  # Date Applied (or Job URL in Reviewed sheet)
+                    max_width = min(max_width, 150)
+
+                elif col_idx == 5:  # Job URL - REDUCED BY 5 PIXELS
+                    max_width = max(95, min(max_width, 115))  # Was 100-120, now 95-115
+
                 elif col_idx == 6:  # Job ID
-                    max_width = min(max_width, 120)  # Cap at 120 pixels
+                    max_width = min(max_width, 120)
+
                 elif col_idx == 7:  # Job Type
-                    max_width = min(max_width, 120)  # Cap at 120 pixels
+                    max_width = min(max_width, 120)
+
                 elif col_idx == 8:  # Location
-                    max_width = min(max_width, 200)  # Cap at 200 pixels
+                    max_width = min(
+                        max_width, 220
+                    )  # Slightly increased for full location names
+
                 elif col_idx == 9:  # Remote?
-                    max_width = min(max_width, 100)  # Cap at 100 pixels
-                elif col_idx == 10:  # Entry Date/Moved Date
-                    max_width = min(max_width, 180)  # Cap at 180 pixels
+                    max_width = min(max_width, 100)
+
+                elif col_idx == 10:  # Entry Date / Moved Date
+                    max_width = min(max_width, 190)  # Increased for full date format
+
                 elif col_idx == 11:  # Source
-                    max_width = min(max_width, 120)  # Cap at 120 pixels
+                    max_width = min(max_width, 130)
+
                 elif col_idx == 12:  # Sponsorship
-                    max_width = min(max_width, 150)  # Cap at 150 pixels
+                    max_width = min(max_width, 150)
 
                 column_widths.append(max_width)
 
@@ -513,7 +531,7 @@ class SheetsManager:
                 self.spreadsheet.batch_update({"requests": batch})
                 time.sleep(1)
 
-            print(f"  ✓ Resized columns with dynamic widths")
+            print(f"  ✓ All columns resized dynamically")
 
         except Exception as e:
             print(f"  ✗ Column resize error: {e}")
