@@ -1297,7 +1297,7 @@ class HandshakeExtractor:
                 data["work_authorization_required"], data["sponsorship"] = "No", "Yes"
             if "Co-op" in text or "Coop" in text:
                 data["job_type"] = "Co-op"
-            return data
+            return data 
         except:
             return None
 
