@@ -3,6 +3,7 @@
 """
 Extraction module for job data from various sources.
 Handles web scraping, email parsing, and Jobright authentication.
+ENHANCED: Platform-specific job ID extraction, better age detection, company name fixes
 """
 
 import requests
@@ -54,6 +55,7 @@ from config import (
     HANDSHAKE_CONFIG,
     US_STATES,
     CANADA_PROVINCES,
+    SPECIAL_COMPANY_NAMES,
 )
 
 
@@ -219,7 +221,8 @@ class EmailExtractor:
 
             print(f"Found {len(messages)} labeled emails")
 
-            email_data = []
+            # Fetch all emails with timestamps
+            emails_with_time = []
             for message in messages:
                 msg = (
                     self.service.users()
@@ -228,16 +231,38 @@ class EmailExtractor:
                     .execute()
                 )
 
+                # Get email timestamp (milliseconds since epoch)
+                internal_date = int(msg.get("internalDate", 0))
+
                 headers = msg["payload"].get("headers", [])
                 sender = self._detect_sender(headers)
                 html_content = self._extract_html(msg["payload"])
 
                 if html_content:
                     urls = self._extract_job_urls(html_content)
-                    for url in urls:
-                        email_data.append(
-                            {"url": url, "email_html": html_content, "sender": sender}
-                        )
+                    emails_with_time.append(
+                        {
+                            "timestamp": internal_date,
+                            "sender": sender,
+                            "html": html_content,
+                            "urls": urls,
+                        }
+                    )
+
+            # Sort emails by timestamp (oldest first - chronological order)
+            emails_with_time.sort(key=lambda x: x["timestamp"])
+
+            # Build email_data list in chronological order, preserving URL order within each email
+            email_data = []
+            for email in emails_with_time:
+                for url in email["urls"]:
+                    email_data.append(
+                        {
+                            "url": url,
+                            "email_html": email["html"],
+                            "sender": email["sender"],
+                        }
+                    )
 
             print(f"Total: {len(email_data)} job URLs from all emails\n")
             return email_data
@@ -419,7 +444,7 @@ class PageParser:
 
     @staticmethod
     def extract_company(soup, url):
-        """Extract company name from page."""
+        """✅ ENHANCED: Extract company name with special domain mappings."""
         # Try JSON-LD first
         json_ld = soup.find("script", type="application/ld+json")
         if json_ld:
@@ -442,7 +467,7 @@ class PageParser:
             if company and len(company) < 50:
                 return company
 
-        # Extract from domain
+        # Extract from domain (with special mappings)
         from processors import ValidationHelper
 
         return ValidationHelper.extract_company_from_domain(url)
@@ -483,51 +508,99 @@ class PageParser:
 
     @staticmethod
     def extract_job_id(soup, url):
-        """Extract job ID from page."""
-        page_text = soup.get_text()
+        """✅ ENHANCED: Platform-specific job ID extraction - prioritizes page content over URL."""
+        try:
+            page_text = soup.get_text()
 
-        patterns = [r"Req ID:\s*([A-Z0-9\-]+)", r"Job ID:\s*([A-Z0-9\-]+)"]
-
-        for pattern in patterns:
-            match = re.search(pattern, page_text, re.I)
+            # ✅ PRIORITY 1: Check page text for explicit Job Code/Req ID (TikTok, others)
+            # TikTok uses "Job Code: A07000" format
+            match = re.search(r"Job Code:\s*([A-Z0-9]+)", page_text, re.I)
             if match:
                 return match.group(1).strip()
 
-        # Workday-specific
-        if "workday" in url.lower():
-            match = re.search(r"_([A-Z]*\d+)(?:\?|$)", url)
-            if match:
-                return match.group(1)
+            # Standard "Req ID" or "Job ID" formats
+            patterns = [
+                r"Req ID:\s*([A-Z0-9\-]+)",
+                r"Job ID:\s*([A-Z0-9\-]+)",
+                r"Requisition ID:\s*([A-Z0-9\-]+)",
+                r"Requisition:\s*([A-Z0-9\-]+)",
+            ]
 
-        return "N/A"
+            for pattern in patterns:
+                match = re.search(pattern, page_text, re.I)
+                if match:
+                    job_id = match.group(1).strip()
+                    # Validate it looks like a real job ID
+                    if len(job_id) > 2 and len(job_id) < 30:
+                        return job_id
+
+            # ✅ PRIORITY 2: Check URL for job IDs
+
+            # Workday: REQ-XXXX-XXX format (in URL or redirected URL)
+            if "workday" in url.lower():
+                match = re.search(r"REQ-\d{4}-\d{1,3}", url)
+                if match:
+                    return match.group(0)
+                # Also check _JOBCODE format
+                match = re.search(r"_([A-Z]*\d+)(?:\?|$)", url)
+                if match:
+                    return match.group(1)
+
+            # GitHub/Jibe: /jobs/XXXX
+            if "jibe" in url.lower() or "github" in url.lower():
+                match = re.search(r"/jobs/(\d+)", url)
+                if match:
+                    return match.group(1)
+
+            # TikTok: Only if no Job Code found in text (fallback to URL ID)
+            if "tiktok.com" in url.lower() or "lifeattiktok.com" in url.lower():
+                match = re.search(r"/search/(\d{10,})", url)
+                if match:
+                    return match.group(1)
+
+            # Greenhouse: /jobs/XXXXXXX
+            if "greenhouse" in url.lower():
+                match = re.search(r"/jobs?/(\d{7,})", url)
+                if match:
+                    return match.group(1)
+
+            # Oracle/SAP: job/XXXXX
+            if "oracle" in url.lower() or "sap" in url.lower():
+                match = re.search(r"/job/(\d{5,})", url)
+                if match:
+                    return match.group(1)
+
+            return "N/A"
+        except:
+            return "N/A"
 
     @staticmethod
     def extract_job_age_days(soup):
-        """Extract how many days ago job was posted."""
+        """✅ ENHANCED: Extract job age with comprehensive patterns."""
         try:
             page_text = soup.get_text()[:3000]
 
-            # "Posted X days ago"
-            match = re.search(r"[Pp]osted\s+(\d+)\s+days?\s+ago", page_text)
+            # ✅ Pattern 1: "Posted X Days Ago" (handles "22 Days Ago" from NCAR)
+            match = re.search(r"[Pp]osted\s+(\d+)\+?\s+[Dd]ays?\s+[Aa]go", page_text)
             if match:
                 return int(match.group(1))
 
-            # Just "X days ago"
-            match = re.search(r"(\d+)\s+days?\s+ago", page_text)
+            # ✅ Pattern 2: Just "X Days Ago" or "X days ago"
+            match = re.search(r"(\d+)\+?\s+[Dd]ays?\s+[Aa]go", page_text)
             if match:
                 return int(match.group(1))
 
-            # "today" or "yesterday"
+            # Pattern 3: "today" or "yesterday"
             if re.search(r"[Pp]osted\s+today|Today", page_text):
                 return 0
             if re.search(r"[Pp]osted\s+yesterday|Yesterday", page_text):
                 return 1
 
-            # Hours ago
-            if re.search(r"(\d+)\s+hours?\s+ago", page_text):
+            # Pattern 4: Hours ago
+            if re.search(r"(\d+)\s+hours?\s+ago", page_text, re.I):
                 return 0
 
-            # Date formats
+            # Pattern 5: Date formats (MM/DD/YYYY or MM-DD-YYYY)
             match = re.search(
                 r"[Pp]osted:?\s*(\d{1,2})[/\-](\d{1,2})[/\-](\d{2,4})", page_text
             )
@@ -777,7 +850,7 @@ class SourceParsers:
 
     @staticmethod
     def parse_adzuna_email(soup, url):
-        """Parse Adzuna email structure."""
+        """Parse Adzuna email structure - ENHANCED."""
         try:
             h2_tags = soup.find_all("h2")
 
@@ -786,36 +859,74 @@ class SourceParsers:
                 if not link:
                     continue
 
-                if url.split("?")[0] not in link.get("href"):
+                link_href = link.get("href")
+                url_base = url.split("?")[0].split("&")[0]
+
+                # More flexible URL matching
+                if url_base not in link_href and not any(
+                    x in link_href for x in url.split("?")[0].split("/")
+                ):
                     continue
 
                 title = link.get_text().strip()
+                if not title or len(title) < 5:
+                    continue
+
                 company = location = "Unknown"
 
-                next_elem = h2.find_next_sibling(["p", "td"])
-                if not next_elem:
-                    parent = h2.find_parent(["tr", "td", "div"])
-                    if parent:
-                        next_elem = parent.find_next(["p", "td"])
-
-                if next_elem:
-                    text = next_elem.get_text("\n", strip=True)
-                    lines = [l.strip() for l in text.split("\n") if l.strip()]
-
-                    for line in lines:
-                        if " - " in line and len(line) < 100:
-                            parts = line.split(" - ", 1)
+                # Strategy 1: Look for next <p> tag
+                next_p = h2.find_next_sibling("p")
+                if next_p:
+                    text = next_p.get_text().strip()
+                    # Format: "Company - Location" or "Company - Location - Salary"
+                    if " - " in text:
+                        parts = text.split(" - ")
+                        if len(parts) >= 2:
                             company = parts[0].strip()
+                            # Location might include zip code
                             location = re.sub(r",?\s*\d{5}$", "", parts[1]).strip()
-                            break
-                        elif "•" in line or "·" in line:
-                            parts = re.split("[•·]", line)
-                            if len(parts) >= 2:
-                                company = parts[0].strip()
-                                location = re.sub(
-                                    r"\s*(Hybrid|Remote)$", "", parts[1], flags=re.I
-                                ).strip()
-                                break
+
+                # Strategy 2: Look in parent table/div
+                if company == "Unknown":
+                    parent = h2.find_parent(["table", "tr", "td", "div"])
+                    if parent:
+                        # Find all text in parent, look for company pattern
+                        parent_text = parent.get_text("\n")
+                        lines = [
+                            l.strip() for l in parent_text.split("\n") if l.strip()
+                        ]
+
+                        for line in lines:
+                            # Skip the title line
+                            if title in line:
+                                continue
+                            # Look for "Company - Location" format
+                            if " - " in line and len(line) < 150:
+                                parts = line.split(" - ")
+                                if len(parts) >= 2:
+                                    # Check if first part looks like a company (proper case, reasonable length)
+                                    potential_company = parts[0].strip()
+                                    if (
+                                        len(potential_company) > 2
+                                        and len(potential_company) < 80
+                                    ):
+                                        # Check if second part looks like location (has city/state)
+                                        potential_location = parts[1].strip()
+                                        if "," in potential_location or any(
+                                            state in potential_location
+                                            for state in US_STATES.values()
+                                        ):
+                                            company = potential_company
+                                            location = re.sub(
+                                                r",?\s*\d{5}$", "", potential_location
+                                            ).strip()
+                                            break
+
+                # Validation: Don't return if we have no useful data
+                if title == "Unknown" or (
+                    company == "Unknown" and location == "Unknown"
+                ):
+                    continue
 
                 return {
                     "company": company,
@@ -896,20 +1007,34 @@ class SourceParsers:
 
 
 class SimplifyGitHubScraper:
-    """Scrapes SimplifyJobs GitHub repository."""
+    """✅ ENHANCED: Scrapes GitHub repos with better error handling."""
 
     @staticmethod
-    def scrape():
-        """Scrape and return job listings from GitHub."""
-        from config import SIMPLIFY_URL
-
+    def scrape(url, source_name="GitHub"):
+        """Scrape and return job listings from GitHub README with detailed logging."""
         try:
-            response = requests.get(SIMPLIFY_URL, timeout=10)
+            print(f"     Fetching {url}...")
+            response = requests.get(url, timeout=10)
+
+            if response.status_code != 200:
+                print(f"     ✗ HTTP {response.status_code}")
+                return []
+
             soup = BeautifulSoup(response.text, "html.parser")
+            tables = soup.find_all("table")
+
+            if not tables:
+                print(f"     ✗ No tables found in README")
+                return []
+
+            print(f"     → Found {len(tables)} table(s)")
 
             jobs = []
-            for table in soup.find_all("table"):
-                for row in table.find_all("tr")[1:]:
+            for table in tables:
+                rows = table.find_all("tr")
+                print(f"     → Processing {len(rows)-1} rows from table...")
+
+                for row in rows[1:]:  # Skip header
                     cells = row.find_all("td")
                     if len(cells) < 5:
                         continue
@@ -944,12 +1069,15 @@ class SimplifyGitHubScraper:
                             "url": url,
                             "age": age,
                             "is_closed": is_closed,
+                            "source": source_name,
                         }
                     )
 
+            print(f"     ✓ Extracted {len(jobs)} jobs")
             return jobs
+
         except Exception as e:
-            print(f"GitHub scraping error: {e}")
+            print(f"     ✗ Scraping error ({source_name}): {e}")
             return []
 
     @staticmethod

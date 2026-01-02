@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 # cSpell:disable
 """
-Main job aggregation pipeline - FINAL VERSION
+Main job aggregation pipeline - ENHANCED VERSION
 Orchestrates extraction, processing, validation, and sheet updates.
-All validation checks properly integrated with comprehensive logging.
+FIXES: URL pre-checks, strict 5-day enforcement, Unknown location validation
 """
 
 import time
@@ -12,7 +12,7 @@ import random
 import re
 from bs4 import BeautifulSoup
 
-from config import SIMPLIFY_URL, MAX_JOB_AGE_DAYS
+from config import SIMPLIFY_URL, VANSHB03_URL, MAX_JOB_AGE_DAYS
 from extractors import (
     EmailExtractor,
     PageFetcher,
@@ -36,7 +36,7 @@ class UnifiedJobAggregator:
 
     def __init__(self):
         print("=" * 80)
-        print("INITIALIZING JOB AGGREGATOR - FINAL VERSION")
+        print("INITIALIZING JOB AGGREGATOR - ENHANCED VERSION")
         print("=" * 80)
 
         # Initialize components
@@ -71,6 +71,7 @@ class UnifiedJobAggregator:
             "skipped_wrong_season": 0,
             "skipped_senior_role": 0,
             "skipped_invalid_url": 0,
+            "skipped_url_international": 0,  # ✅ NEW
             "failed_http": 0,
             "failed_extraction": 0,
             "low_quality": 0,
@@ -91,14 +92,16 @@ class UnifiedJobAggregator:
         if not self.jobright_auth.cookies:
             self.jobright_auth.login_interactive()
 
-        # Step 2: Scrape SimplifyJobs GitHub
+        # Step 2: Scrape GitHub repos
         self._scrape_simplify_github()
+
+        # Step 3: Scrape Handshake
         try:
             self._scrape_handshake()
         except Exception as e:
             print(f"Handshake error: {e}")
 
-        # Step 3: Process email jobs
+        # Step 4: Process email jobs
         try:
             email_data = self.email_extractor.fetch_job_emails()
             if email_data:
@@ -106,14 +109,14 @@ class UnifiedJobAggregator:
         except Exception as e:
             print(f"Email processing error: {e}")
 
-        # Step 4: Ensure mutual exclusion
+        # Step 5: Ensure mutual exclusion
         print("\nRunning mutual exclusion check")
         self._ensure_mutual_exclusion()
 
-        # Step 5: Write to sheets
+        # Step 6: Write to sheets
         print(
-            f"\nFinal: {len([j for j in self.valid_jobs if j['source'] == 'GitHub'])} GitHub, "
-            f"{len([j for j in self.valid_jobs if j['source'] != 'GitHub'])} Email\n"
+            f"\nFinal: {len([j for j in self.valid_jobs if j['source'] in ['SimplifyJobs', 'vanshb03']])} GitHub, "
+            f"{len([j for j in self.valid_jobs if j['source'] not in ['SimplifyJobs', 'vanshb03']])} Email\n"
         )
 
         rows = self.sheets.get_next_row_numbers()
@@ -131,20 +134,49 @@ class UnifiedJobAggregator:
         print("=" * 80 + "\n")
 
     def _scrape_simplify_github(self):
-        """Scrape SimplifyJobs GitHub README."""
-        print("Scraping SimplifyJobs GitHub")
+        """Scrape both SimplifyJobs and vanshb03 GitHub READMEs with better error handling."""
+        print("Scraping GitHub repositories...")
 
-        github_jobs = SimplifyGitHubScraper.scrape()
+        # Scrape SimplifyJobs repo
+        print("  → SimplifyJobs...")
+        try:
+            simplify_jobs = SimplifyGitHubScraper.scrape(
+                SIMPLIFY_URL, source_name="SimplifyJobs"
+            )
+            if not simplify_jobs:
+                print(f"     ⚠ Warning: No jobs returned from SimplifyJobs")
+        except Exception as e:
+            print(f"     ✗ SimplifyJobs error: {e}")
+            simplify_jobs = []
 
-        for job in github_jobs:
+        # Scrape vanshb03 repo
+        print("  → vanshb03...")
+        try:
+            vanshb03_jobs = SimplifyGitHubScraper.scrape(
+                VANSHB03_URL, source_name="vanshb03"
+            )
+            if not vanshb03_jobs:
+                print(f"     ⚠ Warning: No jobs returned from vanshb03")
+        except Exception as e:
+            print(f"     ✗ vanshb03 error: {e}")
+            vanshb03_jobs = []
+
+        # Combine jobs from both sources
+        all_github_jobs = simplify_jobs + vanshb03_jobs
+        print(
+            f"  → Total: {len(all_github_jobs)} jobs ({len(simplify_jobs)} SimplifyJobs + {len(vanshb03_jobs)} vanshb03)\n"
+        )
+
+        for job in all_github_jobs:
             company = job["company"]
             title_raw = job["title"]
             location = job["location"]
             url = job["url"]
             age = job["age"]
             is_closed = job["is_closed"]
+            source = job["source"]
 
-            # Age filter
+            # Age filter (from GitHub table)
             if self._parse_age(age) > 1:
                 continue
 
@@ -178,7 +210,7 @@ class UnifiedJobAggregator:
                     url,
                     "N/A",
                     "Position closed",
-                    "GitHub",
+                    source,
                     "Unknown",
                 )
                 continue
@@ -193,39 +225,48 @@ class UnifiedJobAggregator:
                     url,
                     "N/A",
                     "Non-CS role",
-                    "GitHub",
+                    source,
+                    "Unknown",
+                )
+                continue
+
+            # ✅ CHECK 2: URL pre-check for international (BEFORE fetching page)
+            url_intl_check = ValidationHelper.check_url_for_international(url)
+            if url_intl_check:
+                print(f"\n[{source.upper()}] {company} - {title[:50]}")
+                print(f"  ✗ INTERNATIONAL (URL): {url_intl_check}")
+                self.outcomes["skipped_url_international"] += 1
+                country = (
+                    url_intl_check.split(":")[-1]
+                    .strip()
+                    .replace("(from URL)", "")
+                    .strip()
+                )
+                self._add_to_discarded(
+                    company,
+                    title,
+                    country,
+                    "Unknown",
+                    url,
+                    "N/A",
+                    url_intl_check,
+                    source,
                     "Unknown",
                 )
                 continue
 
             # Process the job by fetching the actual page
-            self._process_github_job(company, title, location, url)
+            self._process_github_job(company, title, location, url, source)
 
         print(
-            f"GitHub: {len([j for j in self.valid_jobs if j['source'] == 'GitHub'])} valid\n"
+            f"GitHub: {len([j for j in self.valid_jobs if j['source'] in ['SimplifyJobs', 'vanshb03']])} valid\n"
         )
 
-    def _process_github_job(self, company, title, location, url):
-        """Process a single GitHub job by fetching and analyzing the page."""
+    def _process_github_job(self, company, title, location, url, source="GitHub"):
+        """Process a single GitHub job with STRICT validation."""
         try:
-            print(f"\n[GITHUB] Processing: {company} - {title[:60]}")
+            print(f"\n[{source.upper()}] Processing: {company} - {title[:60]}")
             print(f"         URL: {url[:100]}")
-
-            # URL pre-check for Canada
-            url_canada = ValidationHelper.check_url_for_canada(url)
-            if url_canada:
-                self._add_to_discarded(
-                    company,
-                    title,
-                    "Canada",
-                    "Unknown",
-                    url,
-                    "N/A",
-                    url_canada,
-                    "GitHub",
-                    "Unknown",
-                )
-                return
 
             # Fetch page
             response, final_url = self.page_fetcher.fetch_page(url)
@@ -247,6 +288,26 @@ class UnifiedJobAggregator:
 
             soup = BeautifulSoup(response.text, "html.parser")
 
+            # ✅ CHECK 1: Job age FIRST (before expensive operations)
+            job_age = PageParser.extract_job_age_days(soup)
+            if job_age is not None:
+                print(f"  → Job age: {job_age} days")
+                if job_age > MAX_JOB_AGE_DAYS:
+                    print(f"  ✗ TOO OLD: {job_age} days (limit: {MAX_JOB_AGE_DAYS})")
+                    self.outcomes["skipped_too_old"] += 1
+                    self._add_to_discarded(
+                        company,
+                        title,
+                        "Unknown",
+                        "Unknown",
+                        final_url,
+                        "N/A",
+                        f"Posted {job_age} days ago (>{MAX_JOB_AGE_DAYS} days)",
+                        source,
+                        "Unknown",
+                    )
+                    return
+
             # CHECK 2: Season requirement
             page_text_sample = soup.get_text()[:2000]
             is_valid_season, season_reason = TitleProcessor.check_season_requirement(
@@ -263,29 +324,12 @@ class UnifiedJobAggregator:
                     final_url,
                     "N/A",
                     season_reason,
-                    "GitHub",
+                    source,
                     "Unknown",
                 )
                 return
 
-            # CHECK 3: Job age
-            job_age = PageParser.extract_job_age_days(soup)
-            if job_age is not None and job_age > MAX_JOB_AGE_DAYS:
-                print(f"  ✗ TOO OLD: {job_age} days")
-                self._add_to_discarded(
-                    company,
-                    title,
-                    "Unknown",
-                    "Unknown",
-                    final_url,
-                    "N/A",
-                    f"Posted {job_age} days ago (>3 days)",
-                    "GitHub",
-                    "Unknown",
-                )
-                return
-
-            # CHECK 4: Restrictions
+            # CHECK 3: Restrictions
             restriction = ValidationHelper.check_page_restrictions(soup)
             if restriction:
                 print(f"  ✗ RESTRICTED: {restriction}")
@@ -297,7 +341,7 @@ class UnifiedJobAggregator:
                     final_url,
                     "N/A",
                     restriction,
-                    "GitHub",
+                    source,
                     "Unknown",
                 )
                 return
@@ -316,31 +360,60 @@ class UnifiedJobAggregator:
             print(f"  → Remote: {remote}")
             print(f"  → Job ID: {job_id}")
 
-            # CHECK 5: International location
-            intl_check = LocationProcessor.check_if_international(
-                location_extracted, soup
-            )
-            if intl_check:
-                print(f"  ✗ INTERNATIONAL: {intl_check}")
-                country = self._detect_country_simple(location_extracted)
-                self._add_to_discarded(
-                    company,
-                    title,
-                    country,
-                    remote,
-                    final_url,
-                    job_id,
-                    intl_check,
-                    "GitHub",
-                    sponsorship,
+            # ✅ CHECK 4: International location (with Unknown handling)
+            if location_extracted == "Unknown":
+                print(
+                    f"  ⚠ Location Unknown - running aggressive international check..."
                 )
-                return
+
+                # Aggressive country scan for Unknown locations
+                country_found = LocationProcessor._aggressive_country_scan(soup)
+                if country_found and country_found not in [
+                    "USA",
+                    "United States",
+                    "US",
+                ]:
+                    print(f"  ✗ INTERNATIONAL (Unknown → {country_found})")
+                    self._add_to_discarded(
+                        company,
+                        title,
+                        country_found,
+                        remote,
+                        final_url,
+                        job_id,
+                        f"Location: {country_found}",
+                        source,
+                        sponsorship,
+                    )
+                    return
+
+                print(f"  → No international indicators found, proceeding...")
+            else:
+                # Normal international check for known locations
+                intl_check = LocationProcessor.check_if_international(
+                    location_extracted, soup
+                )
+                if intl_check:
+                    print(f"  ✗ INTERNATIONAL: {intl_check}")
+                    country = self._detect_country_simple(location_extracted)
+                    self._add_to_discarded(
+                        company,
+                        title,
+                        country,
+                        remote,
+                        final_url,
+                        job_id,
+                        intl_check,
+                        source,
+                        sponsorship,
+                    )
+                    return
 
             # Format location
             location_clean = LocationProcessor.format_location_clean(location_extracted)
             print(f"  → Location formatted: '{location_clean}'")
 
-            # CHECK 6: Quality
+            # CHECK 5: Quality
             quality = QualityScorer.calculate_score(
                 {
                     "company": company,
@@ -367,7 +440,7 @@ class UnifiedJobAggregator:
                 final_url,
                 job_id,
                 sponsorship,
-                "GitHub",
+                source,
             )
 
         except Exception as e:
@@ -394,12 +467,6 @@ class UnifiedJobAggregator:
             if work_auth == "Yes" or self._clean_url(url) in self.existing_urls:
                 continue
             self.processing_lock.add(self._clean_url(url))
-            from processors import (
-                TitleProcessor,
-                ValidationHelper,
-                LocationProcessor,
-                QualityScorer,
-            )
 
             title = TitleProcessor.clean_title_aggressive(title_raw)
             if (
@@ -455,18 +522,18 @@ class UnifiedJobAggregator:
             print(f"\n[{idx}/{len(email_data_list)}] {url[:100]}")
             print(f"  Sender: {sender}")
 
-            # CHECK 0: URL Validation (CRITICAL - was missing!)
+            # CHECK 0: URL Validation
             is_valid_url, url_reason = ValidationHelper.is_valid_job_url(url)
             if not is_valid_url:
                 print(f"  ✗ INVALID URL: {url_reason}")
                 self.outcomes["skipped_invalid_url"] += 1
                 continue
 
-            # Check URL for Canada
-            url_canada = ValidationHelper.check_url_for_canada(url)
-            if url_canada:
-                print(f"  ✗ {url_canada}")
-                self.outcomes["skipped_invalid_url"] += 1
+            # ✅ CHECK 0.5: URL pre-check for international (BEFORE resolving/fetching)
+            url_intl_check = ValidationHelper.check_url_for_international(url)
+            if url_intl_check:
+                print(f"  ✗ INTERNATIONAL (URL): {url_intl_check}")
+                self.outcomes["skipped_url_international"] += 1
                 continue
 
             # Resolve Jobright URLs
@@ -477,6 +544,13 @@ class UnifiedJobAggregator:
                 if url != original_url:
                     print(f"  → Resolved to: {url[:100]}")
                     self.outcomes["url_resolved"] += 1
+
+                    # ✅ Re-check resolved URL for international
+                    url_intl_check = ValidationHelper.check_url_for_international(url)
+                    if url_intl_check:
+                        print(f"  ✗ INTERNATIONAL (resolved URL): {url_intl_check}")
+                        self.outcomes["skipped_url_international"] += 1
+                        continue
 
             # Check duplicates
             clean_url = self._clean_url(url)
@@ -572,22 +646,6 @@ class UnifiedJobAggregator:
     def _process_single_email_job(self, url, email_html, sender, current_idx, total):
         """Process a single job from email with comprehensive validation."""
         try:
-            # URL pre-check for Canada
-            url_canada = ValidationHelper.check_url_for_canada(url)
-            if url_canada:
-                return {
-                    "decision": "discard",
-                    "company": "Unknown",
-                    "title": "Unknown",
-                    "location": "Canada",
-                    "remote": "Unknown",
-                    "url": url,
-                    "job_id": "N/A",
-                    "reason": url_canada,
-                    "source": sender,
-                    "sponsorship": "Unknown",
-                }
-
             time.sleep(random.uniform(1.5, 2.5))
 
             # Try to parse from email first
@@ -638,7 +696,31 @@ class UnifiedJobAggregator:
 
             soup = BeautifulSoup(response.text, "html.parser")
 
-            # CHECK 1: Season
+            # ✅ CHECK 1: Job age FIRST
+            job_age_days = PageParser.extract_job_age_days(soup)
+            if job_age_days is not None:
+                print(f"  → Job age: {job_age_days} days")
+                if job_age_days > MAX_JOB_AGE_DAYS:
+                    print(
+                        f"  ✗ TOO OLD: {job_age_days} days (limit: {MAX_JOB_AGE_DAYS})"
+                    )
+                    self.outcomes["skipped_too_old"] += 1
+                    company = PageParser.extract_company(soup, final_url)
+                    title_ext = PageParser.extract_title(soup)
+                    return {
+                        "decision": "discard",
+                        "company": company if company else "Unknown",
+                        "title": title_ext if title_ext else "Unknown",
+                        "location": "Unknown",
+                        "remote": "Unknown",
+                        "url": final_url,
+                        "job_id": "N/A",
+                        "reason": f"Posted {job_age_days} days ago (>{MAX_JOB_AGE_DAYS} days)",
+                        "source": sender,
+                        "sponsorship": "Unknown",
+                    }
+
+            # CHECK 2: Season
             page_text_sample = soup.get_text()[:2000]
             title_from_page = PageParser.extract_title(soup)
             is_valid_season, season_reason = TitleProcessor.check_season_requirement(
@@ -658,25 +740,6 @@ class UnifiedJobAggregator:
                     "url": final_url,
                     "job_id": "N/A",
                     "reason": season_reason,
-                    "source": sender,
-                    "sponsorship": "Unknown",
-                }
-
-            # CHECK 2: Job age
-            job_age_days = PageParser.extract_job_age_days(soup)
-            if job_age_days is not None and job_age_days > MAX_JOB_AGE_DAYS:
-                print(f"  ✗ TOO OLD: {job_age_days} days")
-                company = PageParser.extract_company(soup, final_url)
-                title_ext = PageParser.extract_title(soup)
-                return {
-                    "decision": "discard",
-                    "company": company if company else "Unknown",
-                    "title": title_ext if title_ext else "Unknown",
-                    "location": "Unknown",
-                    "remote": "Unknown",
-                    "url": final_url,
-                    "job_id": "N/A",
-                    "reason": f"Posted {job_age_days} days ago (>3 days)",
                     "source": sender,
                     "sponsorship": "Unknown",
                 }
@@ -703,7 +766,7 @@ class UnifiedJobAggregator:
         # Clean title
         title = TitleProcessor.clean_title_aggressive(title_raw)
 
-        # CHECK 1: Is internship? (CRITICAL - WAS MISSING!)
+        # CHECK 1: Is internship?
         is_intern, intern_reason = TitleProcessor.is_internship_role(title)
         if not is_intern:
             print(f"  ✗ NOT INTERNSHIP: {intern_reason}")
@@ -790,7 +853,7 @@ class UnifiedJobAggregator:
                 self.outcomes["skipped_duplicate_company_title"] += 1
                 return None
 
-        # CHECK 6: International (CRITICAL - WAS MISSING FOR EMAILS!)
+        # CHECK 6: International
         if location_raw and location_raw != "Unknown":
             intl_check = LocationProcessor.check_if_international(location_raw, None)
             if intl_check:
@@ -931,7 +994,7 @@ class UnifiedJobAggregator:
 
         print(f"  Extracted: {company} - {title[:60]}")
 
-        # CHECK 1: Is internship? (CRITICAL!)
+        # CHECK 1: Is internship?
         is_intern, intern_reason = TitleProcessor.is_internship_role(title)
         if not is_intern:
             print(f"  ✗ NOT INTERNSHIP: {intern_reason}")
@@ -1077,28 +1140,46 @@ class UnifiedJobAggregator:
 
         print(f"  → Location: '{location_extracted}'")
         print(f"  → Remote: {remote}")
+        print(f"  → Job ID: {job_id}")
 
-        # CHECK 8: International (CRITICAL!)
-        location_intl_check = LocationProcessor.check_if_international(
-            location_extracted, soup
-        )
-
-        if location_intl_check:
-            print(f"  ✗ INTERNATIONAL: {location_intl_check}")
-            country_only = self._detect_country_simple(location_extracted)
-
-            return {
-                "decision": "discard",
-                "company": company,
-                "title": title,
-                "location": country_only,
-                "remote": remote,
-                "url": final_url,
-                "job_id": job_id,
-                "reason": location_intl_check,
-                "source": sender,
-                "sponsorship": sponsorship,
-            }
+        # ✅ CHECK 8: International (with Unknown handling)
+        if location_extracted == "Unknown":
+            print(f"  ⚠ Location Unknown - running aggressive check...")
+            country_found = LocationProcessor._aggressive_country_scan(soup)
+            if country_found and country_found not in ["USA", "United States", "US"]:
+                print(f"  ✗ INTERNATIONAL (Unknown → {country_found})")
+                return {
+                    "decision": "discard",
+                    "company": company,
+                    "title": title,
+                    "location": country_found,
+                    "remote": remote,
+                    "url": final_url,
+                    "job_id": job_id,
+                    "reason": f"Location: {country_found}",
+                    "source": sender,
+                    "sponsorship": sponsorship,
+                }
+            print(f"  → No international indicators, proceeding...")
+        else:
+            location_intl_check = LocationProcessor.check_if_international(
+                location_extracted, soup
+            )
+            if location_intl_check:
+                print(f"  ✗ INTERNATIONAL: {location_intl_check}")
+                country_only = self._detect_country_simple(location_extracted)
+                return {
+                    "decision": "discard",
+                    "company": company,
+                    "title": title,
+                    "location": country_only,
+                    "remote": remote,
+                    "url": final_url,
+                    "job_id": job_id,
+                    "reason": location_intl_check,
+                    "source": sender,
+                    "sponsorship": sponsorship,
+                }
 
         # Format location
         location_formatted = LocationProcessor.format_location_clean(location_extracted)
@@ -1260,23 +1341,42 @@ class UnifiedJobAggregator:
                     "sponsorship": sponsorship,
                 }
 
-        # CHECK 7: International (CRITICAL!)
-        intl_check = LocationProcessor.check_if_international(location, soup)
-        if intl_check:
-            print(f"  ✗ INTERNATIONAL: {intl_check}")
-            country = self._detect_country_simple(location)
-            return {
-                "decision": "discard",
-                "company": company,
-                "title": title,
-                "location": country,
-                "remote": remote,
-                "url": url,
-                "job_id": job_id,
-                "reason": intl_check,
-                "source": sender,
-                "sponsorship": sponsorship,
-            }
+        # ✅ CHECK 7: International (with Unknown handling)
+        if location == "Unknown":
+            print(f"  ⚠ Location Unknown - running aggressive check...")
+            country_found = LocationProcessor._aggressive_country_scan(soup)
+            if country_found and country_found not in ["USA", "United States", "US"]:
+                print(f"  ✗ INTERNATIONAL (Unknown → {country_found})")
+                return {
+                    "decision": "discard",
+                    "company": company,
+                    "title": title,
+                    "location": country_found,
+                    "remote": remote,
+                    "url": url,
+                    "job_id": job_id,
+                    "reason": f"Location: {country_found}",
+                    "source": sender,
+                    "sponsorship": sponsorship,
+                }
+            print(f"  → No international indicators, proceeding...")
+        else:
+            intl_check = LocationProcessor.check_if_international(location, soup)
+            if intl_check:
+                print(f"  ✗ INTERNATIONAL: {intl_check}")
+                country = self._detect_country_simple(location)
+                return {
+                    "decision": "discard",
+                    "company": company,
+                    "title": title,
+                    "location": country,
+                    "remote": remote,
+                    "url": url,
+                    "job_id": job_id,
+                    "reason": intl_check,
+                    "source": sender,
+                    "sponsorship": sponsorship,
+                }
 
         # Format location
         location_fmt = LocationProcessor.format_location_clean(location)
@@ -1519,6 +1619,9 @@ class UnifiedJobAggregator:
         print(f"  ⊘ Skipped (wrong season): {self.outcomes['skipped_wrong_season']}")
         print(f"  ⊘ Skipped (senior role): {self.outcomes['skipped_senior_role']}")
         print(f"  ⊘ Skipped (invalid URL): {self.outcomes['skipped_invalid_url']}")
+        print(
+            f"  ⊘ Skipped (URL international): {self.outcomes['skipped_url_international']}"
+        )
         print(f"  ⊘ Skipped (too old): {self.outcomes['skipped_too_old']}")
         print(f"  ⚠ Failed (HTTP): {self.outcomes['failed_http']}")
         print(f"  ⚠ Failed (extraction): {self.outcomes['failed_extraction']}")

@@ -18,6 +18,9 @@ JOBRIGHT_COOKIES_FILE = "jobright_cookies.json"
 
 # External Sources
 SIMPLIFY_URL = "https://raw.githubusercontent.com/SimplifyJobs/Summer2026-Internships/master/README.md"
+VANSHB03_URL = (
+    "https://raw.githubusercontent.com/vanshb03/Summer2026-Internships/main/README.md"
+)
 GMAIL_SCOPES = ["https://www.googleapis.com/auth/gmail.readonly"]
 
 # User Agents for rotation
@@ -361,7 +364,7 @@ JOB_BOARD_DOMAINS = [
     "fursah.com",
 ]
 
-# Company Name Mappings
+# Company Name Mappings (ENHANCED)
 SPECIAL_COMPANY_NAMES = {
     "stanfordhealthcare": "Stanford Health Care",
     "bmo": "BMO",
@@ -369,11 +372,19 @@ SPECIAL_COMPANY_NAMES = {
     "figma": "Figma",
     "ibm": "IBM",
     "simplify": "Simplify Jobs",
+    # ✅ NEW MAPPINGS
+    "lifeattiktok": "TikTok",
+    "githubinc": "GitHub",
+    "ucar": "UCAR",
+    "ncar": "NCAR",
+    "seagatecareers": "Seagate",
+    "adzuna": "Multiple Companies",  # Adzuna aggregates many companies
+    "easyapply": "SAP SuccessFactors",
 }
 
 # Quality Scoring Thresholds
 MIN_QUALITY_SCORE = 3
-MAX_JOB_AGE_DAYS = 5
+MAX_JOB_AGE_DAYS = 5  # ✅ Enforce strictly
 
 # Sheet Colors
 STATUS_COLORS = {

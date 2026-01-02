@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 # cSpell:disable
 """
-Processing module for job data validation, cleaning, and quality scoring - FINAL VERSION
+Processing module for job data validation, cleaning, and quality scoring - ENHANCED VERSION
 Handles title cleaning, location formatting, international filtering, and all validation checks.
+FIXES: URL-based location detection, enhanced job ID extraction, better age parsing, remote status
 """
 
 import re
@@ -14,6 +15,7 @@ from config import (
     CANADA_CITIES,
     MIN_QUALITY_SCORE,
     SPECIAL_COMPANY_NAMES,
+    MAX_JOB_AGE_DAYS,
 )
 
 
@@ -187,9 +189,15 @@ class LocationProcessor:
 
     @staticmethod
     def extract_location_enhanced(soup, url):
-        """Enhanced location extraction with Simplify.jobs special handling."""
+        """Enhanced location extraction - URL FIRST, then page parsing."""
 
-        # Special handling for Simplify.jobs pages (CRITICAL FIX!)
+        # ✅ LAYER 0: Extract from URL FIRST (most reliable for Workday)
+        url_location = LocationProcessor._extract_from_url(url)
+        if url_location and url_location != "Unknown":
+            print(f"    [URL] Found location: '{url_location}'")
+            return url_location
+
+        # Special handling for Simplify.jobs pages
         if "simplify.jobs" in url.lower():
             simplify_loc = LocationProcessor._extract_from_simplify_page(soup)
             if simplify_loc and simplify_loc != "Unknown":
@@ -206,29 +214,105 @@ class LocationProcessor:
         if labeled_loc and LocationProcessor.is_valid_us_location(labeled_loc):
             return labeled_loc
 
-        # Method 3: Workday URL parsing
-        if "workday" in url.lower():
-            match = re.search(r"/job/([^/]+)/", url)
-            if match:
-                location_raw = match.group(1)
-                if not location_raw.lower().startswith("remote"):
-                    workday_loc = LocationProcessor._parse_workday_location(
-                        location_raw
-                    )
-                    if workday_loc != "Unknown":
-                        return workday_loc
-
-        # Method 4: Page scanning
+        # Method 3: Page scanning
         scanned_loc = LocationProcessor._scan_page(soup)
         if scanned_loc and LocationProcessor.is_valid_us_location(scanned_loc):
             return scanned_loc
 
-        # Method 5: Meta tags
+        # Method 4: Meta tags
         meta_loc = LocationProcessor._extract_from_meta(soup)
         if meta_loc and LocationProcessor.is_valid_us_location(meta_loc):
             return meta_loc
 
+        # ✅ LAYER 5: If still Unknown, do aggressive country detection
+        country = LocationProcessor._aggressive_country_scan(soup)
+        if country and country not in ["USA", "United States", "US", None]:
+            print(f"    [Aggressive scan] Found country: '{country}'")
+            return country
+
         return "Unknown"
+
+    @staticmethod
+    def _extract_from_url(url):
+        """✅ NEW: Extract location directly from URL patterns (Workday, etc.)."""
+        try:
+            if not url:
+                return None
+
+            url_lower = url.lower()
+
+            # Workday Canada format: /Canada---City/ or /Canada-City/
+            if "workday" in url_lower:
+                # Pattern: /Canada---Ottawa-Bill-Leathem/
+                match = re.search(r"/Canada---?([^/]+)/", url, re.I)
+                if match:
+                    city_raw = match.group(1).replace("-", " ").strip()
+                    # Clean up facility names
+                    city = re.sub(r"\s*\(.*?\)", "", city_raw).strip()
+                    return f"{city}, Canada"
+
+                # Pattern: /UK---City/ or /United-Kingdom---City/
+                match = re.search(r"/(?:UK|United-Kingdom)---?([^/]+)/", url, re.I)
+                if match:
+                    city_raw = match.group(1).replace("-", " ").strip()
+                    city = re.sub(r"\s*\(.*?\)", "", city_raw).strip()
+                    return f"{city}, UK"
+
+                # US format: /City-State/
+                match = re.search(r"/([^/]+)-([A-Z]{2})/", url)
+                if match:
+                    city = match.group(1).replace("-", " ").title()
+                    state = match.group(2).upper()
+                    if state in US_STATES.values():
+                        return f"{city}, {state}"
+
+            return None
+        except:
+            return None
+
+    @staticmethod
+    def _aggressive_country_scan(soup):
+        """✅ NEW: When location Unknown, aggressively scan for country mentions."""
+        try:
+            page_text = soup.get_text()[:5000]
+
+            # Very specific patterns for countries
+            country_patterns = [
+                (r"\bUnited Kingdom\b", "United Kingdom"),
+                (r"\b(UK|U\.K\.)\b(?!\s+work authorization)", "United Kingdom"),
+                (r"\bCanada\b(?!\s+or\s+US)", "Canada"),
+                (r"\bIndia\b", "India"),
+                (r"\bSingapore\b", "Singapore"),
+                (r"\bAustralia\b", "Australia"),
+                (r"\bChina\b", "China"),
+                (r"\bGermany\b", "Germany"),
+                (r"\bJapan\b", "Japan"),
+            ]
+
+            for pattern, country_name in country_patterns:
+                if re.search(pattern, page_text, re.I):
+                    # Additional validation: check context
+                    match = re.search(pattern, page_text, re.I)
+                    if match:
+                        # Get 100 chars before and after
+                        context_start = max(0, match.start() - 100)
+                        context_end = min(len(page_text), match.end() + 100)
+                        context = page_text[context_start:context_end].lower()
+
+                        # If context has location indicators, it's likely the job location
+                        location_indicators = [
+                            "location",
+                            "office",
+                            "based",
+                            "headquarters",
+                            "site",
+                        ]
+                        if any(ind in context for ind in location_indicators):
+                            return country_name
+
+            return None
+        except:
+            return None
 
     @staticmethod
     def _extract_from_simplify_page(soup):
@@ -539,10 +623,11 @@ class LocationProcessor:
 
     @staticmethod
     def check_if_international(location, soup):
-        """Check if location is international (non-US). Returns reason string or None."""
+        """✅ ENHANCED: Check if location is international - handles Unknown locations."""
         if not location or location == "Unknown":
+            # ✅ CRITICAL: If Unknown, we MUST scan the page for country
             if soup:
-                country = LocationProcessor._detect_country_from_page(soup)
+                country = LocationProcessor._aggressive_country_scan(soup)
                 if country and country not in ["USA", "United States", "US"]:
                     return f"Location: {country}"
             return None
@@ -553,7 +638,11 @@ class LocationProcessor:
         if "canada" in location_lower:
             return "Location: Canada"
 
-        # PRIORITY CHECK 2: Canadian cities (very specific)
+        # PRIORITY CHECK 2: UK
+        if "united kingdom" in location_lower or location_lower.startswith("uk"):
+            return "Location: UK"
+
+        # PRIORITY CHECK 3: Canadian cities (very specific)
         canadian_cities_definite = [
             "toronto",
             "montreal",
@@ -565,16 +654,6 @@ class LocationProcessor:
             "quebec",
             "markham",
             "mississauga",
-            "hamilton",
-            "kitchener",
-            "waterloo",
-            "halifax",
-            "victoria",
-            "oakville",
-            "burlington",
-            "brampton",
-            "windsor",
-            "london",
         ]
 
         for city in canadian_cities_definite:
@@ -583,7 +662,7 @@ class LocationProcessor:
                 if not any(us_state in location for us_state in US_STATES.values()):
                     return "Location: Canada"
 
-        # PRIORITY CHECK 3: Canadian provinces (strict matching)
+        # PRIORITY CHECK 4: Canadian provinces (strict matching)
         for prov in CANADA_PROVINCES:
             # Must be after comma or at end: ", ON" or "ON$"
             if re.search(r",\s*" + prov + r"\b", location) or re.search(
@@ -679,7 +758,7 @@ class LocationProcessor:
 
     @staticmethod
     def extract_remote_status_enhanced(soup, location, url):
-        """Extract remote status from multiple sources."""
+        """✅ ENHANCED: Extract remote status from multiple sources."""
         if "remote" in url.lower():
             return "Remote"
 
@@ -691,15 +770,19 @@ class LocationProcessor:
                 return "Hybrid"
 
         try:
-            page_text = soup.get_text()[:3000].lower()
+            page_text = soup.get_text()[:3000]
+
+            # ✅ Check for explicit "Remote: Yes" pattern (GitHub, TikTok, etc.)
+            if re.search(r"Remote:\s*Yes", page_text, re.I):
+                return "Remote"
 
             if re.search(
-                r"\b(100%\s*remote|fully\s*remote|remote\s*work)\b", page_text
+                r"\b(100%\s*remote|fully\s*remote|remote\s*work)\b", page_text, re.I
             ):
                 return "Remote"
-            if re.search(r"\bhybrid\b", page_text):
+            if re.search(r"\bhybrid\b", page_text, re.I):
                 return "Hybrid"
-            if re.search(r"\b(on[-\s]?site|in[-\s]?person)\b", page_text):
+            if re.search(r"\b(on[-\s]?site|in[-\s]?person)\b", page_text, re.I):
                 return "On Site"
 
             if location and location != "Unknown":
@@ -712,6 +795,39 @@ class LocationProcessor:
 
 class ValidationHelper:
     """Validates company names, URLs, and checks page restrictions."""
+
+    @staticmethod
+    def check_url_for_international(url):
+        """✅ NEW: Check URL for international indicators BEFORE parsing page."""
+        if not url:
+            return None
+
+        url_lower = url.lower()
+
+        # Workday Canada patterns
+        if "/canada-" in url_lower or "/canada---" in url_lower:
+            return "Location: Canada (from URL)"
+
+        # Workday UK patterns
+        if "/uk-" in url_lower or "/united-kingdom" in url_lower:
+            return "Location: UK (from URL)"
+
+        # Other countries in Workday URLs
+        international_url_patterns = {
+            "/india-": "India",
+            "/china-": "China",
+            "/singapore-": "Singapore",
+            "/australia-": "Australia",
+            "/germany-": "Germany",
+            "/france-": "France",
+            "/japan-": "Japan",
+        }
+
+        for pattern, country in international_url_patterns.items():
+            if pattern in url_lower:
+                return f"Location: {country} (from URL)"
+
+        return None
 
     @staticmethod
     def validate_company_field(company, title, url):
@@ -742,7 +858,7 @@ class ValidationHelper:
 
     @staticmethod
     def extract_company_from_domain(url):
-        """Extract company name from domain."""
+        """Extract company name from domain - ENHANCED."""
         try:
             if "workday" in url.lower():
                 match = re.search(r"https?://([^.]+)\.(?:wd\d+\.)?myworkdayjobs", url)
