@@ -408,3 +408,17 @@ HANDSHAKE_CONFIG = {
     "retry_on_failure": False,
     "fail_silently": True,
 }
+
+HANDSHAKE_COOKIES_FILE = "handshake_cookies.json"
+HANDSHAKE_CONFIG = {
+    "search_url": "PASTE_YOUR_HANDSHAKE_FILTER_URL_HERE",
+    "max_jobs_per_session": 50,
+    "max_sessions_per_day": 1,
+    "scrape_only_weekdays": True,
+    "scrape_hours": (8, 20),
+    "delay_between_jobs": (5, 15),
+    "scroll_delay": (1, 3),
+    "read_time_per_job": (45, 90),
+    "blank_click_probability": 0.3,
+    "scroll_probability": 0.7,
+}
