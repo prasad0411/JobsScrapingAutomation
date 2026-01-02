@@ -623,11 +623,46 @@ class LocationProcessor:
                 r"\bauthorized\s+to\s+work\s+in\s+Canada\b",
                 r"\bCanadian\s+work\s+authorization\b",
                 r"\brelocation\s+to\s+(?:a\s+)?Toronto\b",
+                r"\bschool\s+in\s+Canada\b",
+                r"\baccredited\s+school\s+in\s+Canada\b",
+                r"\bcandidate.*?\bin\s+Canada\b",
+                r"\bLocation:?\s*Canada\b",
+                r"\bCanada\s*\(\s*On-?site\s*\)",
             ]
 
             for pattern in canada_patterns:
                 if re.search(pattern, page_text, re.I):
                     return "Canada"
+
+            # Count Canadian city mentions vs US city mentions
+            canadian_cities = [
+                "ottawa",
+                "toronto",
+                "montreal",
+                "vancouver",
+                "calgary",
+                "edmonton",
+            ]
+            us_cities_common = [
+                "boston",
+                "new york",
+                "seattle",
+                "austin",
+                "chicago",
+                "san francisco",
+                "denver",
+            ]
+
+            canada_city_count = sum(
+                1 for city in canadian_cities if city in page_text.lower()
+            )
+            us_city_count = sum(
+                1 for city in us_cities_common if city in page_text.lower()
+            )
+
+            # If Canadian cities mentioned but NO US cities, likely Canada
+            if canada_city_count > 0 and us_city_count == 0:
+                return "Canada"
 
             # Don't flag if multiple US cities mentioned
             us_mentions = sum(
@@ -673,41 +708,6 @@ class LocationProcessor:
             return "Unknown"
         except:
             return "Unknown"
-
-    @staticmethod
-    def extract_location_from_url(url):
-        url_lower = url.lower()
-        if "workday" in url_lower or "myworkdayjobs" in url_lower:
-            if (
-                "-can/" in url_lower
-                or "-can-" in url_lower
-                or "canada-" in url_lower
-                or "/canada" in url_lower
-            ):
-                canada_match = re.search(
-                    r"/([A-Za-z-]+)(?:-ON-CAN|-QC-CAN|-BC-CAN|-AB-CAN|---[A-Za-z-]+)",
-                    url,
-                    re.I,
-                )
-                if canada_match:
-                    city = canada_match.group(1).replace("-", " ").title()
-                    return f"{city}, Canada"
-                return "Canada"
-            canadian_cities = [
-                "toronto",
-                "ottawa",
-                "montreal",
-                "vancouver",
-                "calgary",
-                "edmonton",
-            ]
-            for city in canadian_cities:
-                if city in url_lower:
-                    return f"{city.title()}, Canada"
-        if "oraclecloud.com" in url_lower:
-            if any(c in url_lower for c in ["canada", "toronto", "ottawa", "montreal"]):
-                return "Canada"
-        return None
 
 
 class ValidationHelper:
@@ -787,7 +787,9 @@ class ValidationHelper:
             bachelor_only_patterns = [
                 r"undergraduate\s+students?\s+only",
                 r"bachelor'?s?\s+degree\s+in\s+progress",
-                r"currently\s+pursuing\s+a\s+bachelor'?s?(?!\s+(or|and)\s+master)",  # "bachelor's" but NOT "bachelor's or master's"
+                r"currently\s+pursuing\s+a\s+bachelor'?s?(?!\s+(or|and)\s+master)",
+                r"currently\s+a\s+candidate\s+for\s+a\s+[Bb]achelor",
+                r"candidate\s+for\s+a\s+[Bb]achelor'?s?\s+degree",
                 r"enrolled\s+in\s+(?:a|an)\s+undergraduate\s+degree",
                 r"must\s+be\s+enrolled\s+in\s+(?:a|an)\s+undergraduate",
             ]
@@ -871,30 +873,6 @@ class ValidationHelper:
                 return False, f"Job listing page: {pattern}"
 
         return True, None
-
-    @staticmethod
-    def check_url_for_canada(url):
-        url_lower = url.lower()
-        canada_markers = [
-            "-can/",
-            "-can-",
-            "/canada",
-            "canada-",
-            "canada/",
-            "/toronto",
-            "/ottawa",
-            "/montreal",
-            "/vancouver",
-            "toronto-on",
-            "ottawa-on",
-            "montreal-qc",
-        ]
-        for marker in canada_markers:
-            if marker in url_lower:
-                return "URL→Canada"
-        if ".ca/" in url or url.endswith(".ca"):
-            return "Domain→Canada"
-        return None
 
 
 class QualityScorer:
