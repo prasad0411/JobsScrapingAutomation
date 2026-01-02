@@ -211,6 +211,22 @@ class UnifiedJobAggregator:
             print(f"\n[GITHUB] Processing: {company} - {title[:60]}")
             print(f"         URL: {url[:100]}")
 
+            # URL pre-check for Canada
+            url_canada = ValidationHelper.check_url_for_canada(url)
+            if url_canada:
+                self._add_to_discarded(
+                    company,
+                    title,
+                    "Canada",
+                    "Unknown",
+                    url,
+                    "N/A",
+                    url_canada,
+                    "GitHub",
+                    "Unknown",
+                )
+                return
+
             # Fetch page
             response, final_url = self.page_fetcher.fetch_page(url)
 
@@ -446,6 +462,13 @@ class UnifiedJobAggregator:
                 self.outcomes["skipped_invalid_url"] += 1
                 continue
 
+            # Check URL for Canada
+            url_canada = ValidationHelper.check_url_for_canada(url)
+            if url_canada:
+                print(f"  ✗ {url_canada}")
+                self.outcomes["skipped_invalid_url"] += 1
+                continue
+
             # Resolve Jobright URLs
             if "jobright.ai/jobs/info/" in url.lower():
                 print(f"  Resolving Jobright URL...")
@@ -549,6 +572,22 @@ class UnifiedJobAggregator:
     def _process_single_email_job(self, url, email_html, sender, current_idx, total):
         """Process a single job from email with comprehensive validation."""
         try:
+            # URL pre-check for Canada
+            url_canada = ValidationHelper.check_url_for_canada(url)
+            if url_canada:
+                return {
+                    "decision": "discard",
+                    "company": "Unknown",
+                    "title": "Unknown",
+                    "location": "Canada",
+                    "remote": "Unknown",
+                    "url": url,
+                    "job_id": "N/A",
+                    "reason": url_canada,
+                    "source": sender,
+                    "sponsorship": "Unknown",
+                }
+
             time.sleep(random.uniform(1.5, 2.5))
 
             # Try to parse from email first
