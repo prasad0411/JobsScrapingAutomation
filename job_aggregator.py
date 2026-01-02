@@ -1684,7 +1684,7 @@ class UnifiedJobAggregator:
     def _parse_age(age_str):
         """Parse age string like '1d' to days."""
         match = re.search(r"(\d+)d", age_str.lower()) if age_str else None
-        return int(match.group(1)) if match else 999
+        return int(match.group(1)) if match else 999 
 
     @staticmethod
     def _format_date():
