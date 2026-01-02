@@ -674,6 +674,41 @@ class LocationProcessor:
         except:
             return "Unknown"
 
+    @staticmethod
+    def extract_location_from_url(url):
+        url_lower = url.lower()
+        if "workday" in url_lower or "myworkdayjobs" in url_lower:
+            if (
+                "-can/" in url_lower
+                or "-can-" in url_lower
+                or "canada-" in url_lower
+                or "/canada" in url_lower
+            ):
+                canada_match = re.search(
+                    r"/([A-Za-z-]+)(?:-ON-CAN|-QC-CAN|-BC-CAN|-AB-CAN|---[A-Za-z-]+)",
+                    url,
+                    re.I,
+                )
+                if canada_match:
+                    city = canada_match.group(1).replace("-", " ").title()
+                    return f"{city}, Canada"
+                return "Canada"
+            canadian_cities = [
+                "toronto",
+                "ottawa",
+                "montreal",
+                "vancouver",
+                "calgary",
+                "edmonton",
+            ]
+            for city in canadian_cities:
+                if city in url_lower:
+                    return f"{city.title()}, Canada"
+        if "oraclecloud.com" in url_lower:
+            if any(c in url_lower for c in ["canada", "toronto", "ottawa", "montreal"]):
+                return "Canada"
+        return None
+
 
 class ValidationHelper:
     """Validates company names, URLs, and checks page restrictions."""
@@ -836,6 +871,30 @@ class ValidationHelper:
                 return False, f"Job listing page: {pattern}"
 
         return True, None
+
+    @staticmethod
+    def check_url_for_canada(url):
+        url_lower = url.lower()
+        canada_markers = [
+            "-can/",
+            "-can-",
+            "/canada",
+            "canada-",
+            "canada/",
+            "/toronto",
+            "/ottawa",
+            "/montreal",
+            "/vancouver",
+            "toronto-on",
+            "ottawa-on",
+            "montreal-qc",
+        ]
+        for marker in canada_markers:
+            if marker in url_lower:
+                return "URL→Canada"
+        if ".ca/" in url or url.endswith(".ca"):
+            return "Domain→Canada"
+        return None
 
 
 class QualityScorer:
