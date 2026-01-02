@@ -373,7 +373,7 @@ SPECIAL_COMPANY_NAMES = {
 
 # Quality Scoring Thresholds
 MIN_QUALITY_SCORE = 3
-MAX_JOB_AGE_DAYS = 3
+MAX_JOB_AGE_DAYS = 5
 
 # Sheet Colors
 STATUS_COLORS = {
@@ -407,18 +407,4 @@ HANDSHAKE_CONFIG = {
     "stop_on_captcha": True,
     "retry_on_failure": False,
     "fail_silently": True,
-}
-
-HANDSHAKE_COOKIES_FILE = "handshake_cookies.json"
-HANDSHAKE_CONFIG = {
-    "search_url": "PASTE_YOUR_HANDSHAKE_FILTER_URL_HERE",
-    "max_jobs_per_session": 50,
-    "max_sessions_per_day": 1,
-    "scrape_only_weekdays": True,
-    "scrape_hours": (8, 20),
-    "delay_between_jobs": (5, 15),
-    "scroll_delay": (1, 3),
-    "read_time_per_job": (45, 90),
-    "blank_click_probability": 0.3,
-    "scroll_probability": 0.7,
 }
