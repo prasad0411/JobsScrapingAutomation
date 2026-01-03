@@ -192,10 +192,7 @@ class SheetsManager:
     def add_valid_jobs(self, jobs, start_row, start_sr_no):
         """Add valid jobs to sheet with formatting."""
         if not jobs:
-            print("No new valid jobs to add")
             return 0
-
-        print(f"Adding {len(jobs)} valid jobs")
 
         for i in range(0, len(jobs), 10):
             batch = jobs[i : i + 10]
@@ -227,16 +224,12 @@ class SheetsManager:
             time.sleep(3)
 
         self._auto_resize_all_columns_dynamic(self.valid_sheet, 13)
-        print(f"Added {len(jobs)} valid jobs")
         return len(jobs)
 
     def add_discarded_jobs(self, jobs, start_row, start_sr_no):
         """Add discarded jobs to sheet."""
         if not jobs:
-            print("No new discarded jobs to add")
             return 0
-
-        print(f"Adding {len(jobs)} discarded jobs")
 
         for i in range(0, len(jobs), 10):
             batch = jobs[i : i + 10]
@@ -268,7 +261,6 @@ class SheetsManager:
             time.sleep(3)
 
         self._auto_resize_all_columns_dynamic(self.discarded_sheet, 13)
-        print(f"Added {len(jobs)} discarded jobs")
         return len(jobs)
 
     def _batch_update_with_formatting(
@@ -428,8 +420,6 @@ class SheetsManager:
         URL column reduced by 5 pixels.
         """
         try:
-            print(f"  → Auto-sizing {total_columns} columns dynamically...")
-
             # Get all data from sheet
             all_data = sheet.get_all_values()
 
@@ -531,10 +521,8 @@ class SheetsManager:
                 self.spreadsheet.batch_update({"requests": batch})
                 time.sleep(1)
 
-            print(f"  ✓ All columns resized dynamically")
-
         except Exception as e:
-            print(f"  ✗ Column resize error: {e}")
+            print(f"Column resize error: {e}")
 
     def _format_headers(self, sheet, num_cols):
         """Format header row."""

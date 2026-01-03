@@ -36,8 +36,6 @@ class UnifiedJobAggregator:
 
     def __init__(self):
         print("=" * 80)
-        print("JOB AGGREGATOR - ENHANCED VERSION")
-        print("=" * 80)
 
         # Initialize components
         self.sheets = SheetsManager()
@@ -162,7 +160,7 @@ class UnifiedJobAggregator:
             is_closed = job["is_closed"]
             source = job["source"]
 
-            # ✅ Age filter - handle both "1d" and "Jan 01" formats
+            # Age filter - handle both "1d" and "Jan 01" formats
             age_days = self._parse_github_age(age)
             if age_days > MAX_JOB_AGE_DAYS:
                 continue
@@ -219,11 +217,11 @@ class UnifiedJobAggregator:
                 )
                 continue
 
-            # ✅ CHECK 2: URL pre-check for international (BEFORE fetching page)
+            # CHECK 2: URL pre-check for international (BEFORE fetching page)
             url_intl_check = ValidationHelper.check_url_for_international(url)
             if url_intl_check:
                 print(
-                    f"  {company[:30]}: ✗ {url_intl_check.split(':')[1].strip()[:20]}"
+                    f"  {company[:30]}: ✗ {self._truncate(url_intl_check.split(':')[1].strip(), 50)}"
                 )
                 self.outcomes["skipped_url_international"] += 1
                 country = (
@@ -274,7 +272,7 @@ class UnifiedJobAggregator:
 
             soup = BeautifulSoup(response.text, "html.parser")
 
-            # ✅ CHECK 1: Job age FIRST (before expensive operations)
+            # CHECK 1: Job age FIRST (before expensive operations)
             job_age = PageParser.extract_job_age_days(soup)
             if job_age is not None and job_age > MAX_JOB_AGE_DAYS:
                 print(f"  {company[:30]}: ✗ Too old ({job_age}d)")
@@ -298,7 +296,7 @@ class UnifiedJobAggregator:
                 title, page_text_sample
             )
             if not is_valid_season:
-                print(f"  {company[:30]}: ✗ {season_reason[:20]}")
+                print(f"  {company[:30]}: ✗ {self._truncate(season_reason, 50)}")
                 self.outcomes["skipped_wrong_season"] += 1
                 self._add_to_discarded(
                     company,
@@ -316,7 +314,7 @@ class UnifiedJobAggregator:
             # CHECK 3: Restrictions
             restriction = ValidationHelper.check_page_restrictions(soup)
             if restriction:
-                print(f"  {company[:30]}: ✗ {restriction[:20]}")
+                print(f"  {company[:30]}: ✗ {self._truncate(restriction, 50)}")
                 self._add_to_discarded(
                     company,
                     title,
@@ -340,7 +338,7 @@ class UnifiedJobAggregator:
             )
             sponsorship = ValidationHelper.check_sponsorship_status(soup)
 
-            # ✅ CHECK 4: International location (with Unknown handling)
+            # CHECK 4: International location (with Unknown handling)
             if location_extracted == "Unknown":
                 # Aggressive country scan for Unknown locations
                 country_found = LocationProcessor._aggressive_country_scan(soup)
@@ -368,7 +366,9 @@ class UnifiedJobAggregator:
                     location_extracted, soup
                 )
                 if intl_check:
-                    print(f"  {company[:30]}: ✗ {intl_check.split(':')[1].strip()}")
+                    print(
+                        f"  {company[:30]}: ✗ {self._truncate(intl_check.split(':')[1].strip(), 50)}"
+                    )
                     country = self._detect_country_simple(location_extracted)
                     self._add_to_discarded(
                         company,
@@ -492,7 +492,7 @@ class UnifiedJobAggregator:
                 self.outcomes["skipped_invalid_url"] += 1
                 continue
 
-            # ✅ CHECK 0.5: URL pre-check for international
+            # CHECK 0.5: URL pre-check for international
             url_intl_check = ValidationHelper.check_url_for_international(url)
             if url_intl_check:
                 self.outcomes["skipped_url_international"] += 1
@@ -535,7 +535,7 @@ class UnifiedJobAggregator:
 
             elif decision == "discard":
                 print(
-                    f"  {result['company'][:30]} ({sender}): ✗ {result['reason'][:25]}"
+                    f"  {result['company'][:30]} ({sender}): ✗ {self._truncate(result['reason'], 50)}"
                 )
                 self.discarded_jobs.append(
                     {
@@ -645,7 +645,7 @@ class UnifiedJobAggregator:
 
             soup = BeautifulSoup(response.text, "html.parser")
 
-            # ✅ CHECK 1: Job age FIRST
+            # CHECK 1: Job age FIRST
             job_age_days = PageParser.extract_job_age_days(soup)
             if job_age_days is not None and job_age_days > MAX_JOB_AGE_DAYS:
                 self.outcomes["skipped_too_old"] += 1
@@ -1046,7 +1046,7 @@ class UnifiedJobAggregator:
         )
         sponsorship = ValidationHelper.check_sponsorship_status(soup)
 
-        # ✅ CHECK 8: International (with Unknown handling)
+        # CHECK 8: International (with Unknown handling)
         if location_extracted == "Unknown":
             country_found = LocationProcessor._aggressive_country_scan(soup)
             if country_found and country_found not in ["USA", "United States", "US"]:
@@ -1230,7 +1230,7 @@ class UnifiedJobAggregator:
                     "sponsorship": sponsorship,
                 }
 
-        # ✅ CHECK 7: International (with Unknown handling)
+        # CHECK 7: International (with Unknown handling)
         if location == "Unknown":
             country_found = LocationProcessor._aggressive_country_scan(soup)
             if country_found and country_found not in ["USA", "United States", "US"]:
@@ -1505,7 +1505,7 @@ class UnifiedJobAggregator:
         print("=" * 80)
 
     def _parse_github_age(self, age_str):
-        """✅ Parse age from GitHub tables - handles both '1d' and 'Jan 01' formats."""
+        """Parse age from GitHub tables - handles both '1d' and 'Jan 01' formats."""
         if not age_str:
             return 999
 
@@ -1515,14 +1515,12 @@ class UnifiedJobAggregator:
             return int(match.group(1))
 
         # Format 2: "Jan 01", "Dec 12" (vanshb03)
-        # Parse month/day and calculate days since posting
         match = re.search(r"([A-Z][a-z]{2})\s+(\d{1,2})", age_str)
         if match:
             try:
                 month_str = match.group(1)
                 day = int(match.group(2))
 
-                # Month mapping
                 months = {
                     "Jan": 1,
                     "Feb": 2,
@@ -1542,11 +1540,9 @@ class UnifiedJobAggregator:
                 if not month:
                     return 999
 
-                # Assume current year (2026)
                 posted_date = datetime.datetime(2026, month, day)
                 today = datetime.datetime.now()
 
-                # If posted date is in future, assume previous year
                 if posted_date > today:
                     posted_date = datetime.datetime(2025, month, day)
 
@@ -1556,6 +1552,13 @@ class UnifiedJobAggregator:
                 return 999
 
         return 999
+
+    @staticmethod
+    def _truncate(text, max_length=50):
+        """Truncate text to max length."""
+        if len(text) <= max_length:
+            return text
+        return text[: max_length - 3] + "..."
 
     @staticmethod
     def _normalize(text):
@@ -1570,7 +1573,6 @@ class UnifiedJobAggregator:
         if not url:
             return ""
 
-        # Handle Jobright URLs specially
         if "jobright.ai/jobs/info/" in url.lower():
             match = re.search(r"(jobright\.ai/jobs/info/[a-f0-9]+)", url, re.I)
             if match:
