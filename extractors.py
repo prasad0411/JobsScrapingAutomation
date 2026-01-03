@@ -1029,7 +1029,7 @@ class SimplifyGitHubScraper:
 
     @staticmethod
     def _parse_markdown_text(text, source_name):
-        """✅ Parse tab-delimited or pipe-delimited markdown tables - FIXED HTML anchor support."""
+        """Parse tab-delimited or pipe-delimited markdown tables."""
         lines = text.split("\n")
         jobs = []
 
@@ -1040,14 +1040,9 @@ class SimplifyGitHubScraper:
                 r"Company.*Role.*Location.*(?:Application|Link).*Date", line, re.I
             ):
                 header_idx = i
-                print(f"  [DEBUG] Found header at line {i}: {line[:80]}")
                 break
 
         if header_idx == -1:
-            print(f"  [DEBUG] No header found in {len(lines)} lines")
-            print(f"  [DEBUG] First 5 lines:")
-            for i, line in enumerate(lines[:5]):
-                print(f"    {i}: {line[:80]}")
             return []
 
         # Detect delimiter
@@ -1058,42 +1053,22 @@ class SimplifyGitHubScraper:
         if "\t" in header:
             delimiter = "\t"
             start = header_idx + 1
-            print(f"  [DEBUG] Using TAB delimiter, starting at line {start}")
         elif "|" in header:
             delimiter = "|"
             start = header_idx + 2  # Skip separator line
-            print(f"  [DEBUG] Using PIPE delimiter, starting at line {start}")
         else:
-            print(f"  [DEBUG] No delimiter found in header: {header[:80]}")
             return []
 
         # Parse rows
-        total_lines = 0
-        valid_rows = 0
-        closed_jobs = 0
-        skipped_short = 0
-        skipped_no_url = 0
-
-        for line_num, line in enumerate(lines[start:], start=start):
+        for line in lines[start:]:
             if not line.strip():
                 continue
-
-            total_lines += 1
 
             # Split by delimiter
             parts = [p.strip() for p in line.split(delimiter) if p.strip()]
 
-            # Debug first 3 lines
-            if total_lines <= 3:
-                print(f"  [DEBUG] Line {line_num}: {len(parts)} parts | {line[:80]}")
-
             if len(parts) < 5:
-                skipped_short += 1
-                if skipped_short <= 3:
-                    print(f"  [DEBUG] Skipped (< 5 parts): {parts}")
                 continue
-
-            valid_rows += 1
 
             # Extract fields
             company = SimplifyGitHubScraper._remove_emojis(parts[0])
@@ -1102,15 +1077,15 @@ class SimplifyGitHubScraper:
             link_cell = parts[3]
             age = parts[4] if len(parts) > 4 else "Unknown"
 
-            # ✅ FIX: Extract URL from HTML <a> tag, markdown link, or direct URL
+            # Extract URL from HTML <a> tag, markdown link, or direct URL
             url = None
 
-            # Try HTML anchor tag first (vanshb03 format: <a href="url">text</a>)
+            # Try HTML anchor tag first (vanshb03 format)
             html_match = re.search(r'<a\s+href="(https?://[^"]+)"', link_cell)
             if html_match:
                 url = html_match.group(1)
             else:
-                # Try markdown link format (SimplifyJobs format: [text](url))
+                # Try markdown link format (SimplifyJobs format)
                 md_match = re.search(r"\[.*?\]\((https?://[^\)]+)\)", link_cell)
                 if md_match:
                     url = md_match.group(1)
@@ -1118,18 +1093,12 @@ class SimplifyGitHubScraper:
                     url = link_cell
 
             if not url:
-                skipped_no_url += 1
-                if skipped_no_url <= 3:
-                    print(f"  [DEBUG] No URL found in: {link_cell[:60]}")
                 continue
 
             # Check if closed
             is_closed = "🔒" in line or "❌" in line or "closed" in line.lower()
 
             if is_closed:
-                closed_jobs += 1
-                if closed_jobs <= 3:
-                    print(f"  [DEBUG] Closed: {company} - {title}")
                 continue
 
             # Add to jobs
@@ -1144,16 +1113,6 @@ class SimplifyGitHubScraper:
                     "source": source_name,
                 }
             )
-
-        print(
-            f"  [DEBUG] Summary: {total_lines} total, {valid_rows} valid rows, {skipped_short} skipped (short), {skipped_no_url} skipped (no URL), {closed_jobs} closed, {len(jobs)} ADDED"
-        )
-
-        # Show first 2 jobs added
-        if jobs:
-            print(f"  [DEBUG] Sample jobs added:")
-            for i, job in enumerate(jobs[:2], 1):
-                print(f"    {i}. {job['company']} - {job['title']}")
 
         return jobs
 
