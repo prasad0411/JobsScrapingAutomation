@@ -3,7 +3,7 @@
 """
 Extraction module for job data from various sources.
 Handles web scraping, email parsing, and Jobright authentication.
-ENHANCED: Platform-specific job ID extraction, better age detection, company name fixes
+ENHANCED: Markdown table parser for vanshb03, platform-specific job ID extraction
 """
 
 import requests
@@ -508,40 +508,37 @@ class PageParser:
 
     @staticmethod
     def extract_job_id(soup, url):
-        """✅ ENHANCED: Platform-specific job ID extraction - prioritizes page content over URL."""
+        """✅ ENHANCED: Platform-specific job ID - prioritizes page text, uses word boundaries."""
         try:
             page_text = soup.get_text()
 
-            # ✅ PRIORITY 1: Check page text for explicit Job Code/Req ID (TikTok, others)
-            # TikTok uses "Job Code: A07000" format
-            match = re.search(r"Job Code:\s*([A-Z0-9]+)", page_text, re.I)
+            # ✅ PRIORITY 1: Page text with word boundaries (fixes "A07000Apply" issue)
+
+            # TikTok/General: Job Code with word boundary
+            match = re.search(r"Job Code:\s*([A-Z0-9]{3,15})\b", page_text, re.I)
             if match:
                 return match.group(1).strip()
 
-            # Standard "Req ID" or "Job ID" formats
+            # Standard formats with word boundaries
             patterns = [
-                r"Req ID:\s*([A-Z0-9\-]+)",
-                r"Job ID:\s*([A-Z0-9\-]+)",
-                r"Requisition ID:\s*([A-Z0-9\-]+)",
-                r"Requisition:\s*([A-Z0-9\-]+)",
+                r"Req ID:\s*([A-Z0-9\-]{3,20})\b",
+                r"Job ID:\s*([A-Z0-9\-]{3,20})\b",
+                r"Requisition ID:\s*([A-Z0-9\-]{3,20})\b",
+                r"Requisition:\s*([A-Z0-9\-]{3,20})\b",
             ]
 
             for pattern in patterns:
                 match = re.search(pattern, page_text, re.I)
                 if match:
-                    job_id = match.group(1).strip()
-                    # Validate it looks like a real job ID
-                    if len(job_id) > 2 and len(job_id) < 30:
-                        return job_id
+                    return match.group(1).strip()
 
-            # ✅ PRIORITY 2: Check URL for job IDs
+            # ✅ PRIORITY 2: URL-based extraction
 
-            # Workday: REQ-XXXX-XXX format (in URL or redirected URL)
+            # Workday: REQ-XXXX-XXX format
             if "workday" in url.lower():
                 match = re.search(r"REQ-\d{4}-\d{1,3}", url)
                 if match:
                     return match.group(0)
-                # Also check _JOBCODE format
                 match = re.search(r"_([A-Z]*\d+)(?:\?|$)", url)
                 if match:
                     return match.group(1)
@@ -552,20 +549,14 @@ class PageParser:
                 if match:
                     return match.group(1)
 
-            # TikTok: Only if no Job Code found in text (fallback to URL ID)
+            # TikTok: /search/XXXXX (only as fallback)
             if "tiktok.com" in url.lower() or "lifeattiktok.com" in url.lower():
                 match = re.search(r"/search/(\d{10,})", url)
                 if match:
                     return match.group(1)
 
-            # Greenhouse: /jobs/XXXXXXX
-            if "greenhouse" in url.lower():
-                match = re.search(r"/jobs?/(\d{7,})", url)
-                if match:
-                    return match.group(1)
-
-            # Oracle/SAP: job/XXXXX
-            if "oracle" in url.lower() or "sap" in url.lower():
+            # Oracle: job/XXXXX
+            if "oracle" in url.lower():
                 match = re.search(r"/job/(\d{5,})", url)
                 if match:
                     return match.group(1)
@@ -580,12 +571,12 @@ class PageParser:
         try:
             page_text = soup.get_text()[:3000]
 
-            # ✅ Pattern 1: "Posted X Days Ago" (handles "22 Days Ago" from NCAR)
+            # Pattern 1: "Posted X Days Ago"
             match = re.search(r"[Pp]osted\s+(\d+)\+?\s+[Dd]ays?\s+[Aa]go", page_text)
             if match:
                 return int(match.group(1))
 
-            # ✅ Pattern 2: Just "X Days Ago" or "X days ago"
+            # Pattern 2: Just "X Days Ago"
             match = re.search(r"(\d+)\+?\s+[Dd]ays?\s+[Aa]go", page_text)
             if match:
                 return int(match.group(1))
@@ -600,7 +591,7 @@ class PageParser:
             if re.search(r"(\d+)\s+hours?\s+ago", page_text, re.I):
                 return 0
 
-            # Pattern 5: Date formats (MM/DD/YYYY or MM-DD-YYYY)
+            # Pattern 5: Date formats
             match = re.search(
                 r"[Pp]osted:?\s*(\d{1,2})[/\-](\d{1,2})[/\-](\d{2,4})", page_text
             )
@@ -1007,78 +998,212 @@ class SourceParsers:
 
 
 class SimplifyGitHubScraper:
-    """✅ ENHANCED: Scrapes GitHub repos with better error handling."""
+    """✅ FIXED: Handles both HTML and markdown/tab-delimited tables."""
 
     @staticmethod
     def scrape(url, source_name="GitHub"):
-        """Scrape and return job listings from GitHub README with detailed logging."""
+        """Scrape with markdown table support for vanshb03."""
         try:
-            print(f"     Fetching {url}...")
             response = requests.get(url, timeout=10)
 
             if response.status_code != 200:
                 print(f"     ✗ HTTP {response.status_code}")
                 return []
 
+            # Try HTML parsing first
             soup = BeautifulSoup(response.text, "html.parser")
             tables = soup.find_all("table")
 
-            if not tables:
-                print(f"     ✗ No tables found in README")
-                return []
-
-            print(f"     → Found {len(tables)} table(s)")
-
-            jobs = []
-            for table in tables:
-                rows = table.find_all("tr")
-                print(f"     → Processing {len(rows)-1} rows from table...")
-
-                for row in rows[1:]:  # Skip header
-                    cells = row.find_all("td")
-                    if len(cells) < 5:
-                        continue
-
-                    company_link = cells[0].find("a")
-                    if not company_link:
-                        continue
-
-                    company = SimplifyGitHubScraper._remove_emojis(
-                        company_link.get_text(strip=True)
-                    )
-                    title = SimplifyGitHubScraper._remove_emojis(
-                        cells[1].get_text(strip=True)
-                    )
-                    location = SimplifyGitHubScraper._remove_emojis(
-                        cells[2].get_text(strip=True)
-                    )
-                    age = cells[4].get_text(strip=True)
-
-                    apply_link = cells[3].find("a", href=True)
-                    if not apply_link:
-                        continue
-
-                    url = apply_link.get("href", "")
-                    is_closed = "🔒" in str(cells[3])
-
-                    jobs.append(
-                        {
-                            "company": company,
-                            "title": title,
-                            "location": location,
-                            "url": url,
-                            "age": age,
-                            "is_closed": is_closed,
-                            "source": source_name,
-                        }
-                    )
-
-            print(f"     ✓ Extracted {len(jobs)} jobs")
-            return jobs
+            if tables:
+                # HTML tables found
+                return SimplifyGitHubScraper._parse_html_tables(soup, source_name)
+            else:
+                # No HTML tables - parse as markdown/tab-delimited
+                return SimplifyGitHubScraper._parse_markdown_text(
+                    response.text, source_name
+                )
 
         except Exception as e:
-            print(f"     ✗ Scraping error ({source_name}): {e}")
+            print(f"     ✗ Error: {e}")
             return []
+
+    @staticmethod
+    def _parse_markdown_text(text, source_name):
+        """✅ Parse tab-delimited or pipe-delimited markdown tables - FIXED HTML anchor support."""
+        lines = text.split("\n")
+        jobs = []
+
+        # Find header
+        header_idx = -1
+        for i, line in enumerate(lines):
+            if re.search(
+                r"Company.*Role.*Location.*(?:Application|Link).*Date", line, re.I
+            ):
+                header_idx = i
+                print(f"  [DEBUG] Found header at line {i}: {line[:80]}")
+                break
+
+        if header_idx == -1:
+            print(f"  [DEBUG] No header found in {len(lines)} lines")
+            print(f"  [DEBUG] First 5 lines:")
+            for i, line in enumerate(lines[:5]):
+                print(f"    {i}: {line[:80]}")
+            return []
+
+        # Detect delimiter
+        header = lines[header_idx]
+        delimiter = None
+        start = 0
+
+        if "\t" in header:
+            delimiter = "\t"
+            start = header_idx + 1
+            print(f"  [DEBUG] Using TAB delimiter, starting at line {start}")
+        elif "|" in header:
+            delimiter = "|"
+            start = header_idx + 2  # Skip separator line
+            print(f"  [DEBUG] Using PIPE delimiter, starting at line {start}")
+        else:
+            print(f"  [DEBUG] No delimiter found in header: {header[:80]}")
+            return []
+
+        # Parse rows
+        total_lines = 0
+        valid_rows = 0
+        closed_jobs = 0
+        skipped_short = 0
+        skipped_no_url = 0
+
+        for line_num, line in enumerate(lines[start:], start=start):
+            if not line.strip():
+                continue
+
+            total_lines += 1
+
+            # Split by delimiter
+            parts = [p.strip() for p in line.split(delimiter) if p.strip()]
+
+            # Debug first 3 lines
+            if total_lines <= 3:
+                print(f"  [DEBUG] Line {line_num}: {len(parts)} parts | {line[:80]}")
+
+            if len(parts) < 5:
+                skipped_short += 1
+                if skipped_short <= 3:
+                    print(f"  [DEBUG] Skipped (< 5 parts): {parts}")
+                continue
+
+            valid_rows += 1
+
+            # Extract fields
+            company = SimplifyGitHubScraper._remove_emojis(parts[0])
+            title = SimplifyGitHubScraper._remove_emojis(parts[1])
+            location = SimplifyGitHubScraper._remove_emojis(parts[2])
+            link_cell = parts[3]
+            age = parts[4] if len(parts) > 4 else "Unknown"
+
+            # ✅ FIX: Extract URL from HTML <a> tag, markdown link, or direct URL
+            url = None
+
+            # Try HTML anchor tag first (vanshb03 format: <a href="url">text</a>)
+            html_match = re.search(r'<a\s+href="(https?://[^"]+)"', link_cell)
+            if html_match:
+                url = html_match.group(1)
+            else:
+                # Try markdown link format (SimplifyJobs format: [text](url))
+                md_match = re.search(r"\[.*?\]\((https?://[^\)]+)\)", link_cell)
+                if md_match:
+                    url = md_match.group(1)
+                elif link_cell.startswith("http"):
+                    url = link_cell
+
+            if not url:
+                skipped_no_url += 1
+                if skipped_no_url <= 3:
+                    print(f"  [DEBUG] No URL found in: {link_cell[:60]}")
+                continue
+
+            # Check if closed
+            is_closed = "🔒" in line or "❌" in line or "closed" in line.lower()
+
+            if is_closed:
+                closed_jobs += 1
+                if closed_jobs <= 3:
+                    print(f"  [DEBUG] Closed: {company} - {title}")
+                continue
+
+            # Add to jobs
+            jobs.append(
+                {
+                    "company": company,
+                    "title": title,
+                    "location": location,
+                    "url": url,
+                    "age": age,
+                    "is_closed": is_closed,
+                    "source": source_name,
+                }
+            )
+
+        print(
+            f"  [DEBUG] Summary: {total_lines} total, {valid_rows} valid rows, {skipped_short} skipped (short), {skipped_no_url} skipped (no URL), {closed_jobs} closed, {len(jobs)} ADDED"
+        )
+
+        # Show first 2 jobs added
+        if jobs:
+            print(f"  [DEBUG] Sample jobs added:")
+            for i, job in enumerate(jobs[:2], 1):
+                print(f"    {i}. {job['company']} - {job['title']}")
+
+        return jobs
+
+    @staticmethod
+    def _parse_html_tables(soup, source_name):
+        """Parse HTML tables (SimplifyJobs format)."""
+        tables = soup.find_all("table")
+        jobs = []
+
+        for table in tables:
+            for row in table.find_all("tr")[1:]:
+                cells = row.find_all("td")
+                if len(cells) < 5:
+                    continue
+
+                company_link = cells[0].find("a")
+                if not company_link:
+                    continue
+
+                company = SimplifyGitHubScraper._remove_emojis(
+                    company_link.get_text(strip=True)
+                )
+                title = SimplifyGitHubScraper._remove_emojis(
+                    cells[1].get_text(strip=True)
+                )
+                location = SimplifyGitHubScraper._remove_emojis(
+                    cells[2].get_text(strip=True)
+                )
+                age = cells[4].get_text(strip=True)
+
+                apply_link = cells[3].find("a", href=True)
+                if not apply_link:
+                    continue
+
+                url = apply_link.get("href", "")
+                is_closed = "🔒" in str(cells[3])
+
+                jobs.append(
+                    {
+                        "company": company,
+                        "title": title,
+                        "location": location,
+                        "url": url,
+                        "age": age,
+                        "is_closed": is_closed,
+                        "source": source_name,
+                    }
+                )
+
+        return jobs
 
     @staticmethod
     def _remove_emojis(text):
@@ -1297,7 +1422,7 @@ class HandshakeExtractor:
                 data["work_authorization_required"], data["sponsorship"] = "No", "Yes"
             if "Co-op" in text or "Coop" in text:
                 data["job_type"] = "Co-op"
-            return data 
+            return data
         except:
             return None
 
