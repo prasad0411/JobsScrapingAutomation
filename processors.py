@@ -3,7 +3,7 @@
 """
 Processing module for job data validation, cleaning, and quality scoring - ENHANCED VERSION
 Handles title cleaning, location formatting, international filtering, and all validation checks.
-FIXES: URL-based location detection, enhanced job ID extraction, better age parsing, remote status
+FIXES: Less strict UK/Canada detection, unclosed bracket removal, URL-based location detection
 """
 
 import re
@@ -30,8 +30,12 @@ class TitleProcessor:
 
         original = title
 
-        # Remove parentheses and brackets
+        # Remove parentheses and brackets (complete pairs)
         title = re.sub(r"\s*[\(\[].+?[\)\]]", "", title)
+
+        # ✅ NEW: Remove unclosed brackets at end (fixes "TikTok" issue)
+        title = re.sub(r"\s*\([^)]*$", "", title)  # "(TikTok" at end → ""
+        title = re.sub(r"\s*\[[^\]]*$", "", title)  # "[incomplete" at end → ""
 
         # Remove seasons + years
         title = re.sub(
@@ -194,14 +198,12 @@ class LocationProcessor:
         # ✅ LAYER 0: Extract from URL FIRST (most reliable for Workday)
         url_location = LocationProcessor._extract_from_url(url)
         if url_location and url_location != "Unknown":
-            print(f"    [URL] Found location: '{url_location}'")
             return url_location
 
         # Special handling for Simplify.jobs pages
         if "simplify.jobs" in url.lower():
             simplify_loc = LocationProcessor._extract_from_simplify_page(soup)
             if simplify_loc and simplify_loc != "Unknown":
-                print(f"    [Simplify] Found location: '{simplify_loc}'")
                 return simplify_loc
 
         # Method 1: JSON-LD structured data
@@ -227,14 +229,13 @@ class LocationProcessor:
         # ✅ LAYER 5: If still Unknown, do aggressive country detection
         country = LocationProcessor._aggressive_country_scan(soup)
         if country and country not in ["USA", "United States", "US", None]:
-            print(f"    [Aggressive scan] Found country: '{country}'")
             return country
 
         return "Unknown"
 
     @staticmethod
     def _extract_from_url(url):
-        """✅ NEW: Extract location directly from URL patterns (Workday, etc.)."""
+        """✅ Extract location directly from URL patterns (Workday, etc.)."""
         try:
             if not url:
                 return None
@@ -272,43 +273,43 @@ class LocationProcessor:
 
     @staticmethod
     def _aggressive_country_scan(soup):
-        """✅ NEW: When location Unknown, aggressively scan for country mentions."""
+        """✅ ENHANCED: Less strict - catches UK/Canada with simpler patterns."""
         try:
             page_text = soup.get_text()[:5000]
 
-            # Very specific patterns for countries
-            country_patterns = [
-                (r"\bUnited Kingdom\b", "United Kingdom"),
-                (r"\b(UK|U\.K\.)\b(?!\s+work authorization)", "United Kingdom"),
-                (r"\bCanada\b(?!\s+or\s+US)", "Canada"),
-                (r"\bIndia\b", "India"),
-                (r"\bSingapore\b", "Singapore"),
-                (r"\bAustralia\b", "Australia"),
-                (r"\bChina\b", "China"),
-                (r"\bGermany\b", "Germany"),
-                (r"\bJapan\b", "Japan"),
-            ]
+            # ✅ Direct matches (simpler, less strict)
+            if "United Kingdom" in page_text:
+                return "United Kingdom"
 
-            for pattern, country_name in country_patterns:
-                if re.search(pattern, page_text, re.I):
-                    # Additional validation: check context
-                    match = re.search(pattern, page_text, re.I)
-                    if match:
-                        # Get 100 chars before and after
-                        context_start = max(0, match.start() - 100)
-                        context_end = min(len(page_text), match.end() + 100)
-                        context = page_text[context_start:context_end].lower()
+            # UK (exclude only if "UK work authorization")
+            uk_match = re.search(r"\bUK\b", page_text)
+            if uk_match:
+                # Get small context around match
+                context = page_text[max(0, uk_match.start() - 20) : uk_match.end() + 30]
+                # Only exclude if it's "UK work authorization"
+                if "work authorization" not in context.lower():
+                    return "United Kingdom"
 
-                        # If context has location indicators, it's likely the job location
-                        location_indicators = [
-                            "location",
-                            "office",
-                            "based",
-                            "headquarters",
-                            "site",
-                        ]
-                        if any(ind in context for ind in location_indicators):
-                            return country_name
+            # Canada (exclude only "Canada or US")
+            canada_match = re.search(r"\bCanada\b", page_text)
+            if canada_match:
+                context = page_text[
+                    max(0, canada_match.start() - 10) : canada_match.end() + 10
+                ]
+                if "or us" not in context.lower() and "or usa" not in context.lower():
+                    return "Canada"
+
+            # Other countries (simple presence check)
+            for country in [
+                "India",
+                "Singapore",
+                "Australia",
+                "China",
+                "Germany",
+                "Japan",
+            ]:
+                if country in page_text:
+                    return country
 
             return None
         except:
@@ -316,12 +317,11 @@ class LocationProcessor:
 
     @staticmethod
     def _extract_from_simplify_page(soup):
-        """Extract location from Simplify.jobs page specifically - ENHANCED VERSION."""
+        """Extract location from Simplify.jobs page specifically."""
         try:
-            # Strategy 1: Look for location text patterns in entire page
             page_text = soup.get_text()
 
-            # Pattern 1: "Montreal, QC, Canada" (most explicit)
+            # Pattern 1: "Montreal, QC, Canada"
             match = re.search(
                 r"\b([A-Z][a-z]+(?:\s+[A-Z][a-z]+)?),\s*([A-Z]{2}),\s*(Canada|USA)\b",
                 page_text[:3000],
@@ -330,7 +330,7 @@ class LocationProcessor:
                 city, state, country = match.group(1), match.group(2), match.group(3)
                 return f"{city}, {state}, {country}"
 
-            # Pattern 2: "City, ST" where ST could be province or state
+            # Pattern 2: "City, ST"
             matches = re.findall(
                 r"\b([A-Z][a-z]+(?:\s+[A-Z][a-z]+)?),\s*([A-Z]{2})\b",
                 page_text[:3000],
@@ -341,7 +341,6 @@ class LocationProcessor:
 
                 # Check if it's a Canadian province
                 if state_upper in CANADA_PROVINCES:
-                    # Verify it's actually Canada by checking nearby context
                     match_pos = page_text.find(f"{city}, {state}")
                     if match_pos != -1:
                         context = page_text[
@@ -349,10 +348,8 @@ class LocationProcessor:
                                 len(page_text), match_pos + 100
                             )
                         ]
-                        # If "Canada" appears in context, it's definitely Canadian
                         if "canada" in context.lower():
                             return f"{city}, {state_upper}, Canada"
-                        # If no US states in context, assume Canada
                         if not any(us_st in context for us_st in US_STATES.values()):
                             return f"{city}, {state_upper}, Canada"
 
@@ -360,40 +357,8 @@ class LocationProcessor:
                 if state_upper in US_STATES.values():
                     return f"{city}, {state_upper}"
 
-            # Strategy 2: Look in specific HTML elements
-            # Check for elements containing "Montreal", "Toronto", etc.
-            location_keywords = [
-                "Montreal",
-                "Toronto",
-                "Vancouver",
-                "Ottawa",
-                "Calgary",
-            ]
-            for keyword in location_keywords:
-                elements = soup.find_all(
-                    ["p", "div", "span", "li"], string=re.compile(keyword, re.I)
-                )
-                for elem in elements:
-                    text = elem.get_text().strip()
-                    # Extract full location from this element
-                    match = re.search(
-                        r"\b([A-Z][a-z]+(?:\s+[A-Z][a-z]+)?),\s*([A-Z]{2})(?:,\s*([A-Za-z]+))?\b",
-                        text,
-                    )
-                    if match:
-                        city, state, country = (
-                            match.group(1),
-                            match.group(2),
-                            match.group(3),
-                        )
-                        if country and country.lower() == "canada":
-                            return f"{city}, {state}, Canada"
-                        if state.upper() in CANADA_PROVINCES:
-                            return f"{city}, {state.upper()}, Canada"
-
             return "Unknown"
         except Exception as e:
-            print(f"    [Simplify extraction error]: {e}")
             return "Unknown"
 
     @staticmethod
@@ -642,7 +607,7 @@ class LocationProcessor:
         if "united kingdom" in location_lower or location_lower.startswith("uk"):
             return "Location: UK"
 
-        # PRIORITY CHECK 3: Canadian cities (very specific)
+        # PRIORITY CHECK 3: Canadian cities
         canadian_cities_definite = [
             "toronto",
             "montreal",
@@ -658,13 +623,11 @@ class LocationProcessor:
 
         for city in canadian_cities_definite:
             if city in location_lower:
-                # Make absolutely sure it's not a US location
                 if not any(us_state in location for us_state in US_STATES.values()):
                     return "Location: Canada"
 
-        # PRIORITY CHECK 4: Canadian provinces (strict matching)
+        # PRIORITY CHECK 4: Canadian provinces
         for prov in CANADA_PROVINCES:
-            # Must be after comma or at end: ", ON" or "ON$"
             if re.search(r",\s*" + prov + r"\b", location) or re.search(
                 r"\b" + prov + r"$", location
             ):
@@ -739,11 +702,9 @@ class LocationProcessor:
                 1 for city in us_cities_common if city in page_text.lower()
             )
 
-            # If Canadian cities mentioned but NO US cities, likely Canada
             if canada_city_count > 0 and us_city_count == 0:
                 return "Canada"
 
-            # Don't flag if multiple US cities mentioned
             us_mentions = sum(
                 1
                 for city in list(CITY_TO_STATE.keys())[:20]
@@ -772,7 +733,7 @@ class LocationProcessor:
         try:
             page_text = soup.get_text()[:3000]
 
-            # ✅ Check for explicit "Remote: Yes" pattern (GitHub, TikTok, etc.)
+            # Check for explicit "Remote: Yes" pattern (GitHub, TikTok)
             if re.search(r"Remote:\s*Yes", page_text, re.I):
                 return "Remote"
 
@@ -798,7 +759,7 @@ class ValidationHelper:
 
     @staticmethod
     def check_url_for_international(url):
-        """✅ NEW: Check URL for international indicators BEFORE parsing page."""
+        """✅ Check URL for international indicators BEFORE parsing page."""
         if not url:
             return None
 
@@ -899,7 +860,7 @@ class ValidationHelper:
             if "us citizen only" in page_text or "must be a us citizen" in page_text:
                 return "US citizenship required"
 
-            # Bachelor's degree requirement (COMPREHENSIVE CHECK)
+            # Bachelor's degree requirement
             bachelor_only_patterns = [
                 r"undergraduate\s+students?\s+only",
                 r"bachelor'?s?\s+degree\s+in\s+progress",
@@ -913,12 +874,10 @@ class ValidationHelper:
             for pattern in bachelor_only_patterns:
                 match = re.search(pattern, page_text, re.I)
                 if match:
-                    # Check 200 chars before and after for "master" or "graduate"
                     context_start = max(0, match.start() - 200)
                     context_end = min(len(page_text), match.end() + 200)
                     context = page_text[context_start:context_end]
 
-                    # If master's/graduate mentioned nearby, it's okay
                     if not re.search(
                         r"(master'?s?|graduate|grad\s+student)", context, re.I
                     ):
