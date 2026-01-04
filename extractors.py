@@ -2,7 +2,7 @@
 # cSpell:disable
 """
 Extraction module for job data from various sources.
-Production-optimized v2.0 with robust email parsing, HTTP retries, and smart company extraction.
+Production v3.0: SIG company fix, IDEXX job ID, LinkedIn detection, HTTP retries
 """
 
 import requests
@@ -378,9 +378,7 @@ class PageFetcher:
         for attempt in range(retries):
             try:
                 headers = {
-                    "User-Agent": USER_AGENTS[
-                        attempt % len(USER_AGENTS)
-                    ],  # Rotate agents
+                    "User-Agent": USER_AGENTS[attempt % len(USER_AGENTS)],
                     "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
                     "Accept-Language": "en-US,en;q=0.9",
                     "Accept-Encoding": "gzip, deflate, br",
@@ -396,7 +394,7 @@ class PageFetcher:
 
                 # If failed, wait before retry
                 if attempt < retries - 1:
-                    wait_time = 2**attempt  # Exponential backoff: 1s, 2s, 4s
+                    wait_time = 2**attempt  # Exponential backoff
                     time.sleep(wait_time)
 
             except Exception as e:
@@ -458,9 +456,10 @@ class PageFetcher:
 class PageParser:
     """Parses job data from web pages."""
 
-    # ✅ OPTIMIZATION: Compile regex patterns once (class-level)
+    # Compile regex patterns once (class-level)
     JOB_CODE_PATTERN = re.compile(r"Job Code:\s*([A-Z0-9]{3,15})\b", re.I)
     JOB_ID_PATTERN = re.compile(r"Job ID[:\s]+([A-Z0-9\-]{3,20})\b", re.I)
+    J_PATTERN = re.compile(r"\b(J-\d{5,8})\b", re.I)  # ✅ NEW: IDEXX pattern
     REQ_PATTERNS = [
         re.compile(r"Req(?:uisition)? ID[:\s]+([A-Z0-9\-]{3,20})\b", re.I),
         re.compile(r"Requisition[:\s]+([A-Z0-9\-]{3,20})\b", re.I),
@@ -469,7 +468,18 @@ class PageParser:
 
     @staticmethod
     def extract_company(soup, url):
-        """✅ ENHANCED: Extract company name, validate it's not a title."""
+        """✅ ENHANCED: Extract company name with special cases and validation."""
+
+        # ✅ SPECIAL CASE 1: SIG (Susquehanna International Group)
+        if "careers.sig.com" in url.lower() or "sig.com/job" in url.lower():
+            return "Susquehanna International Group"
+
+        # ✅ SPECIAL CASE 2: LinkedIn (always extract from email, page requires auth)
+        if "linkedin.com/jobs" in url.lower():
+            from processors import ValidationHelper
+
+            return ValidationHelper.extract_company_from_domain(url)
+
         # Try JSON-LD first
         json_ld = soup.find("script", type="application/ld+json")
         if json_ld:
@@ -480,7 +490,7 @@ class PageParser:
                     if isinstance(org, dict):
                         name = org.get("name", "")
                         if name and len(name) < 100:
-                            # ✅ Validate it's not a title
+                            # Validate it's not a title
                             if not PageParser._looks_like_title(name):
                                 return name
             except:
@@ -495,13 +505,14 @@ class PageParser:
                 if not PageParser._looks_like_title(company):
                     return company
 
-        # Try H2/H3 tags for company name (but validate)
+        # Try looking for company-specific elements (avoid H1 which is usually title)
+        # Look for H2/H3 that don't contain job keywords
         for tag_name in ["h2", "h3", "h4"]:
             tag = soup.find(tag_name)
             if tag:
                 text = tag.get_text().strip()
                 if 2 < len(text) < 60 and not PageParser._looks_like_title(text):
-                    # Additional validation - company names don't usually have these words
+                    # Additional validation
                     if not any(
                         word in text.lower()
                         for word in ["position", "role", "job", "career", "opportunity"]
@@ -515,13 +526,13 @@ class PageParser:
 
     @staticmethod
     def _looks_like_title(text):
-        """✅ NEW: Check if text looks like a job title instead of company name."""
+        """✅ Check if text looks like a job title instead of company name."""
         if not text:
             return False
 
         text_lower = text.lower()
 
-        # Strong title indicators (2+ means it's definitely a title)
+        # Strong title indicators
         title_keywords = [
             "intern",
             "co-op",
@@ -544,9 +555,10 @@ class PageParser:
             "winter",
             "2025",
             "2026",
+            "2027",
         ]
 
-        # If contains 2+ title keywords, likely a title
+        # If contains 2+ title keywords, it's definitely a title
         keyword_count = sum(1 for kw in title_keywords if kw in text_lower)
         return keyword_count >= 2
 
@@ -586,28 +598,35 @@ class PageParser:
 
     @staticmethod
     def extract_job_id(soup, url):
-        """✅ OPTIMIZED: Platform-specific job ID extraction."""
+        """✅ ENHANCED: Job ID extraction with J- pattern for IDEXX."""
         try:
             page_text = soup.get_text()
 
-            # ✅ Priority 1: Page text with compiled patterns
+            # ✅ Priority 1: J-XXXXXX pattern (IDEXX, some Workday variants)
+            match = PageParser.J_PATTERN.search(page_text)
+            if match:
+                return match.group(1).upper()
+
+            # Priority 2: Job Code pattern
             match = PageParser.JOB_CODE_PATTERN.search(page_text)
             if match:
                 return match.group(1).strip()
 
+            # Priority 3: Job ID pattern
             match = PageParser.JOB_ID_PATTERN.search(page_text)
             if match:
                 return match.group(1).strip()
 
+            # Priority 4: Requisition patterns
             for pattern in PageParser.REQ_PATTERNS:
                 match = pattern.search(page_text)
                 if match:
                     return match.group(1).strip()
 
-            # ✅ Priority 2: URL-based extraction
+            # Priority 5: URL-based extraction
             if "workday" in url.lower():
-                # Workday patterns (consolidated)
                 workday_patterns = [
+                    (r"(J-\d{5,8})\b", re.I),  # ✅ NEW: J- pattern in URL
                     (r"(REQ-?\d{4,7}(?:-\d{1,3})?)\b", re.I),
                     (r"(R-\d{7,12})\b", re.I),
                     (r"(JR\d{5,10})\b", re.I),
@@ -622,7 +641,7 @@ class PageParser:
                     )
                     if match:
                         job_id = match.group(1)
-                        if len(job_id) < 12:  # Exclude timestamps
+                        if len(job_id) < 12:
                             return job_id.upper()
 
             # Platform-specific patterns
@@ -637,6 +656,7 @@ class PageParser:
                 "micron": r"/job/(\d{7,10})",
                 "sig.com": r"/job/([A-Z0-9]+)",
                 "careers.sig": r"/job/([A-Z0-9]+)",
+                "lever.co": r"/([a-f0-9\-]{36})",  # UUID format
             }
 
             url_lower = url.lower()
@@ -652,7 +672,7 @@ class PageParser:
 
     @staticmethod
     def extract_job_age_days(soup):
-        """✅ OPTIMIZED: Extract job age - return None for unknown (accept for manual review)."""
+        """Extract job age - return None for unknown."""
         try:
             page_text = soup.get_text()[:3000]
 
@@ -664,6 +684,7 @@ class PageParser:
                 (r"[Pp]osted\s+today|Today", lambda m: 0),
                 (r"[Pp]osted\s+yesterday|Yesterday", lambda m: 1),
                 (r"(\d+)\s+hours?\s+ago", lambda m: 0),
+                (r"[Rr]eposted\s+(\d+)\s+hours?\s+ago", lambda m: 0),
             ]
 
             for pattern, converter in age_patterns:
@@ -690,7 +711,6 @@ class PageParser:
                 except:
                     pass
 
-            # ✅ Return None for unknown (accept for manual review)
             return None
 
         except:
@@ -700,7 +720,7 @@ class PageParser:
     def extract_jobright_data(soup, url, jobright_auth):
         """✅ ENHANCED: Extract from Jobright page with JSON-LD parsing."""
         try:
-            # ✅ Try JSON-LD first (most reliable for Jobright)
+            # Try JSON-LD first (most reliable)
             script_tag = soup.find("script", {"id": "__NEXT_DATA__"})
             if script_tag:
                 try:
@@ -826,7 +846,7 @@ class PageParser:
 
 
 class SourceParsers:
-    """✅ OPTIMIZED: Parsers for specific sources with age extraction."""
+    """Parsers for specific sources with age extraction."""
 
     # Compile age patterns once
     HOURS_AGO = re.compile(r"(\d+)\s+hours?\s+ago", re.I)
@@ -834,13 +854,13 @@ class SourceParsers:
 
     @staticmethod
     def _extract_age_from_text(text):
-        """✅ DRY: Extract age from any text (email, card, page)."""
+        """Extract age from any text."""
         if not text:
             return None
 
         hours_match = SourceParsers.HOURS_AGO.search(text)
         if hours_match:
-            return 0  # <24 hours = 0 days
+            return 0
 
         days_match = SourceParsers.DAYS_AGO.search(text)
         if days_match:
@@ -850,7 +870,7 @@ class SourceParsers:
 
     @staticmethod
     def parse_ziprecruiter_email(soup, url):
-        """✅ ENHANCED: ZipRecruiter with age extraction."""
+        """ZipRecruiter with age extraction."""
         try:
             job_cards = soup.find_all(
                 ["div", "table", "tr"], class_=re.compile(r"job|listing", re.I)
@@ -990,7 +1010,7 @@ class SourceParsers:
                 elif "onsite" in work_type_lower:
                     remote = "On Site"
 
-            # Extract age from context
+            # Extract age
             email_text = " ".join(lines[max(0, url_index - 5) : url_index + 10])
 
             return {
@@ -1007,7 +1027,7 @@ class SourceParsers:
 
     @staticmethod
     def parse_adzuna_email(soup, url):
-        """✅ ENHANCED: Adzuna with age extraction."""
+        """Adzuna with age extraction."""
         try:
             h2_tags = soup.find_all("h2")
 
@@ -1095,18 +1115,17 @@ class SourceParsers:
 
     @staticmethod
     def parse_jobright_email(soup, url, jobright_auth):
-        """✅ CRITICAL FIX: Robust location extraction from Jobright email HTML."""
+        """✅ CRITICAL: Robust location extraction from Jobright email HTML."""
         try:
             url_base = url.split("?")[0]
 
             # Find all links matching this URL
             all_links = soup.find_all("a", href=re.compile(re.escape(url_base)))
 
-            # Find the TITLE link (contains job title text)
+            # Find the TITLE link
             title_link = None
             for link in all_links:
                 link_text = link.get_text().strip()
-                # Title is usually longer (>15 chars) and contains keywords
                 if len(link_text) > 15 and any(
                     kw in link_text.lower()
                     for kw in ["intern", "engineer", "software", "developer"]
@@ -1115,7 +1134,6 @@ class SourceParsers:
                     break
 
             if not title_link:
-                # Fallback: use any link with substantive text
                 for link in all_links:
                     if len(link.get_text().strip()) > 15:
                         title_link = link
@@ -1124,12 +1142,11 @@ class SourceParsers:
             if not title_link:
                 return None
 
-            # Find the JOB SECTION container
+            # Find JOB SECTION container
             job_section = title_link.find_parent("table", id="job-container")
             if not job_section:
-                # Fallback: find nearest table with substantial content
                 current = title_link
-                for _ in range(5):  # Search up to 5 levels
+                for _ in range(5):
                     current = current.find_parent("table")
                     if current and len(current.get_text()) > 100:
                         job_section = current
@@ -1145,26 +1162,19 @@ class SourceParsers:
             # Extract title
             title = title_link.get_text().strip()
 
-            # ✅ CRITICAL FIX: Extract location and remote from job-tag paragraphs
+            # Extract location and remote from job-tag paragraphs
             location = "Unknown"
             remote = "Unknown"
 
-            # Find ALL <p id="job-tag"> within this job section
             job_tags = job_section.find_all("p", id="job-tag")
 
             for tag in job_tags:
                 text = tag.get_text().strip()
 
-                # Skip salary (contains $)
-                if "$" in text:
+                if "$" in text or "referral" in text.lower():
                     continue
 
-                # Skip referrals (contains "referral")
-                if "referral" in text.lower():
-                    continue
-
-                # This must be location!
-                if "," in text:  # City, State format
+                if "," in text:
                     location = text
                     remote = "On Site"
                     break
@@ -1176,8 +1186,7 @@ class SourceParsers:
                     location = "Hybrid"
                     remote = "Hybrid"
                     break
-                elif len(text) > 2 and len(text) < 50:  # Likely a city/location
-                    # Check if it's a known US city or state
+                elif len(text) > 2 and len(text) < 50:
                     if (
                         any(state in text for state in US_STATES.values())
                         or "," in text
@@ -1187,7 +1196,7 @@ class SourceParsers:
                         remote = SourceParsers._infer_remote(text)
                         break
 
-            # ✅ Extract age from email
+            # Extract age
             container_text = job_section.get_text()
             age_days = SourceParsers._extract_age_from_text(container_text)
 
@@ -1223,7 +1232,7 @@ class SourceParsers:
 
 
 class SimplifyGitHubScraper:
-    """✅ OPTIMIZED: Handles both HTML and markdown tables."""
+    """Handles both HTML and markdown tables."""
 
     # Compile patterns once
     HEADER_PATTERN = re.compile(
@@ -1310,7 +1319,7 @@ class SimplifyGitHubScraper:
             link_cell = parts[3]
             age = parts[4]
 
-            # Extract URL (HTML tag first, then markdown, then direct)
+            # Extract URL
             match = SimplifyGitHubScraper.HTML_LINK.search(link_cell)
             if match:
                 url = match.group(1)
@@ -1345,7 +1354,7 @@ class SimplifyGitHubScraper:
 
     @staticmethod
     def _parse_html_tables(soup, source_name):
-        """Parse HTML tables (SimplifyJobs format)."""
+        """Parse HTML tables."""
         jobs = []
 
         for table in soup.find_all("table"):
@@ -1401,7 +1410,7 @@ class SimplifyGitHubScraper:
 
 
 class HandshakeExtractor:
-    """✅ OPTIMIZED: Handshake scraper with login support."""
+    """Handshake scraper with login support."""
 
     def __init__(self):
         self.cookies, self.driver, self.jobs_scraped_today, self.last_scrape_date = (
@@ -1424,7 +1433,7 @@ class HandshakeExtractor:
                 pass
 
     def login_interactive(self):
-        """✅ NEW: Interactive Handshake login."""
+        """Interactive Handshake login."""
         if not SELENIUM_AVAILABLE:
             print("Selenium not available")
             return False
@@ -1476,13 +1485,11 @@ class HandshakeExtractor:
             return False
 
     def is_safe_to_scrape(self):
-        """✅ OPTIMIZED: Check scraping constraints (removed weekend block)."""
+        """Check scraping constraints (no weekend restriction)."""
         now = datetime.datetime.now()
 
         if not self.cookies:
             return False, "No cookies"
-
-        # ✅ REMOVED: Weekend restriction - allow any day
 
         start_hour, end_hour = self.config["scrape_hours"]
         if not (start_hour <= now.hour < end_hour):
@@ -1601,7 +1608,7 @@ class HandshakeExtractor:
             return []
 
     def _scrape_one(self, url, idx, total):
-        """Scrape single job with human-like behavior."""
+        """Scrape single job."""
         try:
             time.sleep(random.uniform(*self.config["delay_between_jobs"]))
             self.driver.get(url)
@@ -1616,7 +1623,7 @@ class HandshakeExtractor:
             return None
 
     def _deep_read(self):
-        """Simulate reading the page."""
+        """Simulate reading."""
         try:
             h = self.driver.execute_script("return document.body.scrollHeight")
             for i in range(random.randint(3, 6)):
