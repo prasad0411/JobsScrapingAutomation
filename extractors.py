@@ -2,7 +2,7 @@
 # cSpell:disable
 """
 Extraction module for job data from various sources.
-Optimized for efficiency, maintainability, and correctness.
+Production-optimized v2.0 with robust email parsing, HTTP retries, and smart company extraction.
 """
 
 import requests
@@ -49,8 +49,6 @@ from config import (
     HANDSHAKE_COOKIES_FILE,
     HANDSHAKE_CONFIG,
     US_STATES,
-    CANADA_PROVINCES,
-    SPECIAL_COMPANY_NAMES,
 )
 
 
@@ -242,15 +240,13 @@ class EmailExtractor:
                         }
                     )
 
-            # ✅ FIXED: Sort NEWEST FIRST (reverse chronological)
+            # ✅ Sort NEWEST FIRST (reverse chronological)
             emails_with_time.sort(key=lambda x: x["timestamp"], reverse=True)
 
             # Build email_data list preserving order
             email_data = []
             for email in emails_with_time:
-                for url in email[
-                    "urls"
-                ]:  # ✅ URLs already in order from _extract_job_urls
+                for url in email["urls"]:
                     email_data.append(
                         {
                             "url": url,
@@ -338,7 +334,7 @@ class EmailExtractor:
 
 
 class PageFetcher:
-    """Fetches web pages using multiple fallback methods."""
+    """Fetches web pages using multiple fallback methods with retry logic."""
 
     def __init__(self):
         self.outcomes = {
@@ -349,7 +345,7 @@ class PageFetcher:
 
     def fetch_page(self, url):
         """Fetch page using multiple fallback methods."""
-        # Method 1: Standard request
+        # Method 1: Standard request with retries
         response = self._try_standard_request(url)
         if response and response.status_code == 200:
             self.outcomes["method_standard"] += 1
@@ -362,7 +358,9 @@ class PageFetcher:
             return response, response.url
 
         # Method 3: Selenium (for blocked sites)
-        if SELENIUM_AVAILABLE and "ziprecruiter" in url.lower():
+        if SELENIUM_AVAILABLE and (
+            "ziprecruiter" in url.lower() or "mathworks" in url.lower()
+        ):
             html, final_url = self._try_selenium(url)
             if html:
                 self.outcomes["method_selenium"] += 1
@@ -375,17 +373,38 @@ class PageFetcher:
 
         return None, None
 
-    def _try_standard_request(self, url):
-        """Standard HTTP request."""
-        try:
-            headers = {
-                "User-Agent": USER_AGENTS[0],
-                "Accept": "text/html,application/xhtml+xml",
-                "Accept-Language": "en-US,en;q=0.9",
-            }
-            return requests.get(url, headers=headers, allow_redirects=True, timeout=20)
-        except:
-            return None
+    def _try_standard_request(self, url, retries=3):
+        """✅ ENHANCED: Standard HTTP request with retries and rotating user agents."""
+        for attempt in range(retries):
+            try:
+                headers = {
+                    "User-Agent": USER_AGENTS[
+                        attempt % len(USER_AGENTS)
+                    ],  # Rotate agents
+                    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+                    "Accept-Language": "en-US,en;q=0.9",
+                    "Accept-Encoding": "gzip, deflate, br",
+                    "Connection": "keep-alive",
+                    "Upgrade-Insecure-Requests": "1",
+                }
+                response = requests.get(
+                    url, headers=headers, allow_redirects=True, timeout=20
+                )
+
+                if response.status_code == 200:
+                    return response
+
+                # If failed, wait before retry
+                if attempt < retries - 1:
+                    wait_time = 2**attempt  # Exponential backoff: 1s, 2s, 4s
+                    time.sleep(wait_time)
+
+            except Exception as e:
+                if attempt == retries - 1:
+                    return None
+                time.sleep(2)
+
+        return None
 
     def _try_rotating_agents(self, url):
         """Try multiple user agents."""
@@ -450,7 +469,7 @@ class PageParser:
 
     @staticmethod
     def extract_company(soup, url):
-        """Extract company name with special domain mappings."""
+        """✅ ENHANCED: Extract company name, validate it's not a title."""
         # Try JSON-LD first
         json_ld = soup.find("script", type="application/ld+json")
         if json_ld:
@@ -461,7 +480,9 @@ class PageParser:
                     if isinstance(org, dict):
                         name = org.get("name", "")
                         if name and len(name) < 100:
-                            return name
+                            # ✅ Validate it's not a title
+                            if not PageParser._looks_like_title(name):
+                                return name
             except:
                 pass
 
@@ -471,12 +492,63 @@ class PageParser:
             company = meta.get("content").strip()
             company = re.sub(r"\s*[-|]\s*(careers|jobs).*$", "", company, flags=re.I)
             if company and len(company) < 50:
-                return company
+                if not PageParser._looks_like_title(company):
+                    return company
+
+        # Try H2/H3 tags for company name (but validate)
+        for tag_name in ["h2", "h3", "h4"]:
+            tag = soup.find(tag_name)
+            if tag:
+                text = tag.get_text().strip()
+                if 2 < len(text) < 60 and not PageParser._looks_like_title(text):
+                    # Additional validation - company names don't usually have these words
+                    if not any(
+                        word in text.lower()
+                        for word in ["position", "role", "job", "career", "opportunity"]
+                    ):
+                        return text
 
         # Extract from domain
         from processors import ValidationHelper
 
         return ValidationHelper.extract_company_from_domain(url)
+
+    @staticmethod
+    def _looks_like_title(text):
+        """✅ NEW: Check if text looks like a job title instead of company name."""
+        if not text:
+            return False
+
+        text_lower = text.lower()
+
+        # Strong title indicators (2+ means it's definitely a title)
+        title_keywords = [
+            "intern",
+            "co-op",
+            "coop",
+            "engineer",
+            "developer",
+            "software",
+            "full stack",
+            "backend",
+            "frontend",
+            "junior",
+            "senior",
+            "staff",
+            "position",
+            "role",
+            "opportunity",
+            "summer",
+            "spring",
+            "fall",
+            "winter",
+            "2025",
+            "2026",
+        ]
+
+        # If contains 2+ title keywords, likely a title
+        keyword_count = sum(1 for kw in title_keywords if kw in text_lower)
+        return keyword_count >= 2
 
     @staticmethod
     def extract_title(soup):
@@ -559,8 +631,12 @@ class PageParser:
                 "github": r"/jobs/(\d+)",
                 "tiktok": r"/search/(\d{10,})",
                 "lifeattiktok": r"/search/(\d{10,})",
+                "bytedance": r"/search/(\d{10,})",
+                "joinbytedance": r"/search/(\d{10,})",
                 "oracle": r"/job/(\d{5,})",
                 "micron": r"/job/(\d{7,10})",
+                "sig.com": r"/job/([A-Z0-9]+)",
+                "careers.sig": r"/job/([A-Z0-9]+)",
             }
 
             url_lower = url.lower()
@@ -622,17 +698,76 @@ class PageParser:
 
     @staticmethod
     def extract_jobright_data(soup, url, jobright_auth):
-        """Extract data from Jobright page."""
-        page_text = soup.get_text()
-        actual_url, is_company_site = jobright_auth.resolve_jobright_url(url)
-
-        company = None
-        title = None
-        location = None
-        sponsorship = "Unknown"
-        remote = "Unknown"
-
+        """✅ ENHANCED: Extract from Jobright page with JSON-LD parsing."""
         try:
+            # ✅ Try JSON-LD first (most reliable for Jobright)
+            script_tag = soup.find("script", {"id": "__NEXT_DATA__"})
+            if script_tag:
+                try:
+                    data = json.loads(script_tag.string)
+                    job_result = (
+                        data.get("props", {})
+                        .get("pageProps", {})
+                        .get("dataSource", {})
+                        .get("jobResult", {})
+                    )
+
+                    if job_result:
+                        company = job_result.get("companyResult", {}).get(
+                            "companyName", "Unknown"
+                        )
+                        title = job_result.get("jobTitle", "Unknown")
+                        location = job_result.get("jobLocation", "Unknown")
+
+                        # Check if remote
+                        is_remote = job_result.get("isRemote", False)
+                        work_model = job_result.get("workModel", "")
+
+                        if is_remote or work_model.lower() == "remote":
+                            remote = "Remote"
+                        elif work_model.lower() == "hybrid":
+                            remote = "Hybrid"
+                        elif work_model.lower() == "onsite":
+                            remote = "On Site"
+                        else:
+                            remote = "Unknown"
+
+                        # Sponsorship
+                        recommendation_tags = job_result.get("recommendationTags", [])
+                        if "H1B Sponsor Likely" in recommendation_tags:
+                            sponsorship = "Yes"
+                        else:
+                            sponsorship = "Unknown"
+
+                        actual_url = (
+                            job_result.get("applyLink")
+                            or job_result.get("originalUrl")
+                            or url
+                        )
+                        is_company_site = job_result.get("isCompanySiteLink", False)
+
+                        return {
+                            "company": company,
+                            "title": title,
+                            "location": location,
+                            "sponsorship": sponsorship,
+                            "remote": remote,
+                            "url": actual_url,
+                            "is_company_site": is_company_site,
+                        }
+                except:
+                    pass
+
+            # Fallback: HTML parsing
+            page_text = soup.get_text()
+            actual_url, is_company_site = jobright_auth.resolve_jobright_url(url)
+
+            company = None
+            title = None
+            location = None
+            sponsorship = "Unknown"
+            remote = "Unknown"
+
             # Extract title from H1
             h1 = soup.find("h1")
             if h1:
@@ -960,59 +1095,116 @@ class SourceParsers:
 
     @staticmethod
     def parse_jobright_email(soup, url, jobright_auth):
-        """✅ ENHANCED: Jobright with age extraction."""
+        """✅ CRITICAL FIX: Robust location extraction from Jobright email HTML."""
         try:
             url_base = url.split("?")[0]
-            link = soup.find("a", href=re.compile(re.escape(url_base)))
 
-            if not link:
+            # Find all links matching this URL
+            all_links = soup.find_all("a", href=re.compile(re.escape(url_base)))
+
+            # Find the TITLE link (contains job title text)
+            title_link = None
+            for link in all_links:
+                link_text = link.get_text().strip()
+                # Title is usually longer (>15 chars) and contains keywords
+                if len(link_text) > 15 and any(
+                    kw in link_text.lower()
+                    for kw in ["intern", "engineer", "software", "developer"]
+                ):
+                    title_link = link
+                    break
+
+            if not title_link:
+                # Fallback: use any link with substantive text
+                for link in all_links:
+                    if len(link.get_text().strip()) > 15:
+                        title_link = link
+                        break
+
+            if not title_link:
                 return None
 
-            container = link.find_parent("table") or link.find_parent("div")
-            if not container:
+            # Find the JOB SECTION container
+            job_section = title_link.find_parent("table", id="job-container")
+            if not job_section:
+                # Fallback: find nearest table with substantial content
+                current = title_link
+                for _ in range(5):  # Search up to 5 levels
+                    current = current.find_parent("table")
+                    if current and len(current.get_text()) > 100:
+                        job_section = current
+                        break
+
+            if not job_section:
                 return None
 
-            company_elem = container.find("p", id="job-company-name")
+            # Extract company name
+            company_elem = job_section.find("p", id="job-company-name")
             company = company_elem.get_text().strip() if company_elem else "Unknown"
 
-            title_p = container.find("p", id="job-title")
-            if title_p:
-                title_link = title_p.find("a")
-                title = (
-                    title_link.get_text().strip()
-                    if title_link
-                    else title_p.get_text().strip()
-                )
-            else:
-                title = link.get_text().strip()
+            # Extract title
+            title = title_link.get_text().strip()
 
+            # ✅ CRITICAL FIX: Extract location and remote from job-tag paragraphs
             location = "Unknown"
-            for tag in container.find_all("p", id="job-tag"):
+            remote = "Unknown"
+
+            # Find ALL <p id="job-tag"> within this job section
+            job_tags = job_section.find_all("p", id="job-tag")
+
+            for tag in job_tags:
                 text = tag.get_text().strip()
-                if "$" not in text and "referral" not in text.lower():
-                    if "," in text or text == "Remote":
+
+                # Skip salary (contains $)
+                if "$" in text:
+                    continue
+
+                # Skip referrals (contains "referral")
+                if "referral" in text.lower():
+                    continue
+
+                # This must be location!
+                if "," in text:  # City, State format
+                    location = text
+                    remote = "On Site"
+                    break
+                elif text.lower() == "remote":
+                    location = "Remote"
+                    remote = "Remote"
+                    break
+                elif text.lower() == "hybrid":
+                    location = "Hybrid"
+                    remote = "Hybrid"
+                    break
+                elif len(text) > 2 and len(text) < 50:  # Likely a city/location
+                    # Check if it's a known US city or state
+                    if (
+                        any(state in text for state in US_STATES.values())
+                        or "," in text
+                        or text in ["Remote", "Hybrid"]
+                    ):
                         location = text
+                        remote = SourceParsers._infer_remote(text)
                         break
 
             # ✅ Extract age from email
-            container_text = (
-                container.get_text() if container else soup.get_text()[:2000]
-            )
+            container_text = job_section.get_text()
             age_days = SourceParsers._extract_age_from_text(container_text)
 
+            # Resolve actual URL
             actual_url, is_company_site = jobright_auth.resolve_jobright_url(url)
 
             return {
                 "company": company,
                 "title": title,
                 "location": location,
-                "remote": SourceParsers._infer_remote(location),
+                "remote": remote,
                 "url": actual_url,
                 "sponsorship": "Unknown (Email)",
                 "is_company_site": is_company_site,
                 "email_age_days": age_days,
             }
-        except:
+        except Exception as e:
             return None
 
     @staticmethod
