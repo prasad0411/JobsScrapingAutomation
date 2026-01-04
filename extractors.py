@@ -3,7 +3,7 @@
 """
 Extraction module for job data from various sources.
 Handles web scraping, email parsing, and Jobright authentication.
-ENHANCED: Markdown table parser for vanshb03, platform-specific job ID extraction
+ENHANCED: Markdown table parser, comprehensive age detection, Workday job IDs
 """
 
 import requests
@@ -508,40 +508,59 @@ class PageParser:
 
     @staticmethod
     def extract_job_id(soup, url):
-        """✅ ENHANCED: Platform-specific job ID - prioritizes page text, uses word boundaries."""
+        """✅ COMPREHENSIVE FIX: Platform-specific job ID with complete Workday patterns."""
         try:
             page_text = soup.get_text()
 
-            # ✅ PRIORITY 1: Page text with word boundaries (fixes "A07000Apply" issue)
+            # ✅ PRIORITY 1: Page text patterns with word boundaries
 
-            # TikTok/General: Job Code with word boundary
+            # Job Code (TikTok, general)
             match = re.search(r"Job Code:\s*([A-Z0-9]{3,15})\b", page_text, re.I)
             if match:
                 return match.group(1).strip()
 
-            # Standard formats with word boundaries
-            patterns = [
-                r"Req ID:\s*([A-Z0-9\-]{3,20})\b",
-                r"Job ID:\s*([A-Z0-9\-]{3,20})\b",
-                r"Requisition ID:\s*([A-Z0-9\-]{3,20})\b",
-                r"Requisition:\s*([A-Z0-9\-]{3,20})\b",
-            ]
+            # Job ID with word boundary
+            match = re.search(r"Job ID[:\s]+([A-Z0-9\-]{3,20})\b", page_text, re.I)
+            if match:
+                return match.group(1).strip()
 
-            for pattern in patterns:
+            # Requisition patterns
+            req_patterns = [
+                r"Req(?:uisition)? ID[:\s]+([A-Z0-9\-]{3,20})\b",
+                r"Requisition[:\s]+([A-Z0-9\-]{3,20})\b",
+                r"Req\s+#?[:\s]*([A-Z0-9\-]{3,20})\b",
+            ]
+            for pattern in req_patterns:
                 match = re.search(pattern, page_text, re.I)
                 if match:
                     return match.group(1).strip()
 
-            # ✅ PRIORITY 2: URL-based extraction
+            # ✅ PRIORITY 2: URL-based extraction (COMPREHENSIVE Workday patterns)
 
-            # Workday: REQ-XXXX-XXX format
+            # ✅ Workday: Multiple comprehensive patterns
             if "workday" in url.lower():
-                match = re.search(r"REQ-\d{4}-\d{1,3}", url)
+                # Pattern 1: REQ-XXXX-XXX or REQ-XXXXXX or REQXXXXXX
+                match = re.search(r"(REQ-?\d{4,7}(?:-\d{1,3})?)\b", url, re.I)
                 if match:
-                    return match.group(0)
-                match = re.search(r"_([A-Z]*\d+)(?:\?|$)", url)
+                    return match.group(1).upper()
+
+                # Pattern 2: R-XXXXXXXXX (RBC format: R-0000149612)
+                match = re.search(r"(R-\d{7,12})\b", url, re.I)
                 if match:
-                    return match.group(1)
+                    return match.group(1).upper()
+
+                # Pattern 3: JR followed by numbers (HP, Broadridge: JR1079136)
+                match = re.search(r"(JR\d{5,10})\b", url, re.I)
+                if match:
+                    return match.group(1).upper()
+
+                # Pattern 4: Standalone numbers after job/ or _
+                match = re.search(r"[/_]([A-Z]*\d{5,10})(?:[?/]|$)", url)
+                if match:
+                    job_id = match.group(1)
+                    # Exclude timestamp-like numbers (>12 digits)
+                    if len(job_id) < 12:
+                        return job_id.upper()
 
             # GitHub/Jibe: /jobs/XXXX
             if "jibe" in url.lower() or "github" in url.lower():
@@ -561,37 +580,49 @@ class PageParser:
                 if match:
                     return match.group(1)
 
+            # Micron/careers.micron.com: /job/XXXXXXXX
+            if "micron" in url.lower():
+                match = re.search(r"/job/(\d{7,10})", url)
+                if match:
+                    return match.group(1)
+
             return "N/A"
         except:
             return "N/A"
 
     @staticmethod
     def extract_job_age_days(soup):
-        """✅ ENHANCED: Extract job age with comprehensive patterns."""
+        """✅ CRITICAL FIX: Extract job age - return 999 if unknown (treat as suspicious)."""
         try:
             page_text = soup.get_text()[:3000]
 
-            # Pattern 1: "Posted X Days Ago"
-            match = re.search(r"[Pp]osted\s+(\d+)\+?\s+[Dd]ays?\s+[Aa]go", page_text)
+            # ✅ Pattern 1: "Posted 30+ Days Ago" (handle + sign explicitly)
+            match = re.search(r"[Pp]osted\s+(\d+)\+\s+[Dd]ays?\s+[Aa]go", page_text)
+            if match:
+                # "30+" means at least 30 days (definitely too old)
+                return int(match.group(1))
+
+            # Pattern 2: "Posted X Days Ago" (without +)
+            match = re.search(r"[Pp]osted\s+(\d+)\s+[Dd]ays?\s+[Aa]go", page_text)
             if match:
                 return int(match.group(1))
 
-            # Pattern 2: Just "X Days Ago"
-            match = re.search(r"(\d+)\+?\s+[Dd]ays?\s+[Aa]go", page_text)
+            # Pattern 3: Just "X Days Ago"
+            match = re.search(r"(\d+)\s+[Dd]ays?\s+[Aa]go", page_text)
             if match:
                 return int(match.group(1))
 
-            # Pattern 3: "today" or "yesterday"
+            # Pattern 4: "today" or "yesterday"
             if re.search(r"[Pp]osted\s+today|Today", page_text):
                 return 0
             if re.search(r"[Pp]osted\s+yesterday|Yesterday", page_text):
                 return 1
 
-            # Pattern 4: Hours ago
+            # Pattern 5: Hours ago
             if re.search(r"(\d+)\s+hours?\s+ago", page_text, re.I):
                 return 0
 
-            # Pattern 5: Date formats
+            # Pattern 6: Date formats (MM/DD/YYYY)
             match = re.search(
                 r"[Pp]osted:?\s*(\d{1,2})[/\-](\d{1,2})[/\-](\d{2,4})", page_text
             )
@@ -613,9 +644,11 @@ class PageParser:
                 except:
                     pass
 
-            return None
+            # ✅ CRITICAL: Return 999 instead of None (treat unknown age as suspicious/old)
+            return 999
+
         except:
-            return None
+            return 999
 
     @staticmethod
     def extract_jobright_data(soup, url, jobright_auth):
