@@ -1,9 +1,8 @@
 #!/usr/bin/env python3
 # cSpell:disable
 """
-Processing module for job data validation, cleaning, and quality scoring - ENHANCED VERSION
-Handles title cleaning, location formatting, international filtering, and all validation checks.
-FIXES: Relaxed Spring detection, Bachelor's degree, US citizenship, Canadian URL detection, Workday support
+Processing module for job data validation, cleaning, and quality scoring.
+Production v3.0: ByteDance location fix, relaxed Spring detection, comprehensive validation
 """
 
 import re
@@ -24,16 +23,14 @@ class TitleProcessor:
 
     @staticmethod
     def clean_title_aggressive(title):
-        """Aggressively clean title by removing years, seasons, brackets, etc."""
+        """Aggressively clean title."""
         if not title or len(title) < 5:
             return title
 
         original = title
 
-        # Remove parentheses and brackets (complete pairs)
+        # Remove parentheses and brackets
         title = re.sub(r"\s*[\(\[].+?[\)\]]", "", title)
-
-        # ✅ Remove unclosed brackets at end
         title = re.sub(r"\s*\([^)]*$", "", title)
         title = re.sub(r"\s*\[[^\]]*$", "", title)
 
@@ -44,8 +41,6 @@ class TitleProcessor:
         title = re.sub(
             r"\s*-?\s*20\d{2}\s*(Summer|Fall|Spring|Winter)", "", title, flags=re.I
         )
-
-        # Remove standalone years
         title = re.sub(r"\s*-?\s*20\d{2}\s*-?\s*", " ", title)
 
         # Remove degree requirements
@@ -68,7 +63,7 @@ class TitleProcessor:
 
     @staticmethod
     def is_valid_job_title(title):
-        """Check if title is a valid job posting."""
+        """Check if title is valid."""
         if not title or len(title) < 5:
             return False, "Title too short"
 
@@ -82,7 +77,8 @@ class TitleProcessor:
             "view job",
             "see more",
             "show all",
-            "company",
+            "sign in",  # ✅ NEW: LinkedIn login wall
+            "submit your",  # ✅ NEW: Form pages
         ]
 
         for phrase in excluded_phrases:
@@ -137,7 +133,7 @@ class TitleProcessor:
 
     @staticmethod
     def is_internship_role(title):
-        """Check if role is internship/co-op (not senior/experienced/full-time)."""
+        """Check if role is internship/co-op."""
         title_lower = title.lower()
 
         # Must contain internship indicators
@@ -145,7 +141,7 @@ class TitleProcessor:
         if not any(kw in title_lower for kw in internship_keywords):
             return False, "Not internship/co-op role"
 
-        # Exclude senior/experienced roles
+        # Exclude senior roles
         excluded_levels = [
             "senior",
             "sr.",
@@ -170,12 +166,16 @@ class TitleProcessor:
         """✅ FIXED: Allow multiple seasons (Spring+Summer), reject Spring-only."""
         combined_text = (title + " " + page_text).lower()
 
-        # Check for explicit wrong seasons
+        # Check for wrong seasons
         wrong_patterns = [
             (r"fall\s*20\d{2}", "Fall"),
             (r"fall\s*semester", "Fall semester"),
             (r"winter\s*20\d{2}", "Winter"),
             (r"winter\s*semester", "Winter semester"),
+            (
+                r"winter\s*internship\s*2025/2026",
+                "Winter 2025/2026",
+            ),  # ✅ NEW: Nuro pattern
             (r"spring\s*20\d{2}", "Spring"),
             (r"spring\s*semester", "Spring semester"),
         ]
@@ -185,8 +185,7 @@ class TitleProcessor:
             if match:
                 season = match.group(0)
 
-                # ✅ CRITICAL FIX: If mentions MULTIPLE seasons including Summer → ACCEPT
-                # Look for "Spring, Summer, Fall" or "Spring/Summer/Fall" patterns
+                # ✅ CRITICAL: If mentions MULTIPLE seasons including Summer → ACCEPT
                 multi_season_patterns = [
                     r"spring.*summer",
                     r"summer.*spring",
@@ -202,20 +201,23 @@ class TitleProcessor:
                     if re.search(multi_pattern, combined_text, re.I):
                         return True, ""  # Multiple seasons including Summer = OK
 
-                # If only mentions Spring/Fall/Winter (no Summer) → REJECT
+                # Reject if ONLY wrong season
                 if "fall" in season.lower():
                     return False, f"Wrong season: {season_name}"
                 elif "winter" in season.lower():
-                    return False, f"Wrong season: {season_name}"
+                    # Check if it's Winter 2025/2026 (ends in Summer 2026)
+                    if "2025/2026" not in combined_text:
+                        return False, f"Wrong season: {season_name}"
                 elif "spring" in season.lower():
-                    # Double-check: if Summer NOT mentioned anywhere → REJECT
                     if not re.search(r"summer", combined_text, re.I):
                         return False, f"Wrong season: Spring only"
 
-        # Additional check for 2025 or earlier years
+        # Reject 2025 or earlier
         year_match = re.search(r"(fall|spring|winter)\s*202[0-5]", combined_text, re.I)
         if year_match:
-            return False, f"Wrong season: {year_match.group(0).title()}"
+            # Exception: Winter 2025/2026 is OK
+            if not re.search(r"winter.*2025/2026", combined_text, re.I):
+                return False, f"Wrong season: {year_match.group(0).title()}"
 
         return True, ""
 
@@ -225,14 +227,14 @@ class LocationProcessor:
 
     @staticmethod
     def extract_location_enhanced(soup, url):
-        """Enhanced location extraction - URL FIRST, then page parsing."""
+        """Enhanced location extraction - URL FIRST."""
 
-        # ✅ LAYER 0: Extract from URL FIRST (most reliable for Workday)
+        # LAYER 0: Extract from URL FIRST
         url_location = LocationProcessor._extract_from_url(url)
         if url_location and url_location != "Unknown":
             return url_location
 
-        # Special handling for Simplify.jobs pages
+        # Special handling for Simplify.jobs
         if "simplify.jobs" in url.lower():
             simplify_loc = LocationProcessor._extract_from_simplify_page(soup)
             if simplify_loc and simplify_loc != "Unknown":
@@ -266,7 +268,7 @@ class LocationProcessor:
             if loc and len(loc) < 100:
                 return loc
 
-        # LAYER 3: Common label patterns
+        # LAYER 3: Common labels
         location_labels = [
             "Location:",
             "Office Location:",
@@ -294,7 +296,7 @@ class LocationProcessor:
             if state in US_STATES.values():
                 return f"{city}, {state}"
 
-        # LAYER 5: Aggressive scan
+        # LAYER 5: Remote check
         if "Remote" in page_text[:1500] or "remote" in page_text[:500].lower():
             return "Remote"
 
@@ -302,15 +304,15 @@ class LocationProcessor:
 
     @staticmethod
     def _extract_from_url(url):
-        """✅ ENHANCED: Extract location from URL (Workday-specific patterns)."""
+        """Extract location from URL (Workday patterns)."""
         if not url:
             return None
 
         url_lower = url.lower()
 
-        # Workday location patterns (most reliable)
+        # Workday patterns
         if "workday" in url_lower or "myworkdayjobs" in url_lower:
-            # Pattern 1: /City-State-Country/ format
+            # Pattern 1: /City-State-Country/
             match = re.search(
                 r"/([A-Z][a-z]+(?:-[A-Z][a-z]+)*)-([A-Z]{2})-(?:United-States|USA)/",
                 url,
@@ -322,7 +324,7 @@ class LocationProcessor:
                 if state in US_STATES.values():
                     return f"{city}, {state}"
 
-            # Pattern 2: /City-State/ format
+            # Pattern 2: /City-State/
             match = re.search(r"/([A-Z][a-z]+(?:-[A-Z][a-z]+)*)-([A-Z]{2})/", url, re.I)
             if match:
                 city = match.group(1).replace("-", " ")
@@ -330,17 +332,7 @@ class LocationProcessor:
                 if state in US_STATES.values():
                     return f"{city}, {state}"
 
-            # Pattern 3: /location/City-State
-            match = re.search(
-                r"/location/([A-Z][a-z]+(?:-[A-Z][a-z]+)*)-([A-Z]{2})\b", url, re.I
-            )
-            if match:
-                city = match.group(1).replace("-", " ")
-                state = match.group(2).upper()
-                if state in US_STATES.values():
-                    return f"{city}, {state}"
-
-        # General City-State pattern in URL
+        # General patterns
         match = re.search(r"/([A-Z][a-z]+(?:-[A-Z][a-z]+)?)[_-]([A-Z]{2})\b", url, re.I)
         if match:
             city = match.group(1).replace("-", " ")
@@ -348,7 +340,7 @@ class LocationProcessor:
             if state in US_STATES.values():
                 return f"{city}, {state}"
 
-        # Remote in URL
+        # Remote
         if "/remote" in url_lower or "remote-" in url_lower:
             return "Remote"
 
@@ -356,9 +348,8 @@ class LocationProcessor:
 
     @staticmethod
     def _extract_from_simplify_page(soup):
-        """Extract location from Simplify.jobs redirector page."""
+        """Extract location from Simplify.jobs page."""
         try:
-            # Look for location in the page content
             page_text = soup.get_text()
 
             # Pattern: "Location: City, State"
@@ -381,7 +372,7 @@ class LocationProcessor:
 
     @staticmethod
     def extract_remote_status_enhanced(soup, location, url):
-        """Extract remote work status with enhanced detection."""
+        """Extract remote work status."""
         if not soup:
             return "Unknown"
 
@@ -397,17 +388,14 @@ class LocationProcessor:
         page_text = soup.get_text()[:2000]
         page_lower = page_text.lower()
 
-        # Remote indicators
         if "100% remote" in page_lower or "fully remote" in page_lower:
             return "Remote"
         if "remote" in page_lower[:500]:
             return "Remote"
 
-        # Hybrid indicators
         if "hybrid" in page_lower[:500]:
             return "Hybrid"
 
-        # On-site indicators
         if (
             "on-site" in page_lower[:500]
             or "onsite" in page_lower[:500]
@@ -455,35 +443,34 @@ class LocationProcessor:
 
     @staticmethod
     def check_if_international(location, soup=None):
-        """✅ ENHANCED: Check if location is outside US (comprehensive Canadian detection)."""
+        """✅ CRITICAL FIX: Don't scan soup if location is validated US City, State."""
         if not location or location == "Unknown":
             return None
 
         location_lower = location.lower()
 
-        # Canadian provinces check
+        # Canadian provinces
         for province in CANADA_PROVINCES:
             if f", {province}" in location or f" {province}" in location.upper():
-                # ✅ CRITICAL: Exclude "Ontario, CA" (California city)
                 if province == "ON" and ", ca" in location_lower:
                     continue
                 return f"Location: Canada (province: {province})"
 
-        # Canadian cities check
+        # Canadian cities
         for city, province in CANADA_CITIES.items():
             if city in location_lower:
                 return f"Location: Canada ({city.title()})"
 
-        # Check for "Canada" explicitly
+        # Canada explicit
         if "canada" in location_lower:
             return "Location: Canada"
 
-        # UK check
+        # UK
         uk_indicators = ["uk", "united kingdom", "london", "manchester", "edinburgh"]
         if any(indicator in location_lower for indicator in uk_indicators):
             return "Location: UK"
 
-        # Other common countries
+        # Other countries
         other_countries = [
             "india",
             "china",
@@ -501,8 +488,24 @@ class LocationProcessor:
             if country in location_lower:
                 return f"Location: {country.title()}"
 
-        # If soup provided, do aggressive scan
-        if soup:
+        # ✅ CRITICAL FIX: If location is valid US "City, ST" format → Skip soup scan
+        # This prevents false positives when company page mentions other countries
+        if re.search(r"^[A-Z][a-z]+(?: [A-Z][a-z]+)?,\s*[A-Z]{2}$", location):
+            # Valid "City, ST" format
+            state = location.split(",")[1].strip()
+            if state in US_STATES.values():
+                # ✅ Validated US location - DON'T scan soup for country mentions
+                return None
+
+        # ✅ Only scan soup if location is vague/unknown
+        if soup and location in [
+            "Unknown",
+            "Remote",
+            "Hybrid",
+            "United States",
+            "USA",
+            "US",
+        ]:
             country = LocationProcessor._aggressive_country_scan(soup)
             if country and country not in ["USA", "United States", "US"]:
                 return f"Location: {country}"
@@ -511,7 +514,7 @@ class LocationProcessor:
 
     @staticmethod
     def _aggressive_country_scan(soup):
-        """✅ ENHANCED: Scan page for country mentions (with Canadian city + province context)."""
+        """✅ ENHANCED: Scan page for country mentions."""
         if not soup:
             return None
 
@@ -553,7 +556,7 @@ class ValidationHelper:
 
     @staticmethod
     def is_valid_job_url(url):
-        """Check if URL is a valid job posting URL."""
+        """Check if URL is valid job posting."""
         if not url or not url.startswith("http"):
             return False, "Invalid URL format"
 
@@ -587,16 +590,16 @@ class ValidationHelper:
 
     @staticmethod
     def check_url_for_international(url):
-        """✅ ENHANCED: Check URL for international job indicators (comprehensive Canadian detection)."""
+        """✅ ENHANCED: Check URL for international indicators."""
         if not url:
             return None
 
         url_lower = url.lower()
 
-        # ✅ COMPREHENSIVE Canadian URL patterns
+        # Canadian URL patterns
         canadian_url_patterns = [
             "/en-ca/",
-            "/en-gb/",  # Workday uses en-GB for Canada
+            "/en-gb/",
             "/canada/",
             "/toronto/",
             "/vancouver/",
@@ -606,8 +609,8 @@ class ValidationHelper:
             "/edmonton/",
             "-canada-",
             "/ca/en/",
-            "/Canada---",  # Workday format: /Canada---City/
-            "-Ontario-Canada",  # TORONTO-Ontario-Canada
+            "/Canada---",
+            "-Ontario-Canada",
             "-Canada/job/",
         ]
 
@@ -624,7 +627,6 @@ class ValidationHelper:
             "/manchester/",
         ]
         if any(p in url_lower for p in uk_patterns):
-            # ✅ CRITICAL: /en-gb/ could be Canada OR UK - need more context
             if "/en-gb/" in url_lower and not any(
                 city in url_lower
                 for city in ["toronto", "vancouver", "montreal", "canada"]
@@ -649,14 +651,14 @@ class ValidationHelper:
 
     @staticmethod
     def check_page_restrictions(soup):
-        """✅ ENHANCED: Check for various job restrictions (Bachelor's, US citizenship, security clearance)."""
+        """✅ ENHANCED: Check for job restrictions."""
         if not soup:
             return None
 
         page_text = soup.get_text()[:4000]
         page_lower = page_text.lower()
 
-        # ✅ NEW: Bachelor's degree requirement patterns
+        # Bachelor's degree requirement
         bachelors_patterns = [
             r"bachelor'?s?\s+degree.*(?:required|pursuing|only)",
             r"currently enrolled in.*4-year.*undergraduate",
@@ -670,7 +672,6 @@ class ValidationHelper:
         for pattern in bachelors_patterns:
             match = re.search(pattern, page_lower, re.I)
             if match:
-                # ✅ Context check: Ensure NOT "bachelor's or master's"
                 context_start = max(0, match.start() - 100)
                 context_end = min(len(page_lower), match.end() + 100)
                 context = page_lower[context_start:context_end]
@@ -682,7 +683,7 @@ class ValidationHelper:
                 ):
                     return "Bachelor's degree requirement (undergrad only)"
 
-        # ✅ NEW: US Citizenship requirement patterns
+        # US Citizenship requirement
         citizenship_patterns = [
             r"u\.?s\.?\s+citizen(?:ship)?\s+(?:required|only)",
             r"must be a u\.?s\.?\s+citizen",
@@ -696,7 +697,7 @@ class ValidationHelper:
             if re.search(pattern, page_lower, re.I):
                 return "US citizenship required"
 
-        # Existing: PhD requirement
+        # PhD requirement
         if re.search(
             r"phd|doctoral.*(?:required|pursuing|candidates?|students?)",
             page_lower,
@@ -733,13 +734,13 @@ class ValidationHelper:
 
         company = company.strip()
 
-        # Check if company name accidentally contains title
+        # Check if company name is actually title
         if len(company) > 100 or any(
             kw in company.lower() for kw in ["intern", "software", "engineer"]
         ):
             return False, company, "Company field contains job title"
 
-        # Check for generic/invalid companies
+        # Check for invalid companies
         invalid_companies = [
             "apply",
             "careers",
@@ -747,6 +748,8 @@ class ValidationHelper:
             "job board",
             "simplify",
             "multiple companies",
+            "sign in",
+            "submit your",  # ✅ NEW: Login/form pages
         ]
 
         if company.lower() in invalid_companies:
@@ -757,7 +760,7 @@ class ValidationHelper:
 
     @staticmethod
     def extract_company_from_domain(url):
-        """✅ ENHANCED: Extract company name from domain with special mappings."""
+        """✅ ENHANCED: Extract company from domain with special mappings."""
         if not url:
             return "Unknown"
 
@@ -769,7 +772,7 @@ class ValidationHelper:
 
             domain = domain_match.group(1).lower()
 
-            # Remove common TLDs
+            # Remove TLDs
             domain = re.sub(r"\.(com|org|net|io|ai|co|jobs|careers)$", "", domain)
 
             # Extract base domain
@@ -779,7 +782,7 @@ class ValidationHelper:
             else:
                 company = parts[0]
 
-            # ✅ Check special company name mappings
+            # ✅ Check special mappings
             if company in SPECIAL_COMPANY_NAMES:
                 return SPECIAL_COMPANY_NAMES[company]
 
@@ -816,7 +819,7 @@ class ValidationHelper:
         ):
             return "No"
 
-        # Work authorization required (usually means no sponsorship)
+        # Work auth required
         if re.search(
             r"(?:must have|requires?)\s+(?:us|u\.s\.)\s+work authorization",
             page_text,
@@ -832,10 +835,10 @@ class QualityScorer:
 
     @staticmethod
     def calculate_score(job_data):
-        """Calculate quality score (0-7 scale)."""
+        """Calculate quality score (0-7)."""
         score = 0
 
-        # Company present and valid (2 points)
+        # Company present (2 points)
         company = job_data.get("company", "Unknown")
         if company and company != "Unknown" and len(company) > 2:
             if company.lower() not in ["unknown", "n/a", "multiple companies"]:
@@ -856,7 +859,7 @@ class QualityScorer:
         if 15 < len(title) < 120:
             score += 1
 
-        # Sponsorship info known (1 point)
+        # Sponsorship info (1 point)
         sponsorship = job_data.get("sponsorship", "Unknown")
         if sponsorship and sponsorship != "Unknown":
             score += 1
@@ -865,5 +868,5 @@ class QualityScorer:
 
     @staticmethod
     def is_acceptable_quality(score):
-        """Check if quality score meets minimum threshold."""
+        """Check if quality meets minimum."""
         return score >= MIN_QUALITY_SCORE

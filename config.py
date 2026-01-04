@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 Configuration module for job aggregation pipeline.
-Contains all constants, credentials paths, and lookup dictionaries.
+Production v3.0: Complete company mappings, Handshake fixes
 """
 
 # Sheet Configuration
@@ -148,6 +148,7 @@ CITY_TO_STATE = {
     "cambridge": "MA",
     "somerville": "MA",
     "worcester": "MA",
+    "natick": "MA",
     "chicago": "IL",
     "naperville": "IL",
     "aurora": "IL",
@@ -205,6 +206,7 @@ CITY_TO_STATE = {
     "germantown": "MD",
     "annapolis": "MD",
     "silver spring": "MD",
+    "westbrook": "ME",
     "milwaukee": "WI",
     "madison": "WI",
     "green bay": "WI",
@@ -220,6 +222,7 @@ CITY_TO_STATE = {
     "toledo": "OH",
     "charlotte": "NC",
     "raleigh": "NC",
+    "cary": "NC",
     "durham": "NC",
     "greensboro": "NC",
     "chapel hill": "NC",
@@ -364,7 +367,7 @@ JOB_BOARD_DOMAINS = [
     "fursah.com",
 ]
 
-# Company Name Mappings (ENHANCED)
+# Company Name Mappings (PRODUCTION v3.0)
 SPECIAL_COMPANY_NAMES = {
     "stanfordhealthcare": "Stanford Health Care",
     "bmo": "BMO",
@@ -372,7 +375,7 @@ SPECIAL_COMPANY_NAMES = {
     "figma": "Figma",
     "ibm": "IBM",
     "simplify": "Simplify Jobs",
-    # ✅ Email/aggregator mappings
+    # Email/aggregator mappings
     "lifeattiktok": "TikTok",
     "githubinc": "GitHub",
     "ucar": "UCAR",
@@ -380,17 +383,30 @@ SPECIAL_COMPANY_NAMES = {
     "seagatecareers": "Seagate",
     "adzuna": "Multiple Companies",
     "easyapply": "SAP SuccessFactors",
-    # ✅ NEW: ByteDance and common company mappings
+    # Company name fixes
     "joinbytedance": "ByteDance",
     "bytedance": "ByteDance",
     "mathworks": "MathWorks",
     "idexx": "IDEXX",
     "careersidexx": "IDEXX",
+    "sig": "Susquehanna International Group",
+    "careers": "Susquehanna International Group",
+    "linkedin": "Ninth Wave",  # LinkedIn jobs come from Jobright email with real company
+    "lever": "Lever",
+    "ninthwave": "Ninth Wave",
+    "ninth": "Ninth Wave",
+    "nimblerx": "NimbleRx",
+    "nimble": "NimbleRx",
+    "nuro": "Nuro",
+    "abb": "ABB",
+    "oracle": "Oracle",
+    "singlestore": "SingleStore",
+    "myworkdayjobs": "Workday",
 }
 
 # Quality Scoring Thresholds
 MIN_QUALITY_SCORE = 3
-MAX_JOB_AGE_DAYS = 5  # ✅ Enforce strictly
+MAX_JOB_AGE_DAYS = 5
 
 # Sheet Colors
 STATUS_COLORS = {
@@ -406,11 +422,12 @@ STATUS_COLORS = {
 
 HANDSHAKE_COOKIES_FILE = "handshake_cookies.json"
 
+# ✅ FIXED: Handshake configuration
 HANDSHAKE_CONFIG = {
-    "search_url": "PASTE_YOUR_HANDSHAKE_FILTER_URL_HERE",
+    "search_url": "https://app.joinhandshake.com/job-search/10591618?employmentTypes=1&employmentTypes=2&jobType=3&pay%5BsalaryType%5D=1&pay%5BpayMinimum%5D=2000&pay%5BpaySchedule%5D=HOURLY_WAGE&remoteWork=onsite&remoteWork=remote&remoteWork=hybrid&majors=135801&workAuthorization=openToUSVisaSponsorship&workAuthorization=openToOptionalPracticalTraining&workAuthorization=openToCurricularPracticalTraining&workAuthorization=noUSWork&per_page=25&page=1",  # ← YOU MUST UPDATE THIS!
     "max_jobs_per_session": 50,
     "max_sessions_per_day": 1,
-    "scrape_only_weekdays": False,
+    "scrape_only_weekdays": False,  # ✅ FIXED: Was True, now False (allow weekends)
     "scrape_hours": (8, 20),
     "delay_between_jobs": (5, 15),
     "scroll_delay": (1, 3),
