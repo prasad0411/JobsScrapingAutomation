@@ -404,7 +404,7 @@ HANDSHAKE_CONFIG = {
     "search_url": "PASTE_YOUR_HANDSHAKE_FILTER_URL_HERE",
     "max_jobs_per_session": 50,
     "max_sessions_per_day": 1,
-    "scrape_only_weekdays": True,
+    "scrape_only_weekdays": False,
     "scrape_hours": (8, 20),
     "delay_between_jobs": (5, 15),
     "scroll_delay": (1, 3),
