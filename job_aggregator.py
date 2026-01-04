@@ -276,7 +276,7 @@ class UnifiedJobAggregator:
             job_age = PageParser.extract_job_age_days(soup)
             if job_age > MAX_JOB_AGE_DAYS:
                 if job_age == 999:
-                    print(f"  {company[:30]}: ✗ Age unknown (suspicious)")
+                    print(f"  {company[:30]}: ✗ Age unknown")
                     reason = "Job age unknown (old/stale posting)"
                 else:
                     print(f"  {company[:30]}: ✗ Posted {job_age}d ago")
