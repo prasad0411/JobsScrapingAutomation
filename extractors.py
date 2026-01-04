@@ -3,7 +3,7 @@
 """
 Extraction module for job data from various sources.
 Handles web scraping, email parsing, and Jobright authentication.
-ENHANCED: Markdown table parser, comprehensive age detection, Workday job IDs
+ENHANCED: Markdown table parser, comprehensive age detection, Workday job IDs, Handshake login
 """
 
 import requests
@@ -1218,6 +1218,8 @@ class SimplifyGitHubScraper:
 
 
 class HandshakeExtractor:
+    """✅ ENHANCED: Added interactive login method."""
+
     def __init__(self):
         self.cookies, self.driver, self.jobs_scraped_today, self.last_scrape_date = (
             None,
@@ -1229,12 +1231,67 @@ class HandshakeExtractor:
         self._load_cookies()
 
     def _load_cookies(self):
+        """Load saved Handshake cookies."""
         if os.path.exists(self.cookies_file):
             try:
                 with open(self.cookies_file, "r") as f:
                     self.cookies = json.load(f)
-            except:
-                pass
+                print(f"✓ Loaded {len(self.cookies)} Handshake cookies")
+            except Exception as e:
+                print(f"Handshake cookie load error: {e}")
+
+    def login_interactive(self):
+        """✅ NEW: Interactive login to Handshake using Selenium."""
+        if not SELENIUM_AVAILABLE:
+            print("Selenium not available - skipping Handshake authentication")
+            return False
+
+        print("\n" + "=" * 60)
+        print("HANDSHAKE AUTHENTICATION")
+        print("=" * 60)
+
+        driver = None
+        try:
+            chrome_options = Options()
+            chrome_options.add_argument("--disable-blink-features=AutomationControlled")
+            chrome_options.add_experimental_option(
+                "excludeSwitches", ["enable-logging"]
+            )
+
+            service = Service(ChromeDriverManager().install())
+            driver = webdriver.Chrome(service=service, options=chrome_options)
+
+            driver.get("https://app.joinhandshake.com")
+            time.sleep(5)
+
+            print("[AUTH] Please log in through the browser window")
+            print("       Navigate to your job search page")
+            print("       Press ENTER after completing login...")
+            input()  # ✅ WAITS for user input
+
+            cookies = driver.get_cookies()
+            if not cookies:
+                print("✗ No cookies captured")
+                driver.quit()
+                return False
+
+            self.cookies = cookies
+
+            with open(self.cookies_file, "w") as f:
+                json.dump(cookies, f, indent=2)
+
+            print(f"✓ Authentication successful ({len(cookies)} cookies saved)\n")
+            driver.quit()
+            return True
+
+        except Exception as e:
+            print(f"Authentication failed: {e}")
+            if driver:
+                try:
+                    driver.quit()
+                except:
+                    pass
+            return False
 
     def is_safe_to_scrape(self):
         now = datetime.datetime.now()

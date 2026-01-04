@@ -3,7 +3,7 @@
 """
 Main job aggregation pipeline - ENHANCED VERSION
 Orchestrates extraction, processing, validation, and sheet updates.
-FIXES: Minimal logging, vanshb03 age parsing, URL pre-checks, strict 5-day enforcement
+CRITICAL FIXES: Age=999 handling, better logging, 50-char reason truncation
 """
 
 import time
@@ -272,10 +272,16 @@ class UnifiedJobAggregator:
 
             soup = BeautifulSoup(response.text, "html.parser")
 
-            # CHECK 1: Job age FIRST (before expensive operations)
+            # ✅ CRITICAL FIX: CHECK 1 - Job age (REJECT if >5 days OR unknown/999)
             job_age = PageParser.extract_job_age_days(soup)
-            if job_age is not None and job_age > MAX_JOB_AGE_DAYS:
-                print(f"  {company[:30]}: ✗ Too old ({job_age}d)")
+            if job_age > MAX_JOB_AGE_DAYS:
+                if job_age == 999:
+                    print(f"  {company[:30]}: ✗ Age unknown (suspicious)")
+                    reason = "Job age unknown (old/stale posting)"
+                else:
+                    print(f"  {company[:30]}: ✗ Posted {job_age}d ago")
+                    reason = f"Posted {job_age} days ago (>5 days)"
+
                 self.outcomes["skipped_too_old"] += 1
                 self._add_to_discarded(
                     company,
@@ -284,7 +290,7 @@ class UnifiedJobAggregator:
                     "Unknown",
                     final_url,
                     "N/A",
-                    f"Posted {job_age} days ago",
+                    reason,
                     source,
                     "Unknown",
                 )
@@ -311,7 +317,7 @@ class UnifiedJobAggregator:
                 )
                 return
 
-            # CHECK 3: Restrictions
+            # CHECK 3: Restrictions (citizenship, bachelor's, clearance)
             restriction = ValidationHelper.check_page_restrictions(soup)
             if restriction:
                 print(f"  {company[:30]}: ✗ {self._truncate(restriction, 50)}")
@@ -645,12 +651,18 @@ class UnifiedJobAggregator:
 
             soup = BeautifulSoup(response.text, "html.parser")
 
-            # CHECK 1: Job age FIRST
+            # ✅ CRITICAL FIX: CHECK 1 - Job age (REJECT if >5 days OR unknown/999)
             job_age_days = PageParser.extract_job_age_days(soup)
-            if job_age_days is not None and job_age_days > MAX_JOB_AGE_DAYS:
+            if job_age_days > MAX_JOB_AGE_DAYS:
                 self.outcomes["skipped_too_old"] += 1
                 company = PageParser.extract_company(soup, final_url)
                 title_ext = PageParser.extract_title(soup)
+
+                if job_age_days == 999:
+                    reason = "Job age unknown (old/stale posting)"
+                else:
+                    reason = f"Posted {job_age_days} days ago (>5 days)"
+
                 return {
                     "decision": "discard",
                     "company": company if company else "Unknown",
@@ -659,7 +671,7 @@ class UnifiedJobAggregator:
                     "remote": "Unknown",
                     "url": final_url,
                     "job_id": "N/A",
-                    "reason": f"Posted {job_age_days} days ago",
+                    "reason": reason,
                     "source": sender,
                     "sponsorship": "Unknown",
                 }
@@ -1013,7 +1025,7 @@ class UnifiedJobAggregator:
                 "sponsorship": "Unknown",
             }
 
-        # CHECK 7: Restrictions
+        # CHECK 7: Restrictions (citizenship, bachelor's, clearance)
         restriction = ValidationHelper.check_page_restrictions(soup)
 
         if restriction:
@@ -1212,7 +1224,7 @@ class UnifiedJobAggregator:
                 self.outcomes["skipped_duplicate_company_title"] += 1
                 return None
 
-        # CHECK 6: Restrictions
+        # CHECK 6: Restrictions (citizenship, bachelor's, clearance)
         if soup:
             restriction = ValidationHelper.check_page_restrictions(soup)
             if restriction:
