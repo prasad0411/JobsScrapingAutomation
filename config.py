@@ -372,14 +372,20 @@ SPECIAL_COMPANY_NAMES = {
     "figma": "Figma",
     "ibm": "IBM",
     "simplify": "Simplify Jobs",
-    # ✅ NEW MAPPINGS
+    # ✅ Email/aggregator mappings
     "lifeattiktok": "TikTok",
     "githubinc": "GitHub",
     "ucar": "UCAR",
     "ncar": "NCAR",
     "seagatecareers": "Seagate",
-    "adzuna": "Multiple Companies",  # Adzuna aggregates many companies
+    "adzuna": "Multiple Companies",
     "easyapply": "SAP SuccessFactors",
+    # ✅ NEW: ByteDance and common company mappings
+    "joinbytedance": "ByteDance",
+    "bytedance": "ByteDance",
+    "mathworks": "MathWorks",
+    "idexx": "IDEXX",
+    "careersidexx": "IDEXX",
 }
 
 # Quality Scoring Thresholds
