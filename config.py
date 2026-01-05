@@ -436,7 +436,7 @@ HANDSHAKE_COOKIES_FILE = "handshake_cookies.json"
 # You need the /stu/postings?... URL format for search results.
 #
 HANDSHAKE_CONFIG = {
-    "search_url": "https://app.joinhandshake.com/stu/postings?page=1&per_page=25&sort_direction=desc&sort_column=default&commitment=internship&major_ids=3",  # ✅ UPDATE THIS with your actual search URL
+    "search_url": "https://app.joinhandshake.com/job-search/10575991?employmentTypes=1&jobType=3&pay%5BsalaryType%5D=1&pay%5BpayMinimum%5D=2000&pay%5BpaySchedule%5D=HOURLY_WAGE&remoteWork=onsite&remoteWork=remote&remoteWork=hybrid&majors=135801&per_page=25&page=1",  # ✅ UPDATE THIS with your actual search URL
     "max_jobs_per_session": 50,
     "max_sessions_per_day": 1,
     "scrape_only_weekdays": False,

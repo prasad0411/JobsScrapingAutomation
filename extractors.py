@@ -451,8 +451,8 @@ class PageParser:
 
     # Compile patterns once
     JOB_CODE_PATTERN = re.compile(
-        r"Job Code:\s*([A-Z0-9]{3,10})", re.I
-    )  # ✅ Shortened max length
+        r"Job Code:\s*([A-Z0-9]{3,10})\b", re.I
+    )  # ✅ Word boundary prevents "Apply" capture
     JOB_ID_PATTERN = re.compile(
         r"Job ID[:\s]+([A-Z0-9\-]{3,15})", re.I
     )  # ✅ Shortened max length
@@ -1226,9 +1226,9 @@ class SourceParsers:
                 if "$" in text or "referral" in text.lower():
                     continue
 
-                # ✅ AGGRESSIVE CLEANING - remove all common suffixes
+                # ✅ BULLETPROOF CLEANING - match suffixes without requiring space
                 text = re.sub(
-                    r"\s*(Team|Department|Division|Group|Unit|Office|Location|Area|Region|Zone|District|Branch).*$",
+                    r"(Team|Department|Division|Group|Unit|Office|Location|Area|Region|Zone|District|Branch).*$",
                     "",
                     text,
                     flags=re.I,
@@ -1256,9 +1256,30 @@ class SourceParsers:
                     location = "Hybrid"
                     remote = "Hybrid"
                     break
-                elif len(text) > 2 and len(text) < 50:
-                    # Single city name
-                    if any(state in text.upper() for state in US_STATES.values()):
+                elif len(text) > 2 and len(text) < 100:
+                    # Accept broader location formats
+                    text_lower = text.lower()
+
+                    # Skip non-location text
+                    if any(
+                        skip in text_lower
+                        for skip in ["apply", "view", "click", "submit"]
+                    ):
+                        continue
+
+                    # Accept if has state OR major city keywords
+                    if any(
+                        state in text.upper() for state in US_STATES.values()
+                    ) or any(
+                        city in text_lower
+                        for city in [
+                            "philadelphia",
+                            "seattle",
+                            "francisco",
+                            "greater",
+                            "metro",
+                        ]
+                    ):
                         location = text
                         remote = SourceParsers._infer_remote(text)
                         break
@@ -1583,21 +1604,15 @@ class HandshakeExtractor:
         if not search_url or "PASTE_YOUR" in search_url:
             return False, "Search URL not configured in config.py"
 
-        # ✅ Check if URL is search results (not single job)
-        if "/job-search/" in search_url:
-            # Extract job ID from URL
-            match = re.search(r"/job-search/(\d+)", search_url)
-            if match:
-                job_id = match.group(1)
-                # Single job URLs have long numeric IDs, search URLs have params
-                if "?" not in search_url or len(job_id) > 10:
-                    return (
-                        False,
-                        "search_url is a SINGLE JOB (need search results page). Navigate to /stu/postings with filters",
-                    )
+        # ✅ REJECT ANY /job-search/ URL (single job page, not search results)
+        if re.search(r"/job-search/\d+", search_url):
+            return (
+                False,
+                "❌ search_url is SINGLE JOB (/job-search/ID). Need /stu/postings?... Go to Handshake → Jobs → Search (not click on job) → Copy URL",
+            )
 
         if "/stu/postings" not in search_url:
-            return False, "search_url should be /stu/postings?... (search results page)"
+            return False, "search_url must be /stu/postings?... (search results page)"
 
         start_hour, end_hour = self.config["scrape_hours"]
         if not (start_hour <= now.hour < end_hour):
