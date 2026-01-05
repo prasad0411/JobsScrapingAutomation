@@ -814,10 +814,18 @@ class UnifiedJobAggregator:
                         "sponsorship": job_data.get("sponsorship", "Unknown"),
                     }
 
-                # ✅ ENHANCED: Smart company page fetching
+                # ✅ ENHANCED: Smart company page fetching with SIG special handling
                 if sender.lower() == "jobright" and job_data.get("is_company_site"):
                     actual_url = job_data["url"]
                     email_location = job_data.get("location", "Unknown")
+
+                    # ✅ SIG SPECIAL CASE: Force correct company before fetching page
+                    url_lower = actual_url.lower() if actual_url else ""
+                    if "careers.sig.com" in url_lower or "sig.com/job" in url_lower:
+                        job_data["company"] = "Susquehanna International Group"
+                        logging.info(
+                            f"  🏢 SIG detected: Forcing company = 'Susquehanna International Group'"
+                        )
 
                     logging.info(f"Fetching company page: {actual_url[:80]}")
 
@@ -866,9 +874,20 @@ class UnifiedJobAggregator:
                             job_data["remote"] = page_remote
                         if page_job_id != "N/A":
                             job_data["job_id"] = page_job_id
-                        if page_company != "Unknown":
-                            if not self._looks_like_title(page_company):
-                                job_data["company"] = page_company
+
+                        # ✅ COMPANY OVERRIDE LOGIC - Skip for SIG (already forced)
+                        if "sig.com" not in url_lower:
+                            if page_company != "Unknown":
+                                if not self._looks_like_title(page_company):
+                                    job_data["company"] = page_company
+                                else:
+                                    logging.info(
+                                        f"  ⚠️  Page company '{page_company}' looks like title, keeping email company"
+                                    )
+                        else:
+                            logging.info(
+                                f"  🏢 SIG: Keeping forced company (not overriding from page)"
+                            )
 
                         page_age = PageParser.extract_job_age_days(soup)
                         if page_age is not None and page_age > MAX_JOB_AGE_DAYS:
