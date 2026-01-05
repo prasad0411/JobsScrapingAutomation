@@ -1161,6 +1161,9 @@ class UnifiedJobAggregator:
                 existing_job and self._should_keep_both_jobs(new_job_data, existing_job)
             ):
                 self.outcomes["skipped_duplicate_company_title"] += 1
+                print(
+                    f"  {company[:30]}: ⊘ Duplicate ({job_id if job_id != 'N/A' else 'company+title'})"
+                )
                 logging.info(f"REJECTED | {company} | {title} | Duplicate | {url}")
                 return None
 
@@ -1374,6 +1377,9 @@ class UnifiedJobAggregator:
                 existing_job and self._should_keep_both_jobs(new_job_data, existing_job)
             ):
                 self.outcomes["skipped_duplicate_company_title"] += 1
+                print(
+                    f"  {company[:30]}: ⊘ Duplicate ({job_id if job_id != 'N/A' else 'company+title'})"
+                )
                 logging.info(
                     f"REJECTED | {company} | {title} | Duplicate job | {final_url}"
                 )
@@ -1610,6 +1616,9 @@ class UnifiedJobAggregator:
                 )
             ):
                 self.outcomes["skipped_duplicate_company_title"] += 1
+                print(
+                    f"  {company[:30]}: ⊘ Duplicate ({job_id if job_id != 'N/A' else 'company+title'})"
+                )
                 logging.info(f"REJECTED | {company} | {title} | Duplicate | {url}")
                 return None
 
