@@ -391,46 +391,86 @@ class LocationProcessor:
 
     @staticmethod
     def format_location_clean(location):
-        """✅ ULTIMATE: Format location with US removal and standardization."""
+        """✅ BULLETPROOF: Extract ONLY City - ST from any format."""
         if not location or location == "Unknown":
             return "Unknown"
 
-        location = location.strip()
+        if location in ["Remote", "Hybrid"]:
+            return location
 
-        # ✅ CRITICAL FIX: Remove "US" or "United States" from middle of location
-        # "Natick, US, MA" → "Natick, MA"
+        original = location.strip()
+
+        # ✅ STEP 1: Aggressive cleaning - remove ALL extra info
+        # Remove zip codes
+        location = re.sub(r"\s*\d{5}(-\d{4})?\s*", " ", original)
+
+        # Remove "USA" or "United States"
         location = re.sub(
-            r",\s*(?:US|U\.S\.|United States)\s*,", ",", location, flags=re.I
-        )
-        location = re.sub(
-            r",\s*(?:US|U\.S\.|United States)\s*$", "", location, flags=re.I
-        )
-        location = re.sub(
-            r"^\s*(?:US|U\.S\.|United States)\s*,", "", location, flags=re.I
+            r",?\s*(?:USA|U\.S\.A\.|United States)\s*", "", location, flags=re.I
         )
 
-        # Handle "City - State" format
-        location = re.sub(r"\s*-\s*([A-Z]{2})\b", r", \1", location)
+        # Remove building/address codes
+        location = re.sub(r"^[A-Z]{2}\d+:\s*", "", location)
+        location = re.sub(
+            r"\s*(?:Bldg|Building|Office|Suite|Floor|Drive|Street|Road|Avenue)\s+.*$",
+            "",
+            location,
+            flags=re.I,
+        )
 
-        # Capitalize properly
-        if "," in location:
-            parts = location.split(",")
+        # Remove descriptive suffixes
+        location = re.sub(r"\s*-\s*[A-Z][a-z]+\s+\d+\s*$", "", location)
+
+        # ✅ STEP 2: Extract City, State from various formats
+
+        # Format 1: "City, ST" - standard format
+        match = re.search(r"([A-Z][a-z]+(?:\s+[A-Z][a-z]+)*),\s*([A-Z]{2})\b", location)
+        if match:
+            city = match.group(1).strip()
+            state = match.group(2).upper()
+            if state in US_STATES.values():
+                return f"{city} - {state}"
+
+        # Format 2: "ST - City" or "US, ST - City" or "US - ST - City"
+        match = re.search(
+            r"(?:US\s*,?\s*)?([A-Z]{2})\s*-\s*([A-Z][a-z]+(?:\s+[A-Z][a-z]+)*)",
+            location,
+            re.I,
+        )
+        if match:
+            state = match.group(1).upper()
+            city = match.group(2).strip().title()
+            if state in US_STATES.values():
+                return f"{city} - {state}"
+
+        # Format 3: "City" only - infer state from CITY_TO_STATE
+        location_clean = re.sub(r"\s+", " ", location).strip()
+        location_lower = location_clean.lower()
+
+        if location_lower in CITY_TO_STATE:
+            state = CITY_TO_STATE[location_lower]
+            city = location_clean.title()
+            return f"{city} - {state}"
+
+        # Format 4: Multiple commas - take first city and last state
+        if "," in location_clean:
+            parts = [p.strip() for p in location_clean.split(",") if p.strip()]
             if len(parts) >= 2:
-                city = parts[0].strip().title()
-                state = (
-                    parts[-1].strip().upper()
-                )  # Take last part (in case of multiple commas)
+                # Try last part as state
+                potential_state = parts[-1].upper()
 
                 # Map full state names to abbreviations
                 for state_name, abbr in US_STATES.items():
-                    if state.lower() == state_name:
-                        state = abbr
+                    if potential_state.lower() == state_name:
+                        potential_state = abbr
                         break
 
-                if state in US_STATES.values():
-                    return f"{city} - {state}"
+                if potential_state in US_STATES.values():
+                    city = parts[0].title()
+                    return f"{city} - {potential_state}"
 
-        return location
+        # Fallback: return cleaned version
+        return location_clean
 
     @staticmethod
     def check_if_international(location, soup=None):
