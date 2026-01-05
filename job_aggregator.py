@@ -87,7 +87,7 @@ class UnifiedJobAggregator:
             "url_resolved": 0,
         }
 
-        print(f"Loaded: {len(self.existing_jobs)} existing jobs\n")
+        # ✅ Clean startup - removed verbose messages
         logging.info(f"Loaded {len(self.existing_jobs)} existing jobs from sheets")
 
     def run(self):

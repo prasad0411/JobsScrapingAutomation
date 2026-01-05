@@ -65,7 +65,7 @@ class JobrightAuthenticator:
             try:
                 with open(JOBRIGHT_COOKIES_FILE, "r") as f:
                     self.cookies = json.load(f)
-                print(f"✓ Loaded {len(self.cookies)} Jobright cookies")
+                # Removed verbose message - log only
             except Exception as e:
                 print(f"Cookie load error: {e}")
 
@@ -1211,7 +1211,16 @@ class SourceParsers:
             company_elem = job_section.find("p", id="job-company-name")
             company = company_elem.get_text().strip() if company_elem else "Unknown"
 
-            title = title_link.get_text().strip()
+            # ✅ Extract title - exclude button text
+            title = title_link.get_text(separator="|||", strip=True)
+            # Remove APPLY NOW and similar button text
+            title = title.split("|||")[0]  # Take first part only
+            title = re.sub(
+                r"\s*(APPLY NOW|Apply|View|Click Here|Learn More).*$",
+                "",
+                title,
+                flags=re.I,
+            ).strip()
 
             # ✅ ULTIMATE LOCATION EXTRACTION with aggressive cleaning
             location = "Unknown"
@@ -1507,7 +1516,7 @@ class HandshakeExtractor:
             try:
                 with open(self.cookies_file, "r") as f:
                     self.cookies = json.load(f)
-                print(f"✓ Loaded {len(self.cookies)} Handshake cookies")
+                # Removed verbose message - log only
             except:
                 pass
 
@@ -1604,15 +1613,25 @@ class HandshakeExtractor:
         if not search_url or "PASTE_YOUR" in search_url:
             return False, "Search URL not configured in config.py"
 
-        # ✅ REJECT ANY /job-search/ URL (single job page, not search results)
-        if re.search(r"/job-search/\d+", search_url):
+        # ✅ Check if URL format is valid
+        # Valid formats:
+        # 1. /stu/postings?page=1&...
+        # 2. /job-search/ID?page=1&per_page=25 (job detail WITH search context)
+
+        if "/job-search/" in search_url:
+            # Allow if has page parameters (means it's showing search context)
+            if "page=" in search_url and "per_page=" in search_url:
+                pass  # Valid format
+            else:
+                return (
+                    False,
+                    "❌ /job-search/ URL needs page parameters (?page=1&per_page=25)",
+                )
+        elif "/stu/postings" not in search_url:
             return (
                 False,
-                "❌ search_url is SINGLE JOB (/job-search/ID). Need /stu/postings?... Go to Handshake → Jobs → Search (not click on job) → Copy URL",
+                "search_url must be /stu/postings?... OR /job-search/ID?page=...&per_page=...",
             )
-
-        if "/stu/postings" not in search_url:
-            return False, "search_url must be /stu/postings?... (search results page)"
 
         start_hour, end_hour = self.config["scrape_hours"]
         if not (start_hour <= now.hour < end_hour):
@@ -1728,44 +1747,92 @@ class HandshakeExtractor:
             pass
 
     def _get_urls(self):
-        """✅ ENHANCED: Extract job URLs with multiple selector strategies."""
+        """✅ COMPREHENSIVE: Extract job URLs with extensive debugging."""
         try:
+            # Wait for page to fully load
+            time.sleep(3)
+
+            print(f"\n  [DEBUG] Current URL: {self.driver.current_url}")
+            print(f"  [DEBUG] Page title: {self.driver.title}")
+
             # Strategy 1: Direct job-search links
             cards = self.driver.find_elements(
                 By.CSS_SELECTOR, 'a[href*="/job-search/"]'
             )
+            print(
+                f"  [DEBUG] Strategy 1 (a[href*='/job-search/']): Found {len(cards)} links"
+            )
 
-            # Strategy 2: If no results, try job cards
+            # Strategy 2: Job cards with data attributes
             if not cards:
                 cards = self.driver.find_elements(
-                    By.CSS_SELECTOR, '[data-hook="search-result-card"] a'
+                    By.CSS_SELECTOR, '[data-hook="search-result"] a'
+                )
+                print(f"  [DEBUG] Strategy 2 (data-hook): Found {len(cards)} links")
+
+            # Strategy 3: Job listing cards
+            if not cards:
+                cards = self.driver.find_elements(
+                    By.CSS_SELECTOR, ".job-card a, .job-listing a"
+                )
+                print(
+                    f"  [DEBUG] Strategy 3 (job-card class): Found {len(cards)} links"
                 )
 
-            # Strategy 3: Any link with job-search in href
+            # Strategy 4: All links containing job-search
             if not cards:
-                cards = self.driver.find_elements(By.TAG_NAME, "a")
+                all_links = self.driver.find_elements(By.TAG_NAME, "a")
                 cards = [
                     c
-                    for c in cards
+                    for c in all_links
                     if "/job-search/" in (c.get_attribute("href") or "")
                 ]
+                print(
+                    f"  [DEBUG] Strategy 4 (all links scan): Found {len(cards)} links"
+                )
+
+            # Debug: Save page source if no results
+            if not cards:
+                page_source = self.driver.page_source
+                with open("handshake_debug_page.html", "w", encoding="utf-8") as f:
+                    f.write(page_source)
+                print(
+                    f"  [DEBUG] ⚠️  NO LINKS FOUND - saved page to handshake_debug_page.html"
+                )
+                print(f"  [DEBUG] Page length: {len(page_source)} chars")
+
+                # Check if we're actually logged in
+                if "sign in" in page_source.lower() or "log in" in page_source.lower():
+                    print(
+                        f"  [DEBUG] ❌ Page contains login text - cookies may be expired!"
+                    )
+
+                return []
 
             urls = []
             seen = set()
+
+            print(f"  [DEBUG] Processing {len(cards)} potential job links...")
 
             for card in cards:
                 href = card.get_attribute("href")
                 if href and "/job-search/" in href:
                     match = re.search(r"/job-search/(\d+)", href)
                     if match and href not in seen:
-                        urls.append(
+                        job_url = (
                             f"https://app.joinhandshake.com/job-search/{match.group(1)}"
                         )
+                        urls.append(job_url)
                         seen.add(href)
+
+            print(f"  [DEBUG] ✅ Extracted {len(urls)} unique job URLs\n")
 
             return urls
         except Exception as e:
-            print(f"  ✗ URL extraction error: {e}")
+            print(f"  [DEBUG] ❌ URL extraction error: {e}")
+            import traceback
+
+            traceback.print_exc()
             return []
 
     def _scrape_one(self, url, idx, total):
