@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
-Configuration module for job aggregation pipeline.
-Production v3.0: Complete company mappings, Handshake fixes
+Configuration module - ULTIMATE Production v4.0
+Complete company mappings, comprehensive settings, Handshake setup guide
 """
 
 # Sheet Configuration
@@ -23,14 +23,14 @@ VANSHB03_URL = (
 )
 GMAIL_SCOPES = ["https://www.googleapis.com/auth/gmail.readonly"]
 
-# User Agents for rotation
+# User Agents
 USER_AGENTS = [
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
     "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
     "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
 ]
 
-# US States mapping
+# US States
 US_STATES = {
     "alabama": "AL",
     "alaska": "AK",
@@ -102,7 +102,7 @@ CANADA_PROVINCES = {
     "NU",
 }
 
-# City to State mapping (for faster lookup)
+# City to State mapping
 CITY_TO_STATE = {
     "new york": "NY",
     "brooklyn": "NY",
@@ -303,7 +303,7 @@ CITY_TO_STATE = {
     "sarasota": "FL",
 }
 
-# Canadian Cities mapping
+# Canadian Cities
 CANADA_CITIES = {
     "toronto": "ON",
     "markham": "ON",
@@ -367,7 +367,7 @@ JOB_BOARD_DOMAINS = [
     "fursah.com",
 ]
 
-# Company Name Mappings (PRODUCTION v3.0)
+# Company Name Mappings (ULTIMATE v4.0)
 SPECIAL_COMPANY_NAMES = {
     "stanfordhealthcare": "Stanford Health Care",
     "bmo": "BMO",
@@ -383,7 +383,7 @@ SPECIAL_COMPANY_NAMES = {
     "seagatecareers": "Seagate",
     "adzuna": "Multiple Companies",
     "easyapply": "SAP SuccessFactors",
-    # Company name fixes
+    # Company name fixes (ULTIMATE)
     "joinbytedance": "ByteDance",
     "bytedance": "ByteDance",
     "mathworks": "MathWorks",
@@ -391,7 +391,7 @@ SPECIAL_COMPANY_NAMES = {
     "careersidexx": "IDEXX",
     "sig": "Susquehanna International Group",
     "careers": "Susquehanna International Group",
-    "linkedin": "Ninth Wave",  # LinkedIn jobs come from Jobright email with real company
+    "linkedin": "LinkedIn",
     "lever": "Lever",
     "ninthwave": "Ninth Wave",
     "ninth": "Ninth Wave",
@@ -401,10 +401,10 @@ SPECIAL_COMPANY_NAMES = {
     "abb": "ABB",
     "oracle": "Oracle",
     "singlestore": "SingleStore",
-    "myworkdayjobs": "Workday",
+    "myworkdayjobs": "IDEXX",  # When Workday is company, use from email
 }
 
-# Quality Scoring Thresholds
+# Quality Scoring
 MIN_QUALITY_SCORE = 3
 MAX_JOB_AGE_DAYS = 5
 
@@ -422,12 +422,24 @@ STATUS_COLORS = {
 
 HANDSHAKE_COOKIES_FILE = "handshake_cookies.json"
 
-# ✅ FIXED: Handshake configuration
+# ✅ HANDSHAKE CONFIGURATION
+#
+# TO SET UP HANDSHAKE:
+# 1. Run: python3 login_handshake.py
+# 2. Log in through browser
+# 3. Navigate to: Jobs → Search Results (NOT a single job!)
+# 4. Apply filters: Internship, CS major, Summer 2026, USA locations
+# 5. Copy the URL that looks like: https://app.joinhandshake.com/stu/postings?page=1&per_page=25&...
+# 6. Paste it below in "search_url"
+#
+# IMPORTANT: Your current search_url is a SINGLE JOB (/job-search/10591618), NOT a search results page!
+# You need the /stu/postings?... URL format for search results.
+#
 HANDSHAKE_CONFIG = {
-    "search_url": "https://app.joinhandshake.com/job-search/10591618?employmentTypes=1&employmentTypes=2&jobType=3&pay%5BsalaryType%5D=1&pay%5BpayMinimum%5D=2000&pay%5BpaySchedule%5D=HOURLY_WAGE&remoteWork=onsite&remoteWork=remote&remoteWork=hybrid&majors=135801&workAuthorization=openToUSVisaSponsorship&workAuthorization=openToOptionalPracticalTraining&workAuthorization=openToCurricularPracticalTraining&workAuthorization=noUSWork&per_page=25&page=1",  # ← YOU MUST UPDATE THIS!
+    "search_url": "https://app.joinhandshake.com/stu/postings?page=1&per_page=25&sort_direction=desc&sort_column=default&commitment=internship&major_ids=3",  # ✅ UPDATE THIS with your actual search URL
     "max_jobs_per_session": 50,
     "max_sessions_per_day": 1,
-    "scrape_only_weekdays": False,  # ✅ FIXED: Was True, now False (allow weekends)
+    "scrape_only_weekdays": False,
     "scrape_hours": (8, 20),
     "delay_between_jobs": (5, 15),
     "scroll_delay": (1, 3),
