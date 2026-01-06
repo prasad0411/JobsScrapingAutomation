@@ -514,10 +514,19 @@ class UnifiedJobAggregator:
 
     def _process_email_jobs(self, email_data_list):
         """Process email jobs."""
+        simplify_skipped = []  # Track Simplify redirect URLs
+
         for idx, email_data in enumerate(email_data_list, 1):
             url = email_data["url"]
             email_html = email_data["email_html"]
             sender = email_data["sender"]
+
+            # ✅ SIMPLIFY.JOBS REDIRECT HANDLING
+            if "simplify.jobs/p/" in url.lower():
+                # Extract company from email HTML (in <strong> tag before link)
+                company_name = self._extract_company_from_email_html(email_html, url)
+                simplify_skipped.append(company_name)
+                continue  # Skip - data already in GitHub
 
             # ✅ LINKEDIN: Process from EMAIL only (don't fetch page - requires auth)
             if "linkedin.com/jobs" in url.lower():
@@ -774,6 +783,22 @@ class UnifiedJobAggregator:
                     result["company"], result["title"], result["url"], result["job_id"]
                 )
                 self.outcomes["valid"] += 1
+
+        # ✅ Print skipped Simplify URLs summary (CONDENSED)
+        if simplify_skipped:
+            print()  # Blank line
+
+            # Condensed format: first 8 companies + count
+            if len(simplify_skipped) <= 8:
+                companies_str = ", ".join(simplify_skipped)
+            else:
+                companies_str = (
+                    ", ".join(simplify_skipped[:8])
+                    + f" + {len(simplify_skipped)-8} more"
+                )
+
+            print(f"  ⊘ SWE List: {companies_str} (duplicates from GitHub)")
+            print(f"  ⊘ Total: {len(simplify_skipped)} Simplify redirect URLs\n")
 
     def _process_single_email_job(self, url, email_html, sender, current_idx, total):
         """✅ ENHANCED: Smart location priority, skip LinkedIn."""
@@ -1966,6 +1991,47 @@ class UnifiedJobAggregator:
 
         url = self.URL_CLEAN_PATTERN.sub("", url)
         return url.lower().rstrip("/")
+
+    @staticmethod
+    def _extract_company_from_email_html(email_html, url):
+        """Extract company name from email HTML for Simplify URLs.
+
+        SWE List email format:
+        <strong>Royal Bank of Canada:</strong> <a href="simplify.jobs/p/...">Job Title</a>
+        """
+        try:
+            from bs4 import BeautifulSoup
+
+            soup = BeautifulSoup(email_html, "html.parser")
+
+            # Find the link with this URL
+            link = soup.find("a", href=lambda h: h and url in h)
+
+            if link:
+                # Look for <strong> tag before the link (usually company name)
+                # Go up to parent, find previous strong tag
+                parent = link.find_parent(["p", "div", "td"])
+                if parent:
+                    strong_tag = parent.find("strong")
+                    if strong_tag:
+                        company = strong_tag.get_text().strip()
+                        # Remove trailing colon
+                        company = company.rstrip(":").strip()
+                        if company and len(company) < 100:
+                            return company
+
+            # Fallback: Try to extract from URL slug
+            parts = url.split("/")
+            if len(parts) >= 5:
+                slug = parts[4].split("?")[0]
+                # Take first word before any job keywords
+                words = slug.split("-")
+                if words and not any(char.isdigit() for char in words[0]):
+                    return words[0].title()
+
+            return "Simplify Jobs"
+        except:
+            return "Simplify Jobs"
 
     @staticmethod
     def _format_date():

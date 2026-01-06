@@ -390,11 +390,46 @@ class LocationProcessor:
 
         original = location.strip()
 
-        # ✅ FIX: Clean common suffixes first (ByteDance "San JoseTeam")
+        # ✅ FIVE-STAGE HIERARCHICAL CLEANING
+
+        # Stage 1: Remove company name prefixes
+        company_prefixes = ["Corporate", "Headquarters", "Office", "Campus", "ascena"]
+        for prefix in company_prefixes:
+            location = re.sub(f"^{prefix}\\s+", "", original, flags=re.I)
+            location = re.sub(f"{prefix}\\s*–\\s*", "", location, flags=re.I)
+
+        location = location.strip()
+
+        # Stage 2: Handle "US ST City" format (Intapp case)
+        match = re.search(
+            r"^US\s+([A-Z]{2})\s+([A-Z][a-z]+(?:\s+[A-Z][a-z]+)*)", location
+        )
+        if match:
+            state = match.group(1).upper()
+            city = match.group(2).strip()
+            if state in US_STATES.values():
+                return f"{city} - {state}"
+
+        # Stage 3: Clean building codes (TXSA03, ILCHI01, etc.)
+        location = re.sub(r"^[A-Z]{2}[A-Z]{2}\d{2}:?\s*", "", location)
+
+        # Stage 4: Remove street names
+        location = re.sub(
+            r"\s+(Green\s+St|Street|St|Avenue|Ave|Road|Rd|Drive|Dr|Boulevard|Blvd)\b",
+            "",
+            location,
+            flags=re.I,
+        )
+
+        # Stage 5: Map vague terms
+        if location.strip() in ["Headquarters", "Office", "Campus", "Building"]:
+            return "Unknown"
+
+        # ✅ Clean common suffixes (ByteDance "San JoseTeam")
         location = re.sub(
             r"(Team|Department|Division|Group|Office|Building|Campus).*$",
             "",
-            original,
+            location,
             flags=re.I,
         )
         location = location.strip()
@@ -540,7 +575,12 @@ class LocationProcessor:
 
         # Canadian provinces
         for province in CANADA_PROVINCES:
-            if f", {province}" in location or f" {province}" in location.upper():
+            # Check both formats: ", ON" and " - ON"
+            if (
+                f", {province}" in location
+                or f" - {province}" in location
+                or f" {province}" in location.upper()
+            ):
                 if province == "ON" and ", ca" in location_lower:
                     continue
                 return f"Location: Canada (province: {province})"
@@ -549,6 +589,32 @@ class LocationProcessor:
         for city, province in CANADA_CITIES.items():
             if city in location_lower:
                 return f"Location: Canada ({city.title()})"
+
+        # ✅ Accent-normalized Canadian city check (Montréal, Québec)
+        try:
+            # Try with unidecode library
+            from unidecode import unidecode
+
+            normalized = unidecode(location_lower)
+        except ImportError:
+            # Fallback: Manual accent removal
+            normalized = (
+                location_lower.replace("é", "e").replace("è", "e").replace("ê", "e")
+            )
+            normalized = normalized.replace("à", "a").replace("â", "a")
+            normalized = normalized.replace("ô", "o").replace("ù", "u")
+
+        # Check normalized against Canadian cities
+        canadian_cities_normalized = {
+            "montreal": "Canada (Montréal)",
+            "quebec": "Canada (Québec)",
+            "toronto": "Canada (Toronto)",
+            "ottawa": "Canada (Ottawa)",
+        }
+
+        for city, label in canadian_cities_normalized.items():
+            if city in normalized:
+                return f"Location: {label}"
 
         if "canada" in location_lower:
             return "Location: Canada"
@@ -656,21 +722,25 @@ class ValidationHelper:
 
     @staticmethod
     def check_url_for_international(url):
-        """Check URL for international indicators."""
+        """✅ ENHANCED: Check URL for international indicators including Canada."""
         if not url:
             return None
 
         url_lower = url.lower()
 
-        canadian_patterns = [
-            "/en-ca/",
-            "/canada/",
-            "/toronto/",
-            "/vancouver/",
-            "-canada-",
+        # ✅ Canada URL patterns (Workday encodes country)
+        canada_url_patterns = [
+            "/montral-quebec-can/",
+            "/montreal-quebec/",
+            "/toronto-ontario/",
+            "/toronto---bay-st/",
+            "-quebec-can",
+            "-ontario-can",
+            "/can/",
+            "canada/",
         ]
 
-        for pattern in canadian_patterns:
+        for pattern in canada_url_patterns:
             if pattern in url_lower:
                 return f"International: Canada (from URL)"
 
@@ -678,12 +748,12 @@ class ValidationHelper:
 
     @staticmethod
     def check_page_restrictions(soup):
-        """✅ COMPREHENSIVE: Multi-layer restriction detection."""
+        """✅ COMPREHENSIVE: Multi-layer restriction detection with FULL page scan."""
         if not soup:
             return None
 
-        # ✅ FIX: Scan more of page (15000 chars instead of 5000)
-        page_text = soup.get_text()[:15000]
+        # ✅ SCAN ENTIRE PAGE (no character limit for Workday JS-rendered content)
+        page_text = soup.get_text()
         page_lower = page_text.lower()
 
         # ✅ LAYER 1: Security Clearance (Dual Detection)
