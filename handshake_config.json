@@ -1,0 +1,5 @@
+{
+  "search_url": "https://app.joinhandshake.com/stu/postings?page=1&per_page=25&sort_direction=desc&sort_column=default",
+  "max_jobs_per_page": 25,
+  "scrape_hours": [8, 20]
+}
