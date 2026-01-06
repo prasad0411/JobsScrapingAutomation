@@ -555,16 +555,54 @@ class LocationProcessor:
 
         location_lower = location.lower()
 
-        # Canadian provinces
-        for province in CANADA_PROVINCES:
+        # ✅ Canadian provinces (add full forms: ONT, QUE, ALTA)
+        canada_province_codes = [
+            "ON",
+            "QC",
+            "BC",
+            "AB",
+            "MB",
+            "SK",
+            "NS",
+            "NB",
+            "PE",
+            "NL",
+            "NT",
+            "YT",
+            "NU",
+        ]
+        canada_province_full = ["ONT", "QUE", "ALTA", "SASK", "MAN"]  # Full forms
+
+        for province in canada_province_codes:
             if (
                 f", {province}" in location
                 or f" - {province}" in location
                 or f" {province}" in location.upper()
             ):
+                # Exception: "ON" might be "Ontario, CA" (California city)
                 if province == "ON" and ", ca" in location_lower:
                     continue
                 return f"Location: Canada (province: {province})"
+
+        # Check full forms
+        for province in canada_province_full:
+            if province in location.upper():
+                return f"Location: Canada (province: {province})"
+
+        # ✅ Ambiguous "CA" handling - check context
+        if ", CA" in location or " - CA" in location:
+            # Could be California OR Canada
+            # Check for Canadian indicators
+            canada_indicators = [
+                "ontario",
+                "quebec",
+                "toronto",
+                "ottawa",
+                "montreal",
+                "canada",
+            ]
+            if any(indicator in location_lower for indicator in canada_indicators):
+                return "Location: Canada (CA in Canadian context)"
 
         # Accent-normalized cities
         try:
@@ -576,10 +614,16 @@ class LocationProcessor:
                 location_lower.replace("é", "e").replace("è", "e").replace("à", "a")
             )
 
+        # ✅ Expanded Canadian cities
         canadian_cities = {
             "montreal": "Canada (Montréal)",
             "toronto": "Canada (Toronto)",
             "ottawa": "Canada (Ottawa)",
+            "vancouver": "Canada (Vancouver)",
+            "calgary": "Canada (Calgary)",
+            "mississauga": "Canada (Mississauga)",
+            "edmonton": "Canada (Edmonton)",
+            "quebec": "Canada (Québec)",
         }
 
         for city, label in canadian_cities.items():
@@ -645,19 +689,28 @@ class ValidationHelper:
 
     @staticmethod
     def check_url_for_international(url):
-        """✅ Enhanced Canada URL detection."""
+        """✅ ULTIMATE: Enhanced Canada URL detection with domains and cities."""
         if not url:
             return None
 
         url_lower = url.lower()
 
+        # ✅ ENHANCED Canada patterns: URLs, domains, cities
         canada_patterns = [
             "/montral-quebec-can/",
             "/toronto-ontario/",
+            "/ottawa-ontario/",
             "-quebec-can",
             "-ontario-can",
             "/can/",
             "canada/",
+            ".ca/",  # ✅ NEW: Canadian domains
+            ".ca2.",  # ✅ NEW: Oracle Cloud Canada
+            "/ottawa",  # ✅ NEW: Canadian city URLs
+            "/toronto",
+            "/montreal",
+            "/vancouver",
+            "/calgary",
         ]
 
         for pattern in canada_patterns:
@@ -762,9 +815,9 @@ class ValidationHelper:
 
         # ✅ LAYER 2: GRADUATION DATE VALIDATION (User graduates May 2027)
 
-        # ✅ Mechanism 1: Date ranges
+        # ✅ Mechanism 1: Date ranges (CASE-INSENSITIVE)
         range_match = re.search(
-            r"graduating\s+([a-z]+)\s+(\d{4})\s+(?:thru|through|to)\s+([a-z]+)?\s*(\d{4})",
+            r"graduating\s+([A-Za-z]+)\s+(\d{4})\s+(?:thru|through|to)\s+([A-Za-z]+)?\s*(\d{4})",
             page_lower,
             re.I,
         )
@@ -793,9 +846,9 @@ class ValidationHelper:
                 if start_month and start_month.lower() in before_may:
                     return f"Graduation {start_month.title()} 2027 (before May)"
 
-        # ✅ Mechanism 2: Slash dates (May/June 2026)
+        # ✅ Mechanism 2: Slash dates (May/June 2026) - CASE-INSENSITIVE
         slash_match = re.search(
-            r"graduation.*([a-z]+)/([a-z]+)\s+(\d{4})", page_lower, re.I
+            r"graduation.*([A-Za-z]+)/([A-Za-z]+)\s+(\d{4})", page_lower, re.I
         )
         if slash_match:
             first_month = slash_match.group(1)
@@ -811,11 +864,12 @@ class ValidationHelper:
             if year < 2027:
                 return f"Graduation Class of {year} (before 2027)"
 
-        # Standard single dates
+        # Standard single dates (CASE-INSENSITIVE)
         grad_patterns = [
-            r"graduation\s+date:?\s*([a-z]+)?\s*(\d{4})",
-            r"expected\s+graduation[:\s]+([a-z]+)?\s*(\d{4})",
-            r"graduating\s+([a-z]+)?\s*(\d{4})",
+            r"graduation\s+date:?\s*([A-Za-z]+)?\s*(\d{4})",
+            r"expected\s+graduation[:\s]+([A-Za-z]+)?\s*(\d{4})",
+            r"graduating\s+([A-Za-z]+)?\s*(\d{4})",
+            r"between\s+([A-Za-z]+)\s+(\d{4})\s+and",  # ✅ NEW: "between December 2026 and"
         ]
 
         for pattern in grad_patterns:
@@ -853,9 +907,9 @@ class ValidationHelper:
             # From Jan 2026: 1-2 semesters = May-Dec 2026 (both before May 2027)
             return "Graduation within 1-2 semesters (before May 2027)"
 
-        # ✅ Mechanism 5: "Available to start" inference
+        # ✅ Mechanism 5: "Available to start" inference (CASE-INSENSITIVE)
         start_match = re.search(
-            r"available.*start.*(?:full-time|employment).*([a-z]+)\s+(\d{4})",
+            r"available.*start.*(?:full-time|employment).*([A-Za-z]+)\s+(\d{4})",
             page_lower,
             re.I,
         )
