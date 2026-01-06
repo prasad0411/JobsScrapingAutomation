@@ -20,8 +20,8 @@ from extractors import (
     SourceParsers,
     JobrightAuthenticator,
     SimplifyGitHubScraper,
-    HandshakeExtractor,
 )
+from handshake_playwright import HandshakePlaywrightScraper  # ✅ NEW: Playwright
 from processors import (
     TitleProcessor,
     LocationProcessor,
@@ -60,7 +60,7 @@ class UnifiedJobAggregator:
         self.email_extractor = EmailExtractor()
         self.page_fetcher = PageFetcher()
         self.jobright_auth = JobrightAuthenticator()
-        self.handshake_extractor = HandshakeExtractor()
+        self.handshake_scraper = HandshakePlaywrightScraper()  # ✅ NEW: Playwright
 
         existing = self.sheets.load_existing_jobs()
         self.existing_jobs = existing["jobs"]
@@ -95,13 +95,12 @@ class UnifiedJobAggregator:
         if not self.jobright_auth.cookies:
             self.jobright_auth.login_interactive()
 
-        if not self.handshake_extractor.cookies:
-            print("\nHandshake cookies not found - attempting login...")
-            self.handshake_extractor.login_interactive()
+        # Handshake uses Playwright with persistent login (no manual check needed)
 
         print("Scraping GitHub repositories...")
         self._scrape_simplify_github()
 
+        print("\nScraping Handshake with Playwright...")
         try:
             self._scrape_handshake()
         except Exception as e:
@@ -438,11 +437,19 @@ class UnifiedJobAggregator:
             pass
 
     def _scrape_handshake(self):
-        """Scrape Handshake."""
-        jobs = self.handshake_extractor.scrape_jobs()
-        if not jobs:
+        """Scrape Handshake using Playwright (human-like, persistent login)."""
+        try:
+            jobs = self.handshake_scraper.scrape_jobs(max_jobs=25)
+        except Exception as e:
+            print(f"  ✗ Handshake error: {e}")
+            logging.error(f"Handshake error: {e}")
             return
 
+        if not jobs:
+            print("  ✗ No Handshake jobs retrieved")
+            return
+
+        print(f"  ✓ Handshake: Loaded {len(jobs)} jobs")
         logging.info(f"Handshake: Retrieved {len(jobs)} jobs")
 
         for job in jobs:
@@ -450,16 +457,9 @@ class UnifiedJobAggregator:
             title_raw = job.get("title", "Unknown")
             location_raw = job.get("location", "Unknown")
             url = job["url"]
-            job_id = job.get("job_id", "N/A")
-            remote = job.get("remote", "Unknown")
-            work_auth = job.get("work_authorization_required", "Unknown")
-            spons = job.get("sponsorship", "Unknown")
-
-            if work_auth == "Yes":
-                logging.info(
-                    f"REJECTED | {company} | {title_raw} | US work auth required | {url}"
-                )
-                continue
+            job_id = "N/A"  # Handshake doesn't provide IDs directly
+            remote = "Unknown"
+            spons = "Unknown"
 
             if self._clean_url(url) in self.existing_urls:
                 continue

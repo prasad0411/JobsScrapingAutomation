@@ -1,5 +1,8 @@
 {
-  "search_url": "https://app.joinhandshake.com/stu/postings?page=1&per_page=25&sort_direction=desc&sort_column=default",
+  "search_url": "https://app.joinhandshake.com/job-search/10575991?employmentTypes=1&jobType=3&pay%5BsalaryType%5D=1&pay%5BpayMinimum%5D=2000&pay%5BpaySchedule%5D=HOURLY_WAGE&remoteWork=onsite&remoteWork=remote&remoteWork=hybrid&majors=135801&per_page=25&page=1",
   "max_jobs_per_page": 25,
-  "scrape_hours": [8, 20]
+  "scrape_hours": [
+    0,
+    24
+  ]
 }
