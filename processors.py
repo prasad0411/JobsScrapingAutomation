@@ -390,8 +390,17 @@ class LocationProcessor:
 
         original = location.strip()
 
+        # ✅ FIX: Clean common suffixes first (ByteDance "San JoseTeam")
+        location = re.sub(
+            r"(Team|Department|Division|Group|Office|Building|Campus).*$",
+            "",
+            original,
+            flags=re.I,
+        )
+        location = location.strip()
+
         # ✅ STEP 1: Aggressive cleaning
-        location = re.sub(r"\s*\d{5}(-\d{4})?\s*", " ", original)
+        location = re.sub(r"\s*\d{5}(-\d{4})?\s*", " ", location)
         location = re.sub(
             r",?\s*(?:USA|U\.S\.A\.|United States)\s*", "", location, flags=re.I
         )
@@ -475,6 +484,22 @@ class LocationProcessor:
         location_lower = location_clean.lower()
         if location_lower in CITY_TO_STATE:
             state = CITY_TO_STATE[location_lower]
+            city = location_clean.title()
+            return f"{city} - {state}"
+
+        # ✅ FIX: Known tech cities (ByteDance "San Jose" without state)
+        known_tech_cities = {
+            "san jose": "CA",
+            "foster city": "CA",
+            "san francisco": "CA",
+            "seattle": "WA",
+            "pullman": "WA",
+            "boston": "MA",
+            "tewksbury": "MA",
+        }
+
+        if location_lower in known_tech_cities:
+            state = known_tech_cities[location_lower]
             city = location_clean.title()
             return f"{city} - {state}"
 
@@ -657,7 +682,8 @@ class ValidationHelper:
         if not soup:
             return None
 
-        page_text = soup.get_text()[:5000]
+        # ✅ FIX: Scan more of page (15000 chars instead of 5000)
+        page_text = soup.get_text()[:15000]
         page_lower = page_text.lower()
 
         # ✅ LAYER 1: Security Clearance (Dual Detection)
