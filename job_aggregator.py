@@ -784,20 +784,21 @@ class UnifiedJobAggregator:
                 )
                 self.outcomes["valid"] += 1
 
-        # ✅ Print skipped Simplify URLs summary (CONDENSED)
+        # ✅ Print skipped Simplify URLs summary (ALL COMPANIES - WRAPPED)
         if simplify_skipped:
             print()  # Blank line
 
-            # Condensed format: first 8 companies + count
-            if len(simplify_skipped) <= 8:
-                companies_str = ", ".join(simplify_skipped)
-            else:
-                companies_str = (
-                    ", ".join(simplify_skipped[:8])
-                    + f" + {len(simplify_skipped)-8} more"
-                )
+            # ✅ Show ALL companies with text wrapping (not truncated)
+            import textwrap
 
-            print(f"  ⊘ SWE List: {companies_str} (duplicates from GitHub)")
+            companies_str = ", ".join(simplify_skipped)
+            wrapped = textwrap.fill(
+                companies_str,
+                width=90,
+                initial_indent="  ⊘ SWE List: ",
+                subsequent_indent="              ",
+            )
+            print(wrapped)
             print(f"  ⊘ Total: {len(simplify_skipped)} Simplify redirect URLs\n")
 
     def _process_single_email_job(self, url, email_html, sender, current_idx, total):

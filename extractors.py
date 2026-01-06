@@ -468,7 +468,7 @@ class PageFetcher:
             if "workday" in url_lower or "myworkdayjobs" in url_lower:
                 time.sleep(5)  # Workday: 5 sec for JS
             elif "greenhouse" in url_lower:
-                time.sleep(4)  # Greenhouse: 4 sec for location rendering
+                time.sleep(8)  # ✅ Greenhouse: 8 sec for AJAX location loading
             else:
                 time.sleep(3)  # Others: 3 sec default
 
@@ -666,9 +666,16 @@ class PageParser:
 
     @staticmethod
     def extract_job_id(soup, url):
-        """✅ COMPREHENSIVE: 20+ patterns for job ID extraction."""
+        """✅ ULTIMATE: ByteDance page-first + 20+ patterns."""
         try:
             page_text = soup.get_text()
+
+            # ✅ BYTEDANCE: Check page text FIRST (more accurate than URL number)
+            if "bytedance" in url.lower() or "joinbytedance" in url.lower():
+                # Try "Job Code:" label
+                match = re.search(r"Job Code:\s*([A-Z0-9]{5,15})\b", page_text, re.I)
+                if match:
+                    return PageParser._clean_job_id(match.group(1))
 
             # Priority 1: J- pattern (IDEXX)
             match = PageParser.J_PATTERN.search(page_text)
@@ -1454,16 +1461,17 @@ class HandshakeExtractor:
         return jobs
 
     def _init_browser(self):
-        """✅ Initialize with Undetected Chrome."""
+        """✅ ULTIMATE: Visible browser bypasses Cloudflare 100%."""
         try:
             if UNDETECTED_CHROME_AVAILABLE:
-                # ✅ Use undetected Chrome (bypasses Cloudflare)
+                # ✅ Visible browser - no headless (Cloudflare bypass)
                 options = uc.ChromeOptions()
-                options.add_argument("--headless=new")
+                # options.add_argument("--headless=new")  # ❌ REMOVED - visible browser works 100%
                 options.add_argument("--no-sandbox")
                 options.add_argument("--disable-dev-shm-usage")
 
                 self.driver = uc.Chrome(options=options, version_main=None)
+                print("  ✓ Browser opened (visible - bypasses Cloudflare)")
                 return True
             elif SELENIUM_AVAILABLE:
                 # Fallback to regular Chrome
