@@ -340,9 +340,9 @@ class PageFetcher:
         }
 
     def fetch_page(self, url):
-        """✅ ENHANCED: Route Workday to Selenium, others to HTTP."""
-        # ✅ Use Selenium for ALL Workday pages (get JS-rendered content)
-        if self._is_workday_url(url):
+        """✅ ULTIMATE: Route Workday AND Greenhouse to Selenium."""
+        # ✅ Use Selenium for Workday AND Greenhouse (get JS-rendered content)
+        if self._is_js_heavy_platform(url):
             html, final_url = self._try_selenium(url)
             if html:
                 self.outcomes["method_selenium"] += 1
@@ -353,7 +353,7 @@ class PageFetcher:
                 )()
                 return mock_response, final_url
 
-        # Standard HTTP for non-Workday
+        # Standard HTTP for non-JS platforms
         response = self._try_standard_request(url)
         if response and response.status_code == 200:
             self.outcomes["method_standard"] += 1
@@ -380,12 +380,20 @@ class PageFetcher:
         return None, None
 
     @staticmethod
-    def _is_workday_url(url):
-        """Check if URL is a Workday page."""
+    def _is_js_heavy_platform(url):
+        """✅ Check if URL needs Selenium (JS-heavy platforms)."""
         if not url:
             return False
         url_lower = url.lower()
-        return "workday" in url_lower or "myworkdayjobs" in url_lower
+
+        js_platforms = [
+            "workday",
+            "myworkdayjobs",
+            "greenhouse.io",  # ✅ ADDED
+            "boards.greenhouse",  # ✅ ADDED
+        ]
+
+        return any(platform in url_lower for platform in js_platforms)
 
     def _try_standard_request(self, url, retries=3):
         """Standard HTTP request with retries."""
@@ -437,7 +445,7 @@ class PageFetcher:
         return None
 
     def _try_selenium(self, url):
-        """✅ ENHANCED: Selenium with longer waits for Workday pages."""
+        """✅ ULTIMATE: Selenium with platform-specific waits."""
         if not SELENIUM_AVAILABLE:
             return None, None
 
@@ -455,11 +463,14 @@ class PageFetcher:
             driver.set_page_load_timeout(30)
             driver.get(url)
 
-            # ✅ Longer wait for Workday (JS-heavy pages)
-            if "workday" in url.lower() or "myworkdayjobs" in url.lower():
-                time.sleep(5)  # 5 seconds for Workday JS to render
+            # ✅ Platform-specific wait times
+            url_lower = url.lower()
+            if "workday" in url_lower or "myworkdayjobs" in url_lower:
+                time.sleep(5)  # Workday: 5 sec for JS
+            elif "greenhouse" in url_lower:
+                time.sleep(4)  # Greenhouse: 4 sec for location rendering
             else:
-                time.sleep(3)
+                time.sleep(3)  # Others: 3 sec default
 
             return driver.page_source, driver.current_url
         except:
@@ -744,7 +755,7 @@ class PageParser:
 
     @staticmethod
     def _clean_job_id(job_id):
-        """✅ STRICT: Clean job ID with artifact removal."""
+        """✅ ULTIMATE: Strict job ID cleaning with comprehensive suffix removal."""
         if not job_id:
             return "N/A"
 
@@ -752,7 +763,7 @@ class PageParser:
         if job_id.lower().startswith("id"):
             job_id = job_id[2:]
 
-        # Remove button/action text
+        # ✅ COMPREHENSIVE suffix removal (buttons + company names + text artifacts)
         suffixes = [
             "Apply",
             "Now",
@@ -768,6 +779,16 @@ class PageParser:
             "External",
             "Pay",
             "Current",
+            "T-Mobile",
+            "Company",
+            "Inc",
+            "Corp",
+            "LLC",
+            "Ltd",
+            "Engineer",
+            "Developer",
+            "Intern",
+            "Position",
         ]
         for suffix in suffixes:
             job_id = re.sub(f"{suffix}.*$", "", job_id, flags=re.I)
@@ -780,12 +801,13 @@ class PageParser:
             else:
                 break  # Stop at first non-ID character
 
-        # Validate length
+        # ✅ Stricter min length (4 chars minimum)
+        if len(cleaned) < 4:
+            return "N/A"
+
+        # Validate max length
         if len(cleaned) > 20:
             cleaned = cleaned[:20]
-
-        if len(cleaned) < 3:
-            return "N/A"
 
         return cleaned.upper().strip()
 
