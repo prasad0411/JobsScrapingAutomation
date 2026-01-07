@@ -18,6 +18,7 @@ class HandshakePlaywrightScraper:
             with open(config_path, "r") as f:
                 return json.load(f)
         except FileNotFoundError:
+            print(f"⚠️  Config not found: {config_path}")
             return {
                 "search_url": "https://app.joinhandshake.com/stu/postings?page=1&per_page=25",
                 "max_jobs_per_page": 25,
@@ -38,44 +39,67 @@ class HandshakePlaywrightScraper:
                 )
                 time.sleep(random.uniform(0.3, 0.8))
                 total_height = page.evaluate("document.body.scrollHeight")
-        except:
-            pass
+        except Exception as e:
+            print(f"  DEBUG: Scroll error: {e}")
 
     def scrape_jobs(self, max_jobs=25):
         search_url = self.config["search_url"]
 
+        print(f"\n  DEBUG: Original URL: {search_url[:100]}...")
+
         if "/job-search/" in search_url:
+            print("  DEBUG: Detected /job-search/, correcting to /stu/postings...")
             if "?" in search_url:
                 query_params = search_url.split("?", 1)[1]
                 search_url = (
                     f"https://app.joinhandshake.com/stu/postings?{query_params}"
                 )
                 self.config["search_url"] = search_url
+                print(f"  DEBUG: Corrected URL: {search_url[:100]}...")
             else:
+                print("  ERROR: No query parameters in URL!")
                 return []
 
+        print(f"  DEBUG: Launching browser...")
+
         with sync_playwright() as p:
-            context = p.chromium.launch_persistent_context(
-                user_data_dir=str(self.browser_data_dir),
-                headless=False,
-                args=[
-                    "--disable-blink-features=AutomationControlled",
-                    "--disable-dev-shm-usage",
-                    "--no-sandbox",
-                ],
-                viewport={"width": 1920, "height": 1080},
-                user_agent="Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36",
-            )
+            try:
+                context = p.chromium.launch_persistent_context(
+                    user_data_dir=str(self.browser_data_dir),
+                    headless=False,
+                    args=[
+                        "--disable-blink-features=AutomationControlled",
+                        "--disable-dev-shm-usage",
+                        "--no-sandbox",
+                    ],
+                    viewport={"width": 1920, "height": 1080},
+                    user_agent="Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36",
+                )
+                print("  DEBUG: Browser launched successfully")
+            except Exception as e:
+                print(f"  ERROR: Browser launch failed: {e}")
+                return []
 
             page = context.pages[0] if context.pages else context.new_page()
 
+            print(f"  DEBUG: Navigating to URL...")
             try:
                 page.goto(search_url, wait_until="networkidle", timeout=30000)
+                print(f"  DEBUG: Navigation successful")
                 self._human_delay(2, 4)
             except PlaywrightTimeout:
-                pass
+                print("  DEBUG: Navigation timeout, continuing anyway...")
+            except Exception as e:
+                print(f"  ERROR: Navigation failed: {e}")
+                context.close()
+                return []
 
             self._human_delay(2, 3)
+
+            actual_url = page.url
+            actual_title = page.title()
+            print(f"  DEBUG: Landed on: {actual_url[:100]}...")
+            print(f"  DEBUG: Page title: {actual_title}")
 
             if self._is_login_page(page):
                 print("\n" + "=" * 80)
@@ -83,19 +107,45 @@ class HandshakePlaywrightScraper:
                 print("=" * 80)
                 input("Press ENTER after logging in: ")
                 self._human_delay(1, 2)
+            else:
+                print("  DEBUG: Already authenticated")
 
+            print("  DEBUG: Scrolling page...")
             self._slow_scroll(page)
 
+            print("  DEBUG: Waiting for job listings...")
             try:
                 page.wait_for_selector('[data-hook="search-result"]', timeout=10000)
+                print("  DEBUG: Found selector: [data-hook='search-result']")
             except PlaywrightTimeout:
+                print("  DEBUG: Primary selector timeout, trying alternatives...")
                 try:
                     page.wait_for_selector(".posting-card", timeout=5000)
+                    print("  DEBUG: Found selector: .posting-card")
                 except PlaywrightTimeout:
+                    print("  ERROR: No job cards found!")
+                    print(f"  DEBUG: Saving screenshot...")
+                    try:
+                        page.screenshot(path="handshake_debug.png")
+                        print(f"  Saved: handshake_debug.png")
+                    except:
+                        pass
+
+                    try:
+                        html_content = page.content()
+                        with open("handshake_debug.html", "w", encoding="utf-8") as f:
+                            f.write(html_content)
+                        print(f"  Saved: handshake_debug.html")
+                    except:
+                        pass
+
                     context.close()
                     return []
 
+            print("  DEBUG: Extracting jobs...")
             jobs = self._extract_jobs_from_page(page)
+            print(f"  DEBUG: Extraction complete: {len(jobs)} jobs found")
+
             self._human_delay(1, 2)
             context.close()
 
@@ -136,19 +186,28 @@ class HandshakePlaywrightScraper:
         ]
 
         job_elements = None
+        used_selector = None
+
         for selector in selectors:
             try:
                 count = page.locator(selector).count()
                 if count > 0:
+                    print(f"  DEBUG: Selector '{selector}' matched {count} elements")
                     job_elements = page.locator(selector)
+                    used_selector = selector
                     break
-            except:
+                else:
+                    print(f"  DEBUG: Selector '{selector}' found 0 elements")
+            except Exception as e:
+                print(f"  DEBUG: Selector '{selector}' error: {e}")
                 continue
 
         if not job_elements:
+            print("  ERROR: All selectors returned 0 elements")
             return []
 
         count = job_elements.count()
+        print(f"  DEBUG: Processing {count} job elements...")
 
         for i in range(count):
             try:
@@ -226,7 +285,12 @@ class HandshakePlaywrightScraper:
                             ),
                         }
                     )
-            except:
+                    if i < 3:
+                        print(f"  DEBUG: [{i+1}] {company}: {title[:40]}...")
+
+            except Exception as e:
+                print(f"  DEBUG: Error on job {i+1}: {e}")
                 continue
 
+        print(f"  DEBUG: Successfully extracted {len(jobs)} jobs")
         return jobs
