@@ -100,11 +100,9 @@ class UnifiedJobAggregator:
         print("Scraping GitHub repositories...")
         self._scrape_simplify_github()
 
-        print("\nScraping Handshake with Playwright...")
         try:
             self._scrape_handshake()
         except Exception as e:
-            print(f"Handshake error: {e}")
             logging.error(f"Handshake error: {e}")
 
         print("\nProcessing email jobs...")
@@ -437,19 +435,15 @@ class UnifiedJobAggregator:
             pass
 
     def _scrape_handshake(self):
-        """Scrape Handshake using Playwright (human-like, persistent login)."""
         try:
             jobs = self.handshake_scraper.scrape_jobs(max_jobs=25)
         except Exception as e:
-            print(f"  ✗ Handshake error: {e}")
             logging.error(f"Handshake error: {e}")
             return
 
         if not jobs:
-            print("  ✗ No Handshake jobs retrieved")
             return
 
-        print(f"  ✓ Handshake: Loaded {len(jobs)} jobs")
         logging.info(f"Handshake: Retrieved {len(jobs)} jobs")
 
         for job in jobs:
@@ -457,11 +451,20 @@ class UnifiedJobAggregator:
             title_raw = job.get("title", "Unknown")
             location_raw = job.get("location", "Unknown")
             url = job["url"]
-            job_id = "N/A"  # Handshake doesn't provide IDs directly
+            posted_date = job.get("posted_date", "Unknown")
+            job_id = "N/A"
             remote = "Unknown"
             spons = "Unknown"
 
             if self._clean_url(url) in self.existing_urls:
+                continue
+
+            date_check = ValidationHelper.check_posted_date(posted_date, max_days=5)
+            if date_check:
+                print(f"  {company}: ✗ {date_check}")
+                logging.info(
+                    f"REJECTED | {company} | {title_raw} | {date_check} | {url}"
+                )
                 continue
 
             self.processing_lock.add(self._clean_url(url))
@@ -473,10 +476,24 @@ class UnifiedJobAggregator:
                 or not TitleProcessor.is_internship_role(title)[0]
                 or not TitleProcessor.is_cs_engineering_role(title)
             ):
+                print(f"  {company}: ✗ Not valid internship role")
                 logging.info(
                     f"REJECTED | {company} | {title} | Failed validation | {url}"
                 )
                 continue
+
+            try:
+                soup = self._fetch_job_page(url)
+                if soup:
+                    restriction = ValidationHelper.check_page_restrictions(soup)
+                    if restriction:
+                        print(f"  {company}: ✗ {restriction}")
+                        logging.info(
+                            f"REJECTED | {company} | {title} | {restriction} | {url}"
+                        )
+                        continue
+            except:
+                pass
 
             is_valid_co, company, _ = ValidationHelper.validate_company_field(
                 company, title, url
@@ -500,6 +517,7 @@ class UnifiedJobAggregator:
             )
 
             if QualityScorer.is_acceptable_quality(quality):
+                print(f"  {company}: ✓ Valid")
                 logging.info(f"ACCEPTED | {company} | {title} | Handshake | {url}")
                 self._add_to_valid(
                     company,
@@ -511,6 +529,10 @@ class UnifiedJobAggregator:
                     spons,
                     "Handshake",
                 )
+
+        valid_count = len([j for j in self.valid_jobs if j[7] == "Handshake"])
+        if valid_count > 0:
+            print(f"\n  Handshake summary: {valid_count} valid jobs")
 
     def _process_email_jobs(self, email_data_list):
         """Process email jobs."""
@@ -794,9 +816,9 @@ class UnifiedJobAggregator:
             companies_str = ", ".join(simplify_skipped)
             wrapped = textwrap.fill(
                 companies_str,
-                width=90,
+                width=100,  # ✅ Wider lines
                 initial_indent="  ⊘ SWE List: ",
-                subsequent_indent="              ",
+                subsequent_indent="    ",  # ✅ Shorter indent (4 spaces vs 14)
             )
             print(wrapped)
             print(f"  ⊘ Total: {len(simplify_skipped)} Simplify redirect URLs\n")
@@ -1975,6 +1997,15 @@ class UnifiedJobAggregator:
     def _truncate(text, max_length=50):
         """Truncate text."""
         return text if len(text) <= max_length else text[: max_length - 3] + "..."
+
+    def _fetch_job_page(self, url):
+        try:
+            html, _ = self.page_fetcher.fetch_with_selenium(url)
+            if html:
+                return BeautifulSoup(html, "html.parser")
+        except:
+            pass
+        return None
 
     def _normalize(self, text):
         """Normalize text."""
