@@ -744,6 +744,17 @@ class ValidationHelper:
             if re.search(pattern, page_lower, re.I):
                 return "US citizenship required"
 
+        work_auth_patterns = [
+            r"us work authorization required",
+            r"must have us work authorization",
+            r"requires us work authorization",
+            r"valid us work authorization",
+        ]
+
+        for pattern in work_auth_patterns:
+            if re.search(pattern, page_lower, re.I):
+                return "US work authorization required"
+
         # ✅ ENHANCED: Clearance with modal verbs
         clearance_requirement_patterns = [
             r"must be able to obtain.*clearance",
@@ -1062,6 +1073,31 @@ class ValidationHelper:
             return "No"
 
         return "Unknown"
+
+    @staticmethod
+    def check_posted_date(posted_date_str, page_text=None, max_days=5):
+        if not posted_date_str or posted_date_str == "Unknown":
+            if page_text:
+                posted_date_str = page_text
+            else:
+                return None
+
+        text_to_check = posted_date_str.lower()
+
+        day_match = re.search(r"(\d+)\s*d(?:ay)?s?\s+ago", text_to_check, re.I)
+        if day_match:
+            days = int(day_match.group(1))
+            if days > max_days:
+                return f"Posted {days}d ago (>{max_days} days)"
+            return None
+
+        if re.search(r"(\d+)\s*w(?:ee)?k", text_to_check, re.I):
+            return f"Posted >1 week ago (>{max_days} days)"
+
+        if re.search(r"(\d+)\s*mo(?:nth)?", text_to_check, re.I):
+            return f"Posted >1 month ago (>{max_days} days)"
+
+        return None
 
 
 class QualityScorer:

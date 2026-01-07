@@ -1,5 +1,5 @@
 {
-  "search_url": "https://app.joinhandshake.com/job-search/10575991?employmentTypes=1&jobType=3&pay%5BsalaryType%5D=1&pay%5BpayMinimum%5D=2000&pay%5BpaySchedule%5D=HOURLY_WAGE&remoteWork=onsite&remoteWork=remote&remoteWork=hybrid&majors=135801&per_page=25&page=1",
+  "search_url": "https://app.joinhandshake.com/job-search/10575991?employmentTypes=1&employmentTypes=2&jobType=3&jobType=6&pay%5BsalaryType%5D=1&pay%5BpayMinimum%5D=2000&pay%5BpaySchedule%5D=HOURLY_WAGE&remoteWork=onsite&remoteWork=remote&remoteWork=hybrid&majors=135801&majors=503&degreeLevels=2&per_page=25&locationFilter=%7B%22id%22%3A%22country.8940%22%2C%22label%22%3A%22United+States%22%2C%22type%22%3A%22country%22%2C%22point%22%3A%2239.381266%2C-97.922211%22%2C%22text%22%3A%22United+States%22%2C%22distance%22%3A%22100mi%22%7D&page=1",
   "max_jobs_per_page": 25,
   "scrape_hours": [
     0,
