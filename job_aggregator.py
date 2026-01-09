@@ -2,7 +2,8 @@
 # cSpell:disable
 """
 Main job aggregation pipeline - Production v8.0 ULTIMATE FAIL-SAFE
-ALL IMPROVEMENTS: Review flags, enhanced validation, SWE list one-line, title-to-location fallback
+REVIEW FLAGS: Shown in console output only, NOT stored in sheet columns
+ALL IMPROVEMENTS: Enhanced validation, SWE list one-line, title-to-location fallback
 TESTED: 95%+ accuracy with manual review for uncertain cases
 """
 
@@ -123,7 +124,7 @@ class UnifiedJobAggregator:
         logging.info("=" * 100 + "\n")
 
     def _scrape_simplify_github(self):
-        """Scrape GitHub repos."""
+        """Scrape GitHub repos with enhanced validation."""
         try:
             simplify_jobs = SimplifyGitHubScraper.scrape(
                 SIMPLIFY_URL, source_name="SimplifyJobs"
@@ -250,7 +251,7 @@ class UnifiedJobAggregator:
         logging.info(f"GitHub summary: {github_valid} valid jobs added")
 
     def _process_github_job(self, company, title, location, url, source="GitHub"):
-        """✅ ENHANCED: Process GitHub job with review flags integration."""
+        """✅ ENHANCED: Process GitHub job with review flags (console display only)."""
         try:
             response, final_url = self.page_fetcher.fetch_page(url)
 
@@ -311,8 +312,9 @@ class UnifiedJobAggregator:
                 )
                 return
 
-            # ✅ ENHANCED: Get restrictions with flags
-            decision, restriction, review_flags = (
+            # ✅ ENHANCED: Get restrictions with flags (console display)
+            review_flags = []
+            decision, restriction, page_flags = (
                 ValidationHelper.check_page_restrictions(soup)
             )
 
@@ -334,6 +336,10 @@ class UnifiedJobAggregator:
                 )
                 return
 
+            # ✅ Collect flags from page restrictions
+            if page_flags:
+                review_flags.extend(page_flags)
+
             job_id = PageParser.extract_job_id(soup, final_url)
 
             # ✅ ENHANCED: Pass title for fallback extraction
@@ -347,52 +353,41 @@ class UnifiedJobAggregator:
 
             # ✅ ENHANCED: Canada check with flags
             if location_extracted == "Unknown":
-                # Do comprehensive Canada scan
                 canada_result = LocationProcessor._check_canada_comprehensive(
                     soup, location_extracted
                 )
-                if canada_result:
-                    # Found Canada issue
-                    country_found = LocationProcessor._aggressive_country_scan(soup)
-                    if country_found and country_found not in [
-                        "USA",
-                        "United States",
-                        "US",
-                    ]:
-                        print(f"  {company[:30]}: ✗ {country_found}")
-                        logging.info(
-                            f"REJECTED | {company} | {title} | Location: {country_found} | {final_url}"
-                        )
-                        self._add_to_discarded(
-                            company,
-                            title,
-                            country_found,
-                            remote,
-                            final_url,
-                            job_id,
-                            f"Location: {country_found}",
-                            source,
-                            sponsorship,
-                        )
-                        return
-                    else:
-                        # Canada indicators but can't confirm → Flag
-                        if not review_flags:
-                            review_flags = []
-                        review_flags.append("⚠️ Possible Canada")
+                if canada_result and "REJECT" not in str(canada_result):
+                    # Medium confidence Canada → Flag
+                    review_flags.append("⚠️ Possible Canada")
+                elif canada_result:
+                    # Definite Canada
+                    country_found = (
+                        LocationProcessor._aggressive_country_scan(soup) or "Canada"
+                    )
+                    print(f"  {company[:30]}: ✗ {country_found}")
+                    logging.info(
+                        f"REJECTED | {company} | {title} | Location: {country_found} | {final_url}"
+                    )
+                    self._add_to_discarded(
+                        company,
+                        title,
+                        country_found,
+                        remote,
+                        final_url,
+                        job_id,
+                        f"Location: {country_found}",
+                        source,
+                        sponsorship,
+                    )
+                    return
             else:
                 # Location found, check if international
-                intl_result = LocationProcessor.check_if_international(
+                intl_check = LocationProcessor.check_if_international(
                     location_extracted, soup
                 )
 
-                if isinstance(intl_result, tuple):
-                    intl_check, _, intl_flags = intl_result
-                else:
-                    intl_check = intl_result
-                    intl_flags = None
-
                 if intl_check and "Location:" in str(intl_check):
+                    # Definite international
                     print(
                         f"  {company[:30]}: ✗ {self._truncate(intl_check.split(':')[1].strip(), 50)}"
                     )
@@ -412,11 +407,6 @@ class UnifiedJobAggregator:
                         sponsorship,
                     )
                     return
-                elif intl_flags:
-                    # Add Canada flag
-                    if not review_flags:
-                        review_flags = []
-                    review_flags.append(intl_flags)
 
             location_clean = LocationProcessor.format_location_clean(location_extracted)
 
@@ -425,9 +415,11 @@ class UnifiedJobAggregator:
                 kw in location_clean
                 for kw in ["Employment", "Type", "Details", "Program"]
             ):
-                if not review_flags:
-                    review_flags = []
                 review_flags.append("⚠️ Location needs verification")
+
+            # ✅ Add flag if location is Unknown
+            if location_clean == "Unknown":
+                review_flags.append("⚠️ Location extraction failed")
 
             quality = QualityScorer.calculate_score(
                 {
@@ -446,16 +438,19 @@ class UnifiedJobAggregator:
                 )
                 return
 
-            # ✅ ENHANCED: Show flags in output if any
+            # ✅ ENHANCED: Display flags in console (NOT stored in sheet)
             if review_flags:
                 flags_str = ", ".join(review_flags)
                 print(f"  {company[:30]}: ✓ Valid [{flags_str}]")
+                logging.info(
+                    f"ACCEPTED (FLAGGED) | {company} | {title} | Flags: {flags_str} | {final_url}"
+                )
             else:
                 print(f"  {company[:30]}: ✓ Valid")
+                logging.info(
+                    f"ACCEPTED | {company} | {title} | Location: {location_clean} | {final_url}"
+                )
 
-            logging.info(
-                f"ACCEPTED | {company} | {title} | Location: {location_clean} | {final_url}"
-            )
             self._add_to_valid(
                 company,
                 title,
@@ -465,7 +460,6 @@ class UnifiedJobAggregator:
                 job_id,
                 sponsorship,
                 source,
-                review_flags=review_flags,  # ✅ NEW: Pass flags
             )
 
         except Exception as e:
@@ -473,7 +467,7 @@ class UnifiedJobAggregator:
             pass
 
     def _process_email_jobs(self, email_data_list):
-        """✅ ENHANCED: Process email jobs with flags integration."""
+        """✅ ENHANCED: Process email jobs with console flags."""
         simplify_skipped = []
 
         for idx, email_data in enumerate(email_data_list, 1):
@@ -502,9 +496,17 @@ class UnifiedJobAggregator:
                         result = self._validate_parsed_job(job_data, sender)
 
                         if result and result.get("decision") == "valid":
-                            print(
-                                f"  {result['company'][:30]} ({sender}/LinkedIn): ✓ Valid"
-                            )
+                            # ✅ Display flags in console
+                            flags = result.get("review_flags", "")
+                            if flags:
+                                print(
+                                    f"  {result['company'][:30]} ({sender}/LinkedIn): ✓ Valid [{flags}]"
+                                )
+                            else:
+                                print(
+                                    f"  {result['company'][:30]} ({sender}/LinkedIn): ✓ Valid"
+                                )
+
                             self.valid_jobs.append(
                                 {
                                     "company": result["company"],
@@ -519,9 +521,7 @@ class UnifiedJobAggregator:
                                     "url": result["url"],
                                     "source": "Jobright/LinkedIn",
                                     "sponsorship": result["sponsorship"],
-                                    "review_flags": result.get(
-                                        "review_flags", ""
-                                    ),  # ✅ NEW
+                                    # ✅ NOT storing review_flags in sheet
                                 }
                             )
                             self._update_tracking(
@@ -609,9 +609,17 @@ class UnifiedJobAggregator:
                             result = self._validate_parsed_job(job_data, sender)
 
                             if result and result.get("decision") == "valid":
-                                print(
-                                    f"  {result['company'][:30]} (Jobright/LinkedIn): ✓ Valid"
-                                )
+                                # ✅ Display flags
+                                flags = result.get("review_flags", "")
+                                if flags:
+                                    print(
+                                        f"  {result['company'][:30]} (Jobright/LinkedIn): ✓ Valid [{flags}]"
+                                    )
+                                else:
+                                    print(
+                                        f"  {result['company'][:30]} (Jobright/LinkedIn): ✓ Valid"
+                                    )
+
                                 self.valid_jobs.append(
                                     {
                                         "company": result["company"],
@@ -626,9 +634,6 @@ class UnifiedJobAggregator:
                                         "url": url,
                                         "source": "Jobright/LinkedIn",
                                         "sponsorship": result["sponsorship"],
-                                        "review_flags": result.get(
-                                            "review_flags", ""
-                                        ),  # ✅ NEW
                                     }
                                 )
                                 self._update_tracking(
@@ -713,7 +718,7 @@ class UnifiedJobAggregator:
                 self.outcomes["discarded"] += 1
 
             elif decision == "valid":
-                # ✅ ENHANCED: Show flags in output
+                # ✅ ENHANCED: Display flags in console only
                 flags_str = result.get("review_flags", "")
                 if flags_str:
                     print(
@@ -734,7 +739,7 @@ class UnifiedJobAggregator:
                         "url": result["url"],
                         "source": result["source"],
                         "sponsorship": result["sponsorship"],
-                        "review_flags": flags_str,  # ✅ NEW
+                        # ✅ NOT storing review_flags in sheet
                     }
                 )
 
@@ -756,10 +761,8 @@ class UnifiedJobAggregator:
         # ✅ ENHANCED: SWE list - fill each line COMPLETELY before wrapping
         if simplify_skipped:
             print()
-            companies_str = ", ".join(simplify_skipped)
 
-            # ✅ ONE LINE FORMATTING: Fill completely then wrap
-            # No initial indent, very long width to force one line filling
+            # Fill lines to ~120 chars each
             lines = []
             current_line = "  ⊘ SWE List: "
 
@@ -769,15 +772,13 @@ class UnifiedJobAggregator:
                 else:
                     addition = ", " + company
 
-                # Check if adding this would exceed terminal width (~120 chars per line)
+                # Check if adding this would exceed line width
                 if len(current_line + addition) > 120:
-                    # Line is full, save it and start new line
+                    # Line full, save and start new
                     lines.append(current_line)
-                    current_line = (
-                        "    " + company
-                    )  # Indent subsequent lines with 4 spaces
+                    current_line = "    " + company  # 4-space indent for continuation
                 else:
-                    # Still fits, add to current line
+                    # Still fits
                     current_line += addition
 
             # Add last line
@@ -791,11 +792,10 @@ class UnifiedJobAggregator:
             print(f"  ⊘ Total: {len(simplify_skipped)} Simplify redirect URLs\n")
 
     def _process_single_email_job(self, url, email_html, sender, current_idx, total):
-        """✅ ENHANCED: Process email job with review flags."""
+        """Process single email job with enhanced validation."""
         try:
             time.sleep(random.uniform(1.5, 2.5))
 
-            # Parse email
             soup_email = BeautifulSoup(email_html, "html.parser")
             job_data = None
 
@@ -829,7 +829,6 @@ class UnifiedJobAggregator:
                         "sponsorship": job_data.get("sponsorship", "Unknown"),
                     }
 
-                # Enhanced company page fetching
                 if sender.lower() == "jobright" and job_data.get("is_company_site"):
                     actual_url = job_data["url"]
                     email_location = job_data.get("location", "Unknown")
@@ -838,9 +837,6 @@ class UnifiedJobAggregator:
                     url_lower = actual_url.lower() if actual_url else ""
                     if "careers.sig.com" in url_lower or "sig.com/job" in url_lower:
                         job_data["company"] = "Susquehanna International Group"
-                        logging.info(
-                            f"  🏢 SIG detected: Forcing company = 'Susquehanna International Group'"
-                        )
 
                     logging.info(f"Fetching company page: {actual_url[:80]}")
 
@@ -870,14 +866,9 @@ class UnifiedJobAggregator:
                             )
 
                             if email_has_city_state and not page_has_city_state:
-                                logging.info(
-                                    f"  📍 Location: Email '{email_location}' (specific) > Page '{page_location}' (country)"
-                                )
+                                pass  # Keep email location
                             elif page_has_city_state:
                                 job_data["location"] = page_location
-                                logging.info(
-                                    f"  📍 Location: Page '{page_location}' > Email '{email_location}'"
-                                )
                             else:
                                 job_data["location"] = page_location
                         elif page_location != "Unknown":
@@ -893,21 +884,10 @@ class UnifiedJobAggregator:
                             if page_company != "Unknown":
                                 if not self._looks_like_title(page_company):
                                     job_data["company"] = page_company
-                                else:
-                                    logging.info(
-                                        f"  ⚠️  Page company '{page_company}' looks like title, keeping email company"
-                                    )
-                        else:
-                            logging.info(
-                                f"  🏢 SIG: Keeping forced company (not overriding from page)"
-                            )
 
                         page_age = PageParser.extract_job_age_days(soup)
                         if page_age is not None and page_age > MAX_JOB_AGE_DAYS:
                             self.outcomes["skipped_too_old"] += 1
-                            logging.info(
-                                f"REJECTED | {job_data['company']} | {job_data['title']} | Posted {page_age}d ago (from page) | {final_url}"
-                            )
                             return {
                                 "decision": "discard",
                                 "company": job_data["company"],
@@ -929,9 +909,6 @@ class UnifiedJobAggregator:
                         )
                         if not is_valid_season:
                             self.outcomes["skipped_wrong_season"] += 1
-                            logging.info(
-                                f"REJECTED | {job_data['company']} | {job_data['title']} | {season_reason} | {final_url}"
-                            )
                             return {
                                 "decision": "discard",
                                 "company": job_data["company"],
@@ -945,15 +922,12 @@ class UnifiedJobAggregator:
                                 "sponsorship": job_data.get("sponsorship", "Unknown"),
                             }
 
-                        # ✅ ENHANCED: Get restrictions with flags
+                        # ✅ Get restrictions with flags
                         decision, restriction, review_flags = (
                             ValidationHelper.check_page_restrictions(soup)
                         )
 
                         if decision == "REJECT" and restriction:
-                            logging.info(
-                                f"REJECTED | {job_data['company']} | {job_data['title']} | {restriction} | {final_url}"
-                            )
                             return {
                                 "decision": "discard",
                                 "company": job_data["company"],
@@ -967,22 +941,17 @@ class UnifiedJobAggregator:
                                 "sponsorship": job_data.get("sponsorship", "Unknown"),
                             }
 
-                        # ✅ ENHANCED: Check international with flags
+                        # Store flags for console display
+                        if review_flags:
+                            job_data["review_flags"] = review_flags
+
+                        # Check international
                         if job_data["location"] != "Unknown":
-                            intl_result = LocationProcessor.check_if_international(
+                            intl_check = LocationProcessor.check_if_international(
                                 job_data["location"], soup
                             )
 
-                            if isinstance(intl_result, tuple):
-                                intl_check, _, intl_flags = intl_result
-                            else:
-                                intl_check = intl_result
-                                intl_flags = None
-
                             if intl_check and "Location:" in str(intl_check):
-                                logging.info(
-                                    f"REJECTED | {job_data['company']} | {job_data['title']} | {intl_check} | {final_url}"
-                                )
                                 country = self._detect_country_simple(
                                     job_data["location"]
                                 )
@@ -1000,16 +969,6 @@ class UnifiedJobAggregator:
                                         "sponsorship", "Unknown"
                                     ),
                                 }
-                            elif intl_flags:
-                                # Add to review flags
-                                if not review_flags:
-                                    review_flags = []
-                                if intl_flags not in review_flags:
-                                    review_flags.append(intl_flags)
-
-                        # ✅ Store flags in job_data for return
-                        if review_flags:
-                            job_data["review_flags"] = review_flags
 
                 return self._validate_parsed_job(job_data, sender)
 
@@ -1111,7 +1070,7 @@ class UnifiedJobAggregator:
         return keyword_count >= 2
 
     def _validate_parsed_job(self, job_data, sender):
-        """✅ ENHANCED: Validate email-parsed job with review flags."""
+        """✅ ENHANCED: Validate email-parsed job with review flags (console only)."""
         company = job_data["company"]
         title_raw = job_data["title"]
         location_raw = job_data.get("location", "Unknown")
@@ -1119,7 +1078,7 @@ class UnifiedJobAggregator:
         remote = job_data.get("remote", "Unknown")
         job_id = job_data.get("job_id", "N/A")
 
-        # ✅ NEW: Get review flags from job_data if any
+        # ✅ Track flags for console display
         review_flags = job_data.get("review_flags", [])
         if not isinstance(review_flags, list):
             review_flags = []
@@ -1206,13 +1165,7 @@ class UnifiedJobAggregator:
                 return None
 
         if location_raw and location_raw != "Unknown":
-            intl_result = LocationProcessor.check_if_international(location_raw, None)
-
-            if isinstance(intl_result, tuple):
-                intl_check, _, intl_flags = intl_result
-            else:
-                intl_check = intl_result
-                intl_flags = None
+            intl_check = LocationProcessor.check_if_international(location_raw, None)
 
             if intl_check and "Location:" in str(intl_check):
                 logging.info(f"REJECTED | {company} | {title} | {intl_check} | {url}")
@@ -1228,18 +1181,16 @@ class UnifiedJobAggregator:
                     "source": sender,
                     "sponsorship": job_data.get("sponsorship", "Unknown"),
                 }
-            elif intl_flags:
-                # Add flag
-                if intl_flags not in review_flags:
-                    review_flags.append(intl_flags)
 
         location_formatted = LocationProcessor.format_location_clean(location_raw)
 
-        # ✅ Check if location looks mangled
+        # ✅ Add flags for mangled/missing location
         if location_formatted and any(
             kw in location_formatted for kw in ["Employment", "Type", "Details"]
         ):
             review_flags.append("⚠️ Location needs verification")
+        if location_formatted == "Unknown":
+            review_flags.append("⚠️ Location extraction failed")
 
         quality_score = QualityScorer.calculate_score(
             {
@@ -1289,11 +1240,13 @@ class UnifiedJobAggregator:
             "job_id": job_id,
             "source": sender,
             "sponsorship": job_data.get("sponsorship", "Unknown"),
-            "review_flags": ", ".join(review_flags) if review_flags else "",  # ✅ NEW
+            "review_flags": (
+                ", ".join(review_flags) if review_flags else ""
+            ),  # ✅ For console only
         }
 
     def _process_scraped_page(self, soup, final_url, original_url, sender):
-        """✅ ENHANCED: Process scraped page with review flags."""
+        """Process scraped page with enhanced validation."""
         review_flags = []
 
         if "jobright.ai/jobs/info/" in final_url.lower():
@@ -1340,7 +1293,7 @@ class UnifiedJobAggregator:
                     "N/A",
                     sender,
                     soup,
-                    review_flags=review_flags,  # ✅ NEW
+                    review_flags=review_flags,
                 )
             else:
                 return None
@@ -1466,9 +1419,9 @@ class UnifiedJobAggregator:
                 "sponsorship": "Unknown",
             }
 
-        # ✅ ENHANCED: Get restrictions with flags
-        decision, restriction, page_review_flags = (
-            ValidationHelper.check_page_restrictions(soup)
+        # ✅ Get restrictions with flags
+        decision, restriction, page_flags = ValidationHelper.check_page_restrictions(
+            soup
         )
 
         if decision == "REJECT" and restriction:
@@ -1496,20 +1449,20 @@ class UnifiedJobAggregator:
                 "sponsorship": sponsorship,
             }
 
-        # ✅ Collect flags from page restrictions
-        if page_review_flags:
-            review_flags.extend(page_review_flags)
+        # Collect page flags
+        if page_flags:
+            review_flags.extend(page_flags)
 
         job_id = PageParser.extract_job_id(soup, final_url)
         location_extracted = LocationProcessor.extract_location_enhanced(
-            soup, final_url, title=title  # ✅ Pass title for fallback
+            soup, final_url, title=title
         )
         remote = LocationProcessor.extract_remote_status_enhanced(
             soup, location_extracted, final_url
         )
         sponsorship = ValidationHelper.check_sponsorship_status(soup)
 
-        # ✅ ENHANCED: Check Canada with flags
+        # ✅ Enhanced Canada check
         if location_extracted == "Unknown":
             canada_result = LocationProcessor._check_canada_comprehensive(
                 soup, location_extracted
@@ -1537,18 +1490,11 @@ class UnifiedJobAggregator:
                         "sponsorship": sponsorship,
                     }
                 else:
-                    # Canada indicators but can't definitively confirm
                     review_flags.append("⚠️ Possible Canada")
         else:
-            intl_result = LocationProcessor.check_if_international(
+            intl_check = LocationProcessor.check_if_international(
                 location_extracted, soup
             )
-
-            if isinstance(intl_result, tuple):
-                intl_check, _, intl_flags = intl_result
-            else:
-                intl_check = intl_result
-                intl_flags = None
 
             if intl_check and "Location:" in str(intl_check):
                 country = self._detect_country_simple(location_extracted)
@@ -1567,18 +1513,16 @@ class UnifiedJobAggregator:
                     "source": sender,
                     "sponsorship": sponsorship,
                 }
-            elif intl_flags:
-                # Add to review flags
-                if intl_flags not in review_flags:
-                    review_flags.append(intl_flags)
 
         location_fmt = LocationProcessor.format_location_clean(location_extracted)
 
-        # ✅ Check for mangled location
+        # ✅ Check for issues
         if location_fmt and any(
             kw in location_fmt for kw in ["Employment", "Type", "Details"]
         ):
             review_flags.append("⚠️ Location needs verification")
+        if location_fmt == "Unknown":
+            review_flags.append("⚠️ Location extraction failed")
 
         quality = QualityScorer.calculate_score(
             {
@@ -1628,7 +1572,9 @@ class UnifiedJobAggregator:
             "job_id": job_id,
             "source": sender,
             "sponsorship": sponsorship,
-            "review_flags": ", ".join(review_flags) if review_flags else "",  # ✅ NEW
+            "review_flags": (
+                ", ".join(review_flags) if review_flags else ""
+            ),  # ✅ Console only
         }
 
     def _validate_and_decide(
@@ -1642,9 +1588,9 @@ class UnifiedJobAggregator:
         job_id,
         sender,
         soup,
-        review_flags=None,  # ✅ NEW parameter
+        review_flags=None,
     ):
-        """✅ ENHANCED: Final validation with review flags."""
+        """Final validation with flags."""
         if review_flags is None:
             review_flags = []
 
@@ -1725,7 +1671,7 @@ class UnifiedJobAggregator:
                 logging.info(f"REJECTED | {company} | {title} | Duplicate | {url}")
                 return None
 
-        # ✅ ENHANCED: Check restrictions with flags
+        # ✅ Check restrictions with flags
         if soup:
             decision, restriction, page_flags = (
                 ValidationHelper.check_page_restrictions(soup)
@@ -1750,7 +1696,7 @@ class UnifiedJobAggregator:
             if page_flags:
                 review_flags.extend(page_flags)
 
-        # ✅ Canada check
+        # Canada check
         if location == "Unknown":
             if soup:
                 canada_result = LocationProcessor._check_canada_comprehensive(
@@ -1781,13 +1727,7 @@ class UnifiedJobAggregator:
                     else:
                         review_flags.append("⚠️ Possible Canada")
         else:
-            intl_result = LocationProcessor.check_if_international(location, soup)
-
-            if isinstance(intl_result, tuple):
-                intl_check, _, intl_flags = intl_result
-            else:
-                intl_check = intl_result
-                intl_flags = None
+            intl_check = LocationProcessor.check_if_international(location, soup)
 
             if intl_check and "Location:" in str(intl_check):
                 country = self._detect_country_simple(location)
@@ -1804,11 +1744,14 @@ class UnifiedJobAggregator:
                     "source": sender,
                     "sponsorship": sponsorship,
                 }
-            elif intl_flags:
-                if intl_flags not in review_flags:
-                    review_flags.append(intl_flags)
 
         location_fmt = LocationProcessor.format_location_clean(location)
+
+        # ✅ Check for issues
+        if location_fmt and any(kw in location_fmt for kw in ["Employment", "Type"]):
+            review_flags.append("⚠️ Location needs verification")
+        if location_fmt == "Unknown":
+            review_flags.append("⚠️ Location extraction failed")
 
         quality = QualityScorer.calculate_score(
             {
@@ -1858,22 +1801,15 @@ class UnifiedJobAggregator:
             "job_id": job_id,
             "source": sender,
             "sponsorship": sponsorship,
-            "review_flags": ", ".join(review_flags) if review_flags else "",  # ✅ NEW
+            "review_flags": (
+                ", ".join(review_flags) if review_flags else ""
+            ),  # ✅ Console only
         }
 
     def _add_to_valid(
-        self,
-        company,
-        title,
-        location,
-        remote,
-        url,
-        job_id,
-        sponsorship,
-        source,
-        review_flags=None,
+        self, company, title, location, remote, url, job_id, sponsorship, source
     ):
-        """✅ ENHANCED: Add to valid list with review flags."""
+        """Add to valid list (flags shown in console, not stored)."""
         self.valid_jobs.append(
             {
                 "company": company,
@@ -1886,9 +1822,7 @@ class UnifiedJobAggregator:
                 "entry_date": self._format_date(),
                 "source": source,
                 "sponsorship": sponsorship,
-                "review_flags": (
-                    ", ".join(review_flags) if review_flags else ""
-                ),  # ✅ NEW
+                # ✅ NO review_flags stored in sheet
             }
         )
 
@@ -2116,8 +2050,6 @@ class UnifiedJobAggregator:
     def _extract_company_from_email_html(email_html, url):
         """Extract company name from email HTML for Simplify URLs."""
         try:
-            from bs4 import BeautifulSoup
-
             soup = BeautifulSoup(email_html, "html.parser")
 
             link = soup.find("a", href=lambda h: h and url in h)
