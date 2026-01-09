@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 # cSpell:disable
 """
-Google Sheets management module - ENHANCED VERSION
-Dynamic column widths for all columns with optimized constraints.
+Google Sheets management module - PRODUCTION v8.0 ULTIMATE
+NEW: Review Flags column (Column N) for manual review warnings
+ENHANCED: Dynamic column widths for all 14 columns in Valid Entries
 """
 
 import gspread
@@ -20,7 +21,7 @@ from config import (
 
 
 class SheetsManager:
-    """Manages all Google Sheets operations."""
+    """Manages all Google Sheets operations with Review Flags support."""
 
     def __init__(self):
         scope = [
@@ -37,8 +38,29 @@ class SheetsManager:
         self._initialize_sheets()
 
     def _initialize_sheets(self):
-        """Initialize all worksheets with proper headers."""
-        # Discarded sheet
+        """Initialize all worksheets with proper headers including Review Flags."""
+
+        # ✅ NEW: Ensure Valid Entries has Review Flags column (Column N)
+        try:
+            headers = self.valid_sheet.row_values(1)
+            current_cols = len(headers) if headers else 0
+
+            if current_cols < 14:
+                # Resize to 14 columns
+                self.valid_sheet.resize(cols=14)
+                time.sleep(1)
+
+            # Check if Review Flags header exists
+            if current_cols < 14 or (
+                len(headers) >= 14 and headers[13] != "Review Flags"
+            ):
+                self.valid_sheet.update_cell(1, 14, "Review Flags")
+                time.sleep(1)
+                self._format_headers(self.valid_sheet, 14)
+        except Exception as e:
+            print(f"Header init warning: {e}")
+
+        # Discarded sheet (13 columns, no change)
         try:
             self.discarded_sheet = self.spreadsheet.worksheet(DISCARDED_WORKSHEET)
         except:
@@ -63,7 +85,7 @@ class SheetsManager:
             self.discarded_sheet.append_row(headers)
             self._format_headers(self.discarded_sheet, 13)
 
-        # Reviewed sheet
+        # Reviewed sheet (12 columns, no change)
         try:
             self.reviewed_sheet = self.spreadsheet.worksheet(REVIEWED_WORKSHEET)
         except:
@@ -167,7 +189,6 @@ class SheetsManager:
         valid_data = self.valid_sheet.get_all_values()
         discarded_data = self.discarded_sheet.get_all_values()
 
-        # Find actual last row with data
         next_valid_row = 2
         next_valid_sr = 1
         for idx, row in enumerate(valid_data[1:], start=2):
@@ -190,7 +211,7 @@ class SheetsManager:
         }
 
     def add_valid_jobs(self, jobs, start_row, start_sr_no):
-        """Add valid jobs to sheet with formatting."""
+        """✅ ENHANCED: Add valid jobs with Review Flags column (Column N)."""
         if not jobs:
             return 0
 
@@ -200,21 +221,26 @@ class SheetsManager:
 
             for idx, job in enumerate(batch):
                 sr_no = start_sr_no + i + idx
+
+                # ✅ NEW: Include Review Flags in Column N (14th column)
+                review_flags = job.get("review_flags", "")
+
                 rows.append(
                     [
-                        sr_no,
-                        "Not Applied",
-                        job["company"],
-                        job["title"],
-                        "N/A",
-                        job["url"],
-                        job["job_id"],
-                        job["job_type"],
-                        job["location"],
-                        job["remote"],
-                        job["entry_date"],
-                        job["source"],
-                        job.get("sponsorship", "Unknown"),
+                        sr_no,  # A - Sr. No.
+                        "Not Applied",  # B - Status
+                        job["company"],  # C - Company
+                        job["title"],  # D - Title
+                        "N/A",  # E - Date Applied
+                        job["url"],  # F - Job URL
+                        job["job_id"],  # G - Job ID
+                        job["job_type"],  # H - Job Type
+                        job["location"],  # I - Location
+                        job["remote"],  # J - Remote?
+                        job["entry_date"],  # K - Entry Date
+                        job["source"],  # L - Source
+                        job.get("sponsorship", "Unknown"),  # M - Sponsorship
+                        review_flags,  # N - Review Flags ✅ NEW
                     ]
                 )
 
@@ -223,11 +249,11 @@ class SheetsManager:
             )
             time.sleep(3)
 
-        self._auto_resize_all_columns_dynamic(self.valid_sheet, 13)
+        self._auto_resize_all_columns_dynamic(self.valid_sheet, 14)  # ✅ 14 columns
         return len(jobs)
 
     def add_discarded_jobs(self, jobs, start_row, start_sr_no):
-        """Add discarded jobs to sheet."""
+        """Add discarded jobs to sheet (13 columns, unchanged)."""
         if not jobs:
             return 0
 
@@ -270,8 +296,14 @@ class SheetsManager:
         if not rows_data:
             return
 
+        # Determine column range based on sheet type
+        if is_valid_sheet:
+            end_col = "N"  # ✅ Valid sheet: 14 columns (A-N)
+        else:
+            end_col = "M"  # Discarded: 13 columns (A-M)
+
         # Write data
-        range_name = f"A{start_row}:M{start_row + len(rows_data) - 1}"
+        range_name = f"A{start_row}:{end_col}{start_row + len(rows_data) - 1}"
         sheet.update(values=rows_data, range_name=range_name, value_input_option="RAW")
         time.sleep(2)
 
@@ -280,15 +312,16 @@ class SheetsManager:
             range_name,
             {
                 "horizontalAlignment": "CENTER",
+                "verticalAlignment": "MIDDLE",
                 "textFormat": {"fontFamily": "Times New Roman", "fontSize": 13},
             },
         )
         time.sleep(2)
 
-        # Add URL hyperlinks
+        # Add URL hyperlinks (Column F = index 5)
         url_requests = []
         for idx, row_data in enumerate(rows_data):
-            url = row_data[5]
+            url = row_data[5]  # Column F
             if url and url.startswith("http"):
                 url_requests.append(
                     {
@@ -321,7 +354,7 @@ class SheetsManager:
             self.spreadsheet.batch_update({"requests": url_requests})
             time.sleep(2)
 
-        # Add dropdown and colors for valid sheet
+        # Add dropdown and colors for valid sheet only
         if is_valid_sheet:
             self._add_status_dropdowns(sheet, start_row, len(rows_data))
             self._apply_status_colors(sheet, start_row, start_row + len(rows_data))
@@ -398,6 +431,7 @@ class SheetsManager:
                                             "fontSize": 13,
                                         },
                                         "horizontalAlignment": "CENTER",
+                                        "verticalAlignment": "MIDDLE",
                                     }
                                 },
                                 "fields": "userEnteredFormat",
@@ -415,88 +449,82 @@ class SheetsManager:
 
     def _auto_resize_all_columns_dynamic(self, sheet, total_columns):
         """
-        Auto-resize ALL columns dynamically based on content.
-        Company, Title, and Discard Reason columns fully dynamic.
-        URL column reduced by 5 pixels.
+        ✅ ENHANCED: Auto-resize ALL columns dynamically including Review Flags (Column N).
+        Valid Entries: 14 columns (A-N)
+        Discarded: 13 columns (A-M)
+        Reviewed: 12 columns (A-L)
         """
         try:
-            # Get all data from sheet
             all_data = sheet.get_all_values()
 
-            if len(all_data) < 2:  # Only headers or empty
+            if len(all_data) < 2:
                 return
 
-            # Calculate optimal width for each column
             column_widths = []
 
             for col_idx in range(total_columns):
-                max_width = 50  # Minimum width
+                max_width = 50
 
-                # Check header (headers get 10px per character + extra padding)
+                # Check header (10px per char + padding)
                 if len(all_data[0]) > col_idx:
                     header_text = str(all_data[0][col_idx])
-                    header_width = (
-                        len(header_text) * 10 + 40
-                    )  # Extra padding for headers
+                    header_width = len(header_text) * 10 + 40
                     max_width = max(max_width, header_width)
 
-                # Check all data rows
+                # Check all data rows (8px per char + padding)
                 for row in all_data[1:]:
                     if len(row) > col_idx:
                         cell_text = str(row[col_idx]).strip()
                         if cell_text:
-                            # Calculate pixel width (8 pixels per char + 20px padding)
                             text_width = len(cell_text) * 8 + 25
                             max_width = max(max_width, text_width)
 
                 # Apply column-specific constraints
-                if col_idx == 0:  # Sr. No.
+                if col_idx == 0:  # A - Sr. No.
                     max_width = min(max_width, 80)
 
-                elif col_idx == 1:  # Status / Discard Reason / Reason - FULLY DYNAMIC
-                    # Allow to expand but with reasonable max
-                    max_width = min(max_width, 400)  # Increased from 300
+                elif col_idx == 1:  # B - Status / Discard Reason
+                    max_width = min(max_width, 400)
 
-                elif col_idx == 2:  # Company - FULLY DYNAMIC
-                    # Allow to expand to fit company names
-                    max_width = min(max_width, 350)  # Increased from 250
+                elif col_idx == 2:  # C - Company
+                    max_width = min(max_width, 350)
 
-                elif col_idx == 3:  # Title - FULLY DYNAMIC
-                    # Allow to expand to fit full titles
-                    max_width = min(max_width, 500)  # Increased from 400
+                elif col_idx == 3:  # D - Title
+                    max_width = min(max_width, 500)
 
-                elif col_idx == 4:  # Date Applied (or Job URL in Reviewed sheet)
+                elif col_idx == 4:  # E - Date Applied
                     max_width = min(max_width, 150)
 
-                elif col_idx == 5:  # Job URL - REDUCED BY 5 PIXELS
-                    max_width = max(95, min(max_width, 115))  # Was 100-120, now 95-115
+                elif col_idx == 5:  # F - Job URL
+                    max_width = max(95, min(max_width, 115))
 
-                elif col_idx == 6:  # Job ID
+                elif col_idx == 6:  # G - Job ID
                     max_width = min(max_width, 120)
 
-                elif col_idx == 7:  # Job Type
+                elif col_idx == 7:  # H - Job Type
                     max_width = min(max_width, 120)
 
-                elif col_idx == 8:  # Location
-                    max_width = min(
-                        max_width, 220
-                    )  # Slightly increased for full location names
+                elif col_idx == 8:  # I - Location
+                    max_width = min(max_width, 220)
 
-                elif col_idx == 9:  # Remote?
+                elif col_idx == 9:  # J - Remote?
                     max_width = min(max_width, 100)
 
-                elif col_idx == 10:  # Entry Date / Moved Date
-                    max_width = min(max_width, 190)  # Increased for full date format
+                elif col_idx == 10:  # K - Entry Date
+                    max_width = min(max_width, 190)
 
-                elif col_idx == 11:  # Source
+                elif col_idx == 11:  # L - Source
                     max_width = min(max_width, 130)
 
-                elif col_idx == 12:  # Sponsorship
+                elif col_idx == 12:  # M - Sponsorship
                     max_width = min(max_width, 150)
+
+                elif col_idx == 13:  # N - Review Flags ✅ NEW
+                    max_width = min(max_width, 450)  # Wider for multiple flags
 
                 column_widths.append(max_width)
 
-            # Build batch update request for all columns
+            # Build batch update request
             resize_requests = []
 
             for col_idx, width in enumerate(column_widths):
@@ -515,7 +543,7 @@ class SheetsManager:
                     }
                 )
 
-            # Execute resize in batches (max 100 requests per batch)
+            # Execute resize in batches
             for i in range(0, len(resize_requests), 100):
                 batch = resize_requests[i : i + 100]
                 self.spreadsheet.batch_update({"requests": batch})
@@ -532,6 +560,7 @@ class SheetsManager:
                 f"A1:{col_letter}1",
                 {
                     "horizontalAlignment": "CENTER",
+                    "verticalAlignment": "MIDDLE",
                     "textFormat": {
                         "fontFamily": "Times New Roman",
                         "fontSize": 14,
