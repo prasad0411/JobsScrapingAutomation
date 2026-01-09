@@ -1,11 +1,4 @@
 #!/usr/bin/env python3
-# cSpell:disable
-"""
-Google Sheets management module - PRODUCTION v8.0 ULTIMATE
-NEW: Review Flags column (Column N) for manual review warnings
-ENHANCED: Dynamic column widths for all 14 columns in Valid Entries
-"""
-
 import gspread
 import time
 import re
@@ -21,8 +14,6 @@ from config import (
 
 
 class SheetsManager:
-    """Manages all Google Sheets operations with Review Flags support."""
-
     def __init__(self):
         scope = [
             "https://spreadsheets.google.com/feeds",
@@ -32,35 +23,11 @@ class SheetsManager:
             SHEETS_CREDS_FILE, scope
         )
         client = gspread.authorize(creds)
-
         self.spreadsheet = client.open(SHEET_NAME)
         self.valid_sheet = self.spreadsheet.worksheet(WORKSHEET_NAME)
         self._initialize_sheets()
 
     def _initialize_sheets(self):
-        """Initialize all worksheets with proper headers including Review Flags."""
-
-        # ✅ NEW: Ensure Valid Entries has Review Flags column (Column N)
-        try:
-            headers = self.valid_sheet.row_values(1)
-            current_cols = len(headers) if headers else 0
-
-            if current_cols < 14:
-                # Resize to 14 columns
-                self.valid_sheet.resize(cols=14)
-                time.sleep(1)
-
-            # Check if Review Flags header exists
-            if current_cols < 14 or (
-                len(headers) >= 14 and headers[13] != "Review Flags"
-            ):
-                self.valid_sheet.update_cell(1, 14, "Review Flags")
-                time.sleep(1)
-                self._format_headers(self.valid_sheet, 14)
-        except Exception as e:
-            print(f"Header init warning: {e}")
-
-        # Discarded sheet (13 columns, no change)
         try:
             self.discarded_sheet = self.spreadsheet.worksheet(DISCARDED_WORKSHEET)
         except:
@@ -84,8 +51,6 @@ class SheetsManager:
             ]
             self.discarded_sheet.append_row(headers)
             self._format_headers(self.discarded_sheet, 13)
-
-        # Reviewed sheet (12 columns, no change)
         try:
             self.reviewed_sheet = self.spreadsheet.worksheet(REVIEWED_WORKSHEET)
         except:
@@ -110,16 +75,12 @@ class SheetsManager:
             self._format_headers(self.reviewed_sheet, 12)
 
     def load_existing_jobs(self):
-        """Load existing jobs from all sheets for deduplication."""
         existing = {"jobs": set(), "urls": set(), "job_ids": set(), "cache": {}}
-
-        # Load from valid sheet
         for row in self.valid_sheet.get_all_values()[1:]:
             if len(row) > 5:
                 company, title = row[2].strip(), row[3].strip()
                 url = row[5].strip() if len(row) > 5 else ""
                 job_id = row[6].strip() if len(row) > 6 else ""
-
                 if company and title:
                     key = self._normalize(f"{company}_{title}")
                     existing["jobs"].add(key)
@@ -129,19 +90,15 @@ class SheetsManager:
                         "job_id": job_id,
                         "url": url,
                     }
-
                 if url and "http" in url:
                     existing["urls"].add(self._clean_url(url))
                 if job_id and job_id != "N/A":
                     existing["job_ids"].add(job_id.lower())
-
-        # Load from discarded sheet
         for row in self.discarded_sheet.get_all_values()[1:]:
             if len(row) > 5:
                 company, title = row[2].strip(), row[3].strip()
                 url = row[5].strip() if len(row) > 5 else ""
                 job_id = row[6].strip() if len(row) > 6 else ""
-
                 if company and title:
                     key = self._normalize(f"{company}_{title}")
                     existing["jobs"].add(key)
@@ -151,19 +108,15 @@ class SheetsManager:
                         "job_id": job_id,
                         "url": url,
                     }
-
                 if url and "http" in url:
                     existing["urls"].add(self._clean_url(url))
                 if job_id and job_id != "N/A":
                     existing["job_ids"].add(job_id.lower())
-
-        # Load from reviewed sheet
         for row in self.reviewed_sheet.get_all_values()[1:]:
             if len(row) > 4:
                 company, title = row[2].strip(), row[3].strip()
                 url = row[4].strip() if len(row) > 4 else ""
                 job_id = row[5].strip() if len(row) > 5 else ""
-
                 if company and title:
                     key = self._normalize(f"{company}_{title}")
                     existing["jobs"].add(key)
@@ -173,36 +126,30 @@ class SheetsManager:
                         "job_id": job_id,
                         "url": url,
                     }
-
                 if url and "http" in url:
                     existing["urls"].add(self._clean_url(url))
                 if job_id and job_id != "N/A":
                     existing["job_ids"].add(job_id.lower())
-
         print(
             f"Loaded: {len(existing['jobs'])} jobs, {len(existing['urls'])} URLs, {len(existing['job_ids'])} IDs"
         )
         return existing
 
     def get_next_row_numbers(self):
-        """Get next available row numbers for sheets."""
         valid_data = self.valid_sheet.get_all_values()
         discarded_data = self.discarded_sheet.get_all_values()
-
         next_valid_row = 2
         next_valid_sr = 1
         for idx, row in enumerate(valid_data[1:], start=2):
             if len(row) > 2 and (row[2].strip() or row[3].strip()):
                 next_valid_row = idx + 1
                 next_valid_sr = idx
-
         next_discarded_row = 2
         next_discarded_sr = 1
         for idx, row in enumerate(discarded_data[1:], start=2):
             if len(row) > 2 and (row[2].strip() or row[3].strip()):
                 next_discarded_row = idx + 1
                 next_discarded_sr = idx
-
         return {
             "valid": next_valid_row,
             "valid_sr_no": next_valid_sr,
@@ -211,56 +158,43 @@ class SheetsManager:
         }
 
     def add_valid_jobs(self, jobs, start_row, start_sr_no):
-        """✅ ENHANCED: Add valid jobs with Review Flags column (Column N)."""
         if not jobs:
             return 0
-
         for i in range(0, len(jobs), 10):
             batch = jobs[i : i + 10]
             rows = []
-
             for idx, job in enumerate(batch):
                 sr_no = start_sr_no + i + idx
-
-                # ✅ NEW: Include Review Flags in Column N (14th column)
-                review_flags = job.get("review_flags", "")
-
                 rows.append(
                     [
-                        sr_no,  # A - Sr. No.
-                        "Not Applied",  # B - Status
-                        job["company"],  # C - Company
-                        job["title"],  # D - Title
-                        "N/A",  # E - Date Applied
-                        job["url"],  # F - Job URL
-                        job["job_id"],  # G - Job ID
-                        job["job_type"],  # H - Job Type
-                        job["location"],  # I - Location
-                        job["remote"],  # J - Remote?
-                        job["entry_date"],  # K - Entry Date
-                        job["source"],  # L - Source
-                        job.get("sponsorship", "Unknown"),  # M - Sponsorship
-                        review_flags,  # N - Review Flags ✅ NEW
+                        sr_no,
+                        "Not Applied",
+                        job["company"],
+                        job["title"],
+                        "N/A",
+                        job["url"],
+                        job["job_id"],
+                        job["job_type"],
+                        job["location"],
+                        job["remote"],
+                        job["entry_date"],
+                        job["source"],
+                        job.get("sponsorship", "Unknown"),
                     ]
                 )
-
             self._batch_update_with_formatting(
                 self.valid_sheet, start_row + i, rows, is_valid_sheet=True
             )
             time.sleep(3)
-
-        self._auto_resize_all_columns_dynamic(self.valid_sheet, 14)  # ✅ 14 columns
+        self._auto_resize_all_columns_dynamic(self.valid_sheet, 13)
         return len(jobs)
 
     def add_discarded_jobs(self, jobs, start_row, start_sr_no):
-        """Add discarded jobs to sheet (13 columns, unchanged)."""
         if not jobs:
             return 0
-
         for i in range(0, len(jobs), 10):
             batch = jobs[i : i + 10]
             rows = []
-
             for idx, job in enumerate(batch):
                 sr_no = start_sr_no + i + idx
                 rows.append(
@@ -280,34 +214,22 @@ class SheetsManager:
                         job.get("sponsorship", "Unknown"),
                     ]
                 )
-
             self._batch_update_with_formatting(
                 self.discarded_sheet, start_row + i, rows, is_valid_sheet=False
             )
             time.sleep(3)
-
         self._auto_resize_all_columns_dynamic(self.discarded_sheet, 13)
         return len(jobs)
 
     def _batch_update_with_formatting(
         self, sheet, start_row, rows_data, is_valid_sheet
     ):
-        """Batch update with links, dropdowns, and colors."""
         if not rows_data:
             return
-
-        # Determine column range based on sheet type
-        if is_valid_sheet:
-            end_col = "N"  # ✅ Valid sheet: 14 columns (A-N)
-        else:
-            end_col = "M"  # Discarded: 13 columns (A-M)
-
-        # Write data
+        end_col = "M"
         range_name = f"A{start_row}:{end_col}{start_row + len(rows_data) - 1}"
         sheet.update(values=rows_data, range_name=range_name, value_input_option="RAW")
         time.sleep(2)
-
-        # Format cells
         sheet.format(
             range_name,
             {
@@ -317,11 +239,9 @@ class SheetsManager:
             },
         )
         time.sleep(2)
-
-        # Add URL hyperlinks (Column F = index 5)
         url_requests = []
         for idx, row_data in enumerate(rows_data):
-            url = row_data[5]  # Column F
+            url = row_data[5]
             if url and url.startswith("http"):
                 url_requests.append(
                     {
@@ -349,18 +269,14 @@ class SheetsManager:
                         }
                     }
                 )
-
         if url_requests:
             self.spreadsheet.batch_update({"requests": url_requests})
             time.sleep(2)
-
-        # Add dropdown and colors for valid sheet only
         if is_valid_sheet:
             self._add_status_dropdowns(sheet, start_row, len(rows_data))
             self._apply_status_colors(sheet, start_row, start_row + len(rows_data))
 
     def _add_status_dropdowns(self, sheet, start_row, num_rows):
-        """Add status dropdowns to column B."""
         dropdown_requests = []
         for idx in range(num_rows):
             dropdown_requests.append(
@@ -387,31 +303,25 @@ class SheetsManager:
                     }
                 }
             )
-
         if dropdown_requests:
             self.spreadsheet.batch_update({"requests": dropdown_requests})
             time.sleep(2)
 
     def _apply_status_colors(self, sheet, start_row, end_row):
-        """Apply color coding to status column."""
         try:
             all_data = sheet.get_all_values()
             color_requests = []
-
             for row_idx in range(start_row - 1, min(end_row, len(all_data))):
                 if row_idx < 1 or len(all_data[row_idx]) < 2:
                     continue
-
                 status = all_data[row_idx][1].strip()
                 color = STATUS_COLORS.get(status)
-
                 if color:
                     text_color = (
                         {"red": 1.0, "green": 1.0, "blue": 1.0}
                         if status == "Offer accepted"
                         else {"red": 0.0, "green": 0.0, "blue": 0.0}
                     )
-
                     color_requests.append(
                         {
                             "repeatCell": {
@@ -438,7 +348,6 @@ class SheetsManager:
                             }
                         }
                     )
-
             if color_requests:
                 for i in range(0, len(color_requests), 20):
                     batch = color_requests[i : i + 20]
@@ -448,85 +357,51 @@ class SheetsManager:
             print(f"Color application error: {e}")
 
     def _auto_resize_all_columns_dynamic(self, sheet, total_columns):
-        """
-        ✅ ENHANCED: Auto-resize ALL columns dynamically including Review Flags (Column N).
-        Valid Entries: 14 columns (A-N)
-        Discarded: 13 columns (A-M)
-        Reviewed: 12 columns (A-L)
-        """
         try:
             all_data = sheet.get_all_values()
-
             if len(all_data) < 2:
                 return
-
             column_widths = []
-
             for col_idx in range(total_columns):
                 max_width = 50
-
-                # Check header (10px per char + padding)
                 if len(all_data[0]) > col_idx:
                     header_text = str(all_data[0][col_idx])
                     header_width = len(header_text) * 10 + 40
                     max_width = max(max_width, header_width)
-
-                # Check all data rows (8px per char + padding)
                 for row in all_data[1:]:
                     if len(row) > col_idx:
                         cell_text = str(row[col_idx]).strip()
                         if cell_text:
                             text_width = len(cell_text) * 8 + 25
                             max_width = max(max_width, text_width)
-
-                # Apply column-specific constraints
-                if col_idx == 0:  # A - Sr. No.
+                if col_idx == 0:
                     max_width = min(max_width, 80)
-
-                elif col_idx == 1:  # B - Status / Discard Reason
+                elif col_idx == 1:
                     max_width = min(max_width, 400)
-
-                elif col_idx == 2:  # C - Company
+                elif col_idx == 2:
                     max_width = min(max_width, 350)
-
-                elif col_idx == 3:  # D - Title
+                elif col_idx == 3:
                     max_width = min(max_width, 500)
-
-                elif col_idx == 4:  # E - Date Applied
+                elif col_idx == 4:
                     max_width = min(max_width, 150)
-
-                elif col_idx == 5:  # F - Job URL
+                elif col_idx == 5:
                     max_width = max(95, min(max_width, 115))
-
-                elif col_idx == 6:  # G - Job ID
+                elif col_idx == 6:
                     max_width = min(max_width, 120)
-
-                elif col_idx == 7:  # H - Job Type
+                elif col_idx == 7:
                     max_width = min(max_width, 120)
-
-                elif col_idx == 8:  # I - Location
+                elif col_idx == 8:
                     max_width = min(max_width, 220)
-
-                elif col_idx == 9:  # J - Remote?
+                elif col_idx == 9:
                     max_width = min(max_width, 100)
-
-                elif col_idx == 10:  # K - Entry Date
+                elif col_idx == 10:
                     max_width = min(max_width, 190)
-
-                elif col_idx == 11:  # L - Source
+                elif col_idx == 11:
                     max_width = min(max_width, 130)
-
-                elif col_idx == 12:  # M - Sponsorship
+                elif col_idx == 12:
                     max_width = min(max_width, 150)
-
-                elif col_idx == 13:  # N - Review Flags ✅ NEW
-                    max_width = min(max_width, 450)  # Wider for multiple flags
-
                 column_widths.append(max_width)
-
-            # Build batch update request
             resize_requests = []
-
             for col_idx, width in enumerate(column_widths):
                 resize_requests.append(
                     {
@@ -542,18 +417,14 @@ class SheetsManager:
                         }
                     }
                 )
-
-            # Execute resize in batches
             for i in range(0, len(resize_requests), 100):
                 batch = resize_requests[i : i + 100]
                 self.spreadsheet.batch_update({"requests": batch})
                 time.sleep(1)
-
         except Exception as e:
             print(f"Column resize error: {e}")
 
     def _format_headers(self, sheet, num_cols):
-        """Format header row."""
         try:
             col_letter = chr(ord("A") + num_cols - 1)
             sheet.format(
@@ -574,23 +445,18 @@ class SheetsManager:
 
     @staticmethod
     def _normalize(text):
-        """Normalize text for comparison."""
         if not text:
             return ""
         return re.sub(r"[^a-z0-9]", "", text.lower())
 
     @staticmethod
     def _clean_url(url):
-        """Clean URL for comparison."""
         if not url:
             return ""
-
-        # Handle Jobright URLs specially
         if "jobright.ai/jobs/info/" in url.lower():
             match = re.search(r"(jobright\.ai/jobs/info/[a-f0-9]+)", url, re.I)
             if match:
                 return match.group(1).lower()
-
         url = re.sub(r"\?.*$", "", url)
         url = re.sub(r"#.*$", "", url)
         return url.lower().rstrip("/")

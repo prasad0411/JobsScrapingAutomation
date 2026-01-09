@@ -1,11 +1,4 @@
 #!/usr/bin/env python3
-# cSpell:disable
-"""
-Extraction module - PRODUCTION v8.0 ULTIMATE FAIL-SAFE
-ALL IMPROVEMENTS: Multi-method extraction, Job ID NUMBER fix, dead code removed, generic text filtering
-OLD HandshakeExtractor REMOVED - using Playwright version now
-"""
-
 import requests
 import base64
 import pickle
@@ -45,14 +38,11 @@ from config import (
 
 
 class JobrightAuthenticator:
-    """Handles Jobright authentication and URL resolution."""
-
     def __init__(self):
         self.cookies = None
         self.load_cookies()
 
     def load_cookies(self):
-        """Load saved cookies if available."""
         if os.path.exists(JOBRIGHT_COOKIES_FILE):
             try:
                 with open(JOBRIGHT_COOKIES_FILE, "r") as f:
@@ -61,15 +51,12 @@ class JobrightAuthenticator:
                 print(f"Cookie load error: {e}")
 
     def login_interactive(self):
-        """Interactive login to Jobright using Selenium."""
         if not SELENIUM_AVAILABLE:
             print("Selenium not available - skipping Jobright authentication")
             return False
-
         print("\n" + "=" * 60)
         print("JOBRIGHT AUTHENTICATION")
         print("=" * 60)
-
         driver = None
         try:
             chrome_options = Options()
@@ -77,32 +64,24 @@ class JobrightAuthenticator:
             chrome_options.add_experimental_option(
                 "excludeSwitches", ["enable-logging"]
             )
-
             service = Service(ChromeDriverManager().install())
             driver = webdriver.Chrome(service=service, options=chrome_options)
-
             driver.get("https://jobright.ai")
             time.sleep(3)
-
             print("[AUTH] Please log in through the browser window")
             print("       Press ENTER after completing login...")
             input()
-
             cookies = driver.get_cookies()
             if not cookies:
                 print("✗ No cookies captured")
                 driver.quit()
                 return False
-
             self.cookies = cookies
-
             with open(JOBRIGHT_COOKIES_FILE, "w") as f:
                 json.dump(cookies, f, indent=2)
-
             print(f"✓ Authentication successful ({len(cookies)} cookies saved)\n")
             driver.quit()
             return True
-
         except Exception as e:
             print(f"Authentication failed: {e}")
             if driver:
@@ -113,30 +92,22 @@ class JobrightAuthenticator:
             return False
 
     def resolve_jobright_url(self, jobright_url):
-        """Resolve Jobright URL to actual company job page."""
         if "jobright.ai/jobs/info/" not in jobright_url.lower():
             return jobright_url, False
-
         if not self.cookies:
             return jobright_url, False
-
         try:
             session = requests.Session()
             for cookie in self.cookies:
                 session.cookies.set(cookie["name"], cookie["value"])
-
             headers = {"User-Agent": USER_AGENTS[0]}
             response = session.get(jobright_url, headers=headers, timeout=15)
-
             if response.status_code != 200:
                 return jobright_url, False
-
             soup = BeautifulSoup(response.content, "html.parser")
             script_tag = soup.find("script", {"id": "__NEXT_DATA__"})
-
             if not script_tag:
                 return jobright_url, False
-
             data = json.loads(script_tag.string)
             job_result = (
                 data.get("props", {})
@@ -144,32 +115,24 @@ class JobrightAuthenticator:
                 .get("dataSource", {})
                 .get("jobResult", {})
             )
-
             actual_url = job_result.get("applyLink") or job_result.get("originalUrl")
             is_company_site = job_result.get("isCompanySiteLink", False)
-
             if actual_url and "jobright.ai" not in actual_url:
                 return actual_url, is_company_site
-
             return jobright_url, False
         except:
             return jobright_url, False
 
 
 class EmailExtractor:
-    """Extracts job postings from Gmail using Gmail API."""
-
     def __init__(self):
         self.service = None
 
     def authenticate(self):
-        """Authenticate with Gmail API."""
         creds = None
-
         if os.path.exists(GMAIL_TOKEN_FILE):
             with open(GMAIL_TOKEN_FILE, "rb") as token:
                 creds = pickle.load(token)
-
         if not creds or not creds.valid:
             if creds and creds.expired and creds.refresh_token:
                 creds.refresh(Request())
@@ -178,17 +141,13 @@ class EmailExtractor:
                     GMAIL_CREDS_FILE, GMAIL_SCOPES
                 )
                 creds = flow.run_local_server(port=0)
-
             with open(GMAIL_TOKEN_FILE, "wb") as token:
                 pickle.dump(creds, token)
-
         self.service = build("gmail", "v1", credentials=creds)
 
     def fetch_job_emails(self, max_results=50):
-        """Fetch emails in NEWEST-FIRST order, preserving URL sequence."""
         if not self.service:
             self.authenticate()
-
         try:
             query = 'label:"Job Hunt" newer_than:1d'
             results = (
@@ -197,14 +156,11 @@ class EmailExtractor:
                 .list(userId="me", q=query, maxResults=max_results)
                 .execute()
             )
-
             messages = results.get("messages", [])
             if not messages:
                 print("No labeled emails found")
                 return []
-
             print(f"Found {len(messages)} labeled emails")
-
             emails_with_time = []
             for message in messages:
                 msg = (
@@ -213,12 +169,10 @@ class EmailExtractor:
                     .get(userId="me", id=message["id"], format="full")
                     .execute()
                 )
-
                 internal_date = int(msg.get("internalDate", 0))
                 headers = msg["payload"].get("headers", [])
                 sender = self._detect_sender(headers)
                 html_content = self._extract_html(msg["payload"])
-
                 if html_content:
                     urls = self._extract_job_urls(html_content)
                     emails_with_time.append(
@@ -229,9 +183,7 @@ class EmailExtractor:
                             "urls": urls,
                         }
                     )
-
             emails_with_time.sort(key=lambda x: x["timestamp"], reverse=True)
-
             email_data = []
             for email in emails_with_time:
                 for url in email["urls"]:
@@ -242,16 +194,13 @@ class EmailExtractor:
                             "sender": email["sender"],
                         }
                     )
-
             print(f"Total: {len(email_data)} job URLs from all emails\n")
             return email_data
-
         except Exception as e:
             print(f"Gmail fetch error: {e}")
             return []
 
     def _detect_sender(self, headers):
-        """Detect sender from email headers."""
         for header in headers:
             if header["name"] == "From":
                 from_field = header["value"].lower()
@@ -269,7 +218,6 @@ class EmailExtractor:
         return "Email"
 
     def _extract_html(self, payload):
-        """Extract HTML content from email payload."""
         if "parts" in payload:
             for part in payload["parts"]:
                 if part["mimeType"] == "text/html":
@@ -282,25 +230,20 @@ class EmailExtractor:
         return None
 
     def _extract_job_urls(self, email_html):
-        """Extract URLs preserving order."""
         soup = BeautifulSoup(email_html, "html.parser")
         job_urls = []
         seen = set()
-
         for link in soup.find_all("a", href=True):
             url = link.get("href", "")
             if not url.startswith("http"):
                 continue
-
             is_job_board = any(domain in url.lower() for domain in JOB_BOARD_DOMAINS)
             if is_job_board and not self._is_non_job_url(url) and url not in seen:
                 job_urls.append(url)
                 seen.add(url)
-
         return job_urls
 
     def _is_non_job_url(self, url):
-        """Check if URL is not a job posting."""
         url_lower = url.lower()
         non_job = [
             "/unsubscribe",
@@ -313,7 +256,6 @@ class EmailExtractor:
             "/terms",
             "?retarget=",
         ]
-
         if any(p in url_lower for p in non_job):
             return True
         if "adzuna.com" in url_lower and "/land/ad/" not in url_lower:
@@ -322,8 +264,6 @@ class EmailExtractor:
 
 
 class PageFetcher:
-    """Fetches web pages using multiple fallback methods with retry logic."""
-
     def __init__(self):
         self.outcomes = {
             "method_standard": 0,
@@ -332,8 +272,6 @@ class PageFetcher:
         }
 
     def fetch_page(self, url):
-        """✅ ULTIMATE: Route Workday AND Greenhouse to Selenium."""
-        # Use Selenium for JS-heavy platforms
         if self._is_js_heavy_platform(url):
             html, final_url = self._try_selenium(url)
             if html:
@@ -344,19 +282,14 @@ class PageFetcher:
                     {"text": html, "status_code": 200, "url": final_url},
                 )()
                 return mock_response, final_url
-
-        # Standard HTTP for non-JS platforms
         response = self._try_standard_request(url)
         if response and response.status_code == 200:
             self.outcomes["method_standard"] += 1
             return response, response.url
-
         response = self._try_rotating_agents(url)
         if response and response.status_code == 200:
             self.outcomes["method_rotating_agent"] += 1
             return response, response.url
-
-        # Fallback to Selenium
         if SELENIUM_AVAILABLE and (
             "ziprecruiter" in url.lower() or "mathworks" in url.lower()
         ):
@@ -369,27 +302,22 @@ class PageFetcher:
                     {"text": html, "status_code": 200, "url": final_url},
                 )()
                 return mock_response, final_url
-
         return None, None
 
     @staticmethod
     def _is_js_heavy_platform(url):
-        """Check if URL needs Selenium (JS-heavy platforms)."""
         if not url:
             return False
         url_lower = url.lower()
-
         js_platforms = [
             "workday",
             "myworkdayjobs",
             "greenhouse.io",
             "boards.greenhouse",
         ]
-
         return any(platform in url_lower for platform in js_platforms)
 
     def _try_standard_request(self, url, retries=3):
-        """Standard HTTP request with retries."""
         for attempt in range(retries):
             try:
                 headers = {
@@ -403,23 +331,18 @@ class PageFetcher:
                 response = requests.get(
                     url, headers=headers, allow_redirects=True, timeout=20
                 )
-
                 if response.status_code == 200:
                     return response
-
                 if attempt < retries - 1:
                     wait_time = 2**attempt
                     time.sleep(wait_time)
-
             except Exception as e:
                 if attempt == retries - 1:
                     return None
                 time.sleep(2)
-
         return None
 
     def _try_rotating_agents(self, url):
-        """Try multiple user agents."""
         for ua in USER_AGENTS:
             try:
                 headers = {
@@ -438,10 +361,8 @@ class PageFetcher:
         return None
 
     def _try_selenium(self, url):
-        """✅ ULTIMATE: Selenium with platform-specific waits."""
         if not SELENIUM_AVAILABLE:
             return None, None
-
         driver = None
         try:
             chrome_options = Options()
@@ -450,13 +371,10 @@ class PageFetcher:
             chrome_options.add_argument("--no-sandbox")
             chrome_options.add_argument("--disable-dev-shm-usage")
             chrome_options.add_argument(f"user-agent={USER_AGENTS[0]}")
-
             service = Service(ChromeDriverManager().install())
             driver = webdriver.Chrome(service=service, options=chrome_options)
             driver.set_page_load_timeout(30)
             driver.get(url)
-
-            # Platform-specific wait times
             url_lower = url.lower()
             if "workday" in url_lower or "myworkdayjobs" in url_lower:
                 time.sleep(5)
@@ -464,7 +382,6 @@ class PageFetcher:
                 time.sleep(8)
             else:
                 time.sleep(3)
-
             return driver.page_source, driver.current_url
         except:
             return None, None
@@ -477,24 +394,9 @@ class PageFetcher:
 
 
 class PageParser:
-    """Parses job data from web pages with multi-method extraction."""
-
-    JOB_CODE_PATTERN = re.compile(r"Job Code:\s*([A-Z0-9]{3,10})\b", re.I)
-    JOB_ID_PATTERN = re.compile(r"Job ID[:\s]+([A-Z0-9\-]{3,15})\b", re.I)
-    J_PATTERN = re.compile(r"\b(J-\d{5,8})\b", re.I)
-    REQ_PATTERNS = [
-        re.compile(r"Req(?:uisition)? ID[:\s]+([A-Z0-9\-]{3,20})\b", re.I),
-        re.compile(r"Requisition[:\s]+([A-Z0-9\-]{3,20})\b", re.I),
-        re.compile(r"Req\s+#?[:\s]*([A-Z0-9\-]{3,20})\b", re.I),
-    ]
-
     @staticmethod
     def extract_company(soup, url):
-        """✅ ULTIMATE: 5-method cascade with generic text filtering."""
-
         url_lower = url.lower() if url else ""
-
-        # Method 1: Hardcoded URL mappings (100% accurate)
         url_company_map = [
             ("careers.sig.com", "Susquehanna International Group"),
             ("sig.com/job", "Susquehanna International Group"),
@@ -505,12 +407,9 @@ class PageParser:
             ("singlestore.com/careers", "SingleStore"),
             ("careers.singlestore", "SingleStore"),
         ]
-
         for url_pattern, company_name in url_company_map:
             if url_pattern in url_lower:
                 return company_name
-
-        # Method 2: JSON-LD (highest accuracy for structured data)
         json_ld = soup.find("script", type="application/ld+json")
         if json_ld:
             try:
@@ -520,14 +419,11 @@ class PageParser:
                     if isinstance(org, dict):
                         name = org.get("name", "")
                         if name and len(name) < 100:
-                            # ✅ Filter generic UI text
                             if not PageParser._is_generic_ui_text(name):
                                 if not PageParser._looks_like_title(name):
                                     return name
             except:
                 pass
-
-        # Method 3: Meta tags
         meta = soup.find("meta", {"property": "og:site_name"})
         if meta and meta.get("content"):
             company = meta.get("content").strip()
@@ -536,8 +432,6 @@ class PageParser:
                 if not PageParser._is_generic_ui_text(company):
                     if not PageParser._looks_like_title(company):
                         return company
-
-        # Method 4: H2/H3/H4 (skip H1 - usually title)
         for tag_name in ["h2", "h3", "h4"]:
             tag = soup.find(tag_name)
             if tag:
@@ -560,20 +454,15 @@ class PageParser:
                                 ]
                             ):
                                 return text
-
-        # Method 5: Domain extraction (fallback)
         from processors import ValidationHelper
 
         return ValidationHelper.extract_company_from_domain(url)
 
     @staticmethod
     def _is_generic_ui_text(text):
-        """✅ NEW: Filter generic UI text (fixes Bombardier "Cookie Consent Manager" bug)."""
         if not text:
             return False
-
         text_lower = text.lower()
-
         generic_terms = [
             "cookie consent",
             "privacy policy",
@@ -589,18 +478,13 @@ class PageParser:
             "cookie settings",
             "manage preferences",
         ]
-
         return any(term in text_lower for term in generic_terms)
 
     @staticmethod
     def _looks_like_title(text):
-        """Check if text looks like a job title."""
         if not text:
             return False
-
         text_lower = text.lower()
-
-        # Form/login indicators
         if any(
             phrase in text_lower
             for phrase in [
@@ -612,8 +496,6 @@ class PageParser:
             ]
         ):
             return True
-
-        # Title keywords
         title_keywords = [
             "intern",
             "co-op",
@@ -641,15 +523,11 @@ class PageParser:
             "university",
             "drexel",
         ]
-
         keyword_count = sum(1 for kw in title_keywords if kw in text_lower)
         return keyword_count >= 2
 
     @staticmethod
     def extract_title(soup):
-        """✅ ENHANCED: Extract title with meta tag priority."""
-
-        # Method 1: JSON-LD
         json_ld = soup.find("script", type="application/ld+json")
         if json_ld:
             try:
@@ -660,22 +538,16 @@ class PageParser:
                         return title
             except:
                 pass
-
-        # Method 2: Meta tags (Lever uses this)
         meta_title = soup.find("meta", {"property": "og:title"})
         if meta_title and meta_title.get("content"):
             title = meta_title.get("content").strip()
             if 5 < len(title) < 200 and "careers" not in title.lower():
                 return title
-
-        # Method 3: H1
         h1 = soup.find("h1")
         if h1:
             title = h1.get_text().strip()
             if 5 < len(title) < 200 and not title.isupper() and len(title.split()) > 1:
                 return title
-
-        # Method 4: Title tag
         title_tag = soup.find("title")
         if title_tag:
             full_title = title_tag.get_text().strip()
@@ -684,74 +556,60 @@ class PageParser:
                 title = parts[0].strip()
                 if 5 < len(title) < 200:
                     return title
-
         return "Unknown"
 
     @staticmethod
     def extract_job_id(soup, url):
-        """✅ ULTIMATE: Multi-platform job ID extraction with proper N/A fallback."""
         try:
             page_text = soup.get_text()
 
-            # ByteDance: Check page text FIRST
             if "bytedance" in url.lower() or "joinbytedance" in url.lower():
                 match = re.search(r"Job Code:\s*([A-Z0-9]{5,15})\b", page_text, re.I)
                 if match:
                     return PageParser._clean_job_id(match.group(1))
 
-            # Priority 1: J- pattern (IDEXX)
-            match = PageParser.J_PATTERN.search(page_text)
-            if match:
-                job_id = match.group(1).upper()
-                return PageParser._clean_job_id(job_id)
-
-            # Priority 2: Job Code
-            match = PageParser.JOB_CODE_PATTERN.search(page_text)
-            if match:
-                job_id = match.group(1).strip()
-                return PageParser._clean_job_id(job_id)
-
-            # Priority 3: Job ID
-            match = PageParser.JOB_ID_PATTERN.search(page_text)
-            if match:
-                job_id = match.group(1).strip()
-                return PageParser._clean_job_id(job_id)
-
-            # Priority 4: Requisition patterns
-            for pattern in PageParser.REQ_PATTERNS:
-                match = pattern.search(page_text)
+            labeled_patterns = [
+                r"Job Code:\s*([A-Z0-9]{4,15})\b",
+                r"Job ID[:\s]+([A-Z0-9\-]{4,15})\b",
+                r"Req(?:uisition)? ID[:\s]+([A-Z0-9\-]{4,20})\b",
+                r"Requisition[:\s]+([A-Z0-9\-]{4,20})\b",
+                r"ID:\s*(\d{7,10})\b",
+            ]
+            for pattern in labeled_patterns:
+                match = re.search(pattern, page_text, re.I)
                 if match:
                     job_id = match.group(1).strip()
                     return PageParser._clean_job_id(job_id)
 
-            # Priority 5: URL-based extraction
+            id_patterns = [
+                r"\b(J-\d{5,8})\b",
+                r"\b(JR\d{4,7})\b",
+                r"\b(R-\d{4,5}-\d{4,6})\b",
+                r"\b(R-\d{6,8}-\d{1,2})\b",
+                r"\b(R\d{5,7})\b",
+                r"\b(REQ-?\d{4,7})\b",
+            ]
+            for pattern in id_patterns:
+                match = re.search(pattern, page_text, re.I)
+                if match:
+                    job_id = match.group(1)
+                    return PageParser._clean_job_id(job_id)
+
             if "workday" in url.lower():
-                # Workday underscore pattern
                 match = re.search(r"_(\d{4,8})(?:\?|$)", url)
                 if match:
                     return match.group(1)
-
-                # Standard Workday patterns
                 workday_patterns = [
-                    (r"(J-\d{5,8})\b", re.I),
-                    (r"(REQ-?\d{4,7}(?:-\d{1,3})?)\b", re.I),
-                    (r"(R-\d{7,12})\b", re.I),
-                    (r"(JR\d{5,10})\b", re.I),
-                    (r"[/_]([A-Z]*\d{5,10})(?:[?/]|$)", 0),
+                    r"\b(R-\d{4,5}-\d{4,6})\b",
+                    r"\b(J-\d{5,8})\b",
+                    r"\b(REQ-?\d{4,7}(?:-\d{1,3})?)\b",
+                    r"\b(JR\d{5,10})\b",
                 ]
-
-                for pattern, flags in workday_patterns:
-                    match = (
-                        re.search(pattern, url, flags)
-                        if flags
-                        else re.search(pattern, url)
-                    )
+                for pattern in workday_patterns:
+                    match = re.search(pattern, url, re.I)
                     if match:
-                        job_id = match.group(1)
-                        if len(job_id) < 12:
-                            return PageParser._clean_job_id(job_id.upper())
+                        return PageParser._clean_job_id(match.group(1))
 
-            # Platform-specific patterns
             platform_patterns = {
                 "jibe": r"/jobs/(\d+)",
                 "github": r"/jobs/(\d+)",
@@ -769,85 +627,75 @@ class PageParser:
                 "idexx": r"/(J-\d{5,8})",
                 "selinc": r"_([0-9\-]{5,15})",
                 "gilead": r"_(R\d{7,10})",
+                "eightfold.ai": r"/job/(\d{8,10})",
+                "eightfold": r"/job/(\d{8,10})",
             }
-
             url_lower = url.lower()
             for platform, pattern in platform_patterns.items():
                 if platform in url_lower:
                     match = re.search(pattern, url)
                     if match:
                         return PageParser._clean_job_id(match.group(1))
-
-            return "N/A"  # ✅ FIXED: was "NUMBER", now proper fallback
+            return "N/A"
         except:
-            return "N/A"  # ✅ FIXED: Exception fallback
+            return "N/A"
 
     @staticmethod
     def _clean_job_id(job_id):
-        """✅ ULTIMATE: Strict job ID cleaning with proper N/A fallback (FIXED)."""
         if not job_id:
-            return "N/A"  # ✅ FIXED
+            return "N/A"
 
-        # Remove "id" prefix
-        if job_id.lower().startswith("id"):
-            job_id = job_id[2:]
-
-        # Remove common suffixes
-        suffixes = [
-            "Apply",
-            "Now",
-            "Submit",
-            "Click",
-            "Here",
-            "View",
-            "Details",
-            "More",
-            "Software",
-            "About",
-            "Our",
-            "External",
-            "Pay",
-            "Current",
-            "T-Mobile",
-            "Company",
-            "Inc",
-            "Corp",
+        all_caps_suffixes = [
+            "START",
+            "JOIN",
+            "MAKE",
+            "AS",
+            "APPLY",
+            "NOW",
+            "CLICK",
+            "SOFTWARE",
+            "ENGINEER",
+            "INTERN",
+            "HERE",
+            "VIEW",
+            "DETAILS",
+            "MORE",
+            "ABOUT",
+            "OUR",
+            "EXTERNAL",
+            "PAY",
+            "CURRENT",
+            "COMPANY",
+            "INC",
+            "CORP",
             "LLC",
-            "Ltd",
-            "Engineer",
-            "Developer",
-            "Intern",
-            "Position",
+            "LTD",
+            "POSITION",
             "ARE",
             "JOB",
             "STACK",
         ]
-        for suffix in suffixes:
-            job_id = re.sub(f"{suffix}.*$", "", job_id, flags=re.I)
+        for suffix in all_caps_suffixes:
+            job_id = re.sub(rf"{suffix}\b.*$", "", job_id, flags=re.I)
 
-        # Keep only valid ID characters
-        cleaned = ""
-        for char in job_id:
-            if char.isalnum() or char == "-":
-                cleaned += char
-            else:
-                break
+        job_id = re.sub(r"[a-z].*$", "", job_id)
 
-        # Validate length
-        if len(cleaned) < 4:
-            return "N/A"  # ✅ FIXED: was sometimes "NUMBER"
+        if job_id.lower().startswith("id"):
+            job_id = job_id[2:]
 
-        if len(cleaned) > 20:
-            cleaned = cleaned[:20]
+        if not re.match(r"^[A-Z0-9\-]+$", job_id, re.I):
+            return "N/A"
 
-        return cleaned.upper().strip()
+        if len(job_id) < 4:
+            return "N/A"
+        if len(job_id) > 20:
+            job_id = job_id[:20]
+        return job_id.upper().strip()
 
     @staticmethod
     def extract_job_age_days(soup):
-        """Extract job age."""
         try:
             page_text = soup.get_text()[:3000]
-
             age_patterns = [
                 (r"[Pp]osted\s+(\d+)\+\s+[Dd]ays?\s+[Aa]go", lambda m: int(m.group(1))),
                 (r"[Pp]osted\s+(\d+)\s+[Dd]ays?\s+[Aa]go", lambda m: int(m.group(1))),
@@ -856,20 +704,16 @@ class PageParser:
                 (r"[Pp]osted\s+yesterday|Yesterday", lambda m: 1),
                 (r"(\d+)\s+hours?\s+ago", lambda m: 0),
             ]
-
             for pattern, converter in age_patterns:
                 match = re.search(pattern, page_text, re.I)
                 if match:
                     return converter(match)
-
             return None
-
         except:
             return None
 
     @staticmethod
     def extract_jobright_data(soup, url, jobright_auth):
-        """Extract from Jobright page with JSON-LD parsing."""
         try:
             script_tag = soup.find("script", {"id": "__NEXT_DATA__"})
             if script_tag:
@@ -881,17 +725,14 @@ class PageParser:
                         .get("dataSource", {})
                         .get("jobResult", {})
                     )
-
                     if job_result:
                         company = job_result.get("companyResult", {}).get(
                             "companyName", "Unknown"
                         )
                         title = job_result.get("jobTitle", "Unknown")
                         location = job_result.get("jobLocation", "Unknown")
-
                         is_remote = job_result.get("isRemote", False)
                         work_model = job_result.get("workModel", "")
-
                         if is_remote or work_model.lower() == "remote":
                             remote = "Remote"
                         elif work_model.lower() == "hybrid":
@@ -900,20 +741,17 @@ class PageParser:
                             remote = "On Site"
                         else:
                             remote = "Unknown"
-
                         recommendation_tags = job_result.get("recommendationTags", [])
                         if "H1B Sponsor Likely" in recommendation_tags:
                             sponsorship = "Yes"
                         else:
                             sponsorship = "Unknown"
-
                         actual_url = (
                             job_result.get("applyLink")
                             or job_result.get("originalUrl")
                             or url
                         )
                         is_company_site = job_result.get("isCompanySiteLink", False)
-
                         return {
                             "company": company,
                             "title": title,
@@ -925,42 +763,32 @@ class PageParser:
                         }
                 except:
                     pass
-
             return None
         except:
             return None
 
 
 class SourceParsers:
-    """Parsers for specific sources with age extraction."""
-
     HOURS_AGO = re.compile(r"(\d+)\s+hours?\s+ago", re.I)
     DAYS_AGO = re.compile(r"(\d+)\s+days?\s+ago", re.I)
 
     @staticmethod
     def _extract_age_from_text(text):
-        """Extract age from text."""
         if not text:
             return None
-
         hours_match = SourceParsers.HOURS_AGO.search(text)
         if hours_match:
             return 0
-
         days_match = SourceParsers.DAYS_AGO.search(text)
         if days_match:
             return int(days_match.group(1))
-
         return None
 
     @staticmethod
     def parse_jobright_email(soup, url, jobright_auth):
-        """✅ ENHANCED: Robust email parsing with separator and location cleaning."""
         try:
             url_base = url.split("?")[0]
-
             all_links = soup.find_all("a", href=re.compile(re.escape(url_base)))
-
             title_link = None
             for link in all_links:
                 link_text = link.get_text().strip()
@@ -970,16 +798,13 @@ class SourceParsers:
                 ):
                     title_link = link
                     break
-
             if not title_link:
                 for link in all_links:
                     if len(link.get_text().strip()) > 15:
                         title_link = link
                         break
-
             if not title_link:
                 return None
-
             job_section = title_link.find_parent("table", id="job-container")
             if not job_section:
                 current = title_link
@@ -988,18 +813,12 @@ class SourceParsers:
                     if current and len(current.get_text()) > 100:
                         job_section = current
                         break
-
             if not job_section:
                 return None
-
-            # Extract company
             company_elem = job_section.find("p", id="job-company-name")
             company = company_elem.get_text().strip() if company_elem else "Unknown"
-
-            # ✅ Extract title with separator (prevent button text bleeding)
             title_text = title_link.get_text(separator="|||", strip=True)
             title_parts = title_text.split("|||")
-
             title = "Unknown"
             internship_keywords = [
                 "intern",
@@ -1013,10 +832,8 @@ class SourceParsers:
                 "ml",
                 "ai",
             ]
-
             for part in title_parts:
                 if any(kw in part.lower() for kw in internship_keywords):
-                    # Clean button text
                     part = re.sub(
                         r"\s*(APPLY NOW|Apply|View|Click Here|Learn More).*$",
                         "",
@@ -1026,8 +843,6 @@ class SourceParsers:
                     if len(part) > 5:
                         title = part.strip()
                         break
-
-            # Fallback: take first substantial part
             if title == "Unknown":
                 for part in title_parts:
                     if len(part) > 10:
@@ -1035,23 +850,14 @@ class SourceParsers:
                             r"\s*(APPLY NOW|Apply|View).*$", "", part, flags=re.I
                         ).strip()
                         break
-
-            # ✅ ENHANCED: Location extraction with separator (prevent text bleeding)
             location = "Unknown"
             remote = "Unknown"
-
             job_tags = job_section.find_all("p", id="job-tag")
-
             for tag in job_tags:
-                # Use separator to isolate direct text
                 text = tag.get_text(separator="|||", strip=True)
-                text = text.split("|||")[0]  # Take first part only
-
-                # Skip salary and referrals
+                text = text.split("|||")[0]
                 if "$" in text or "referral" in text.lower():
                     continue
-
-                # Clean unwanted suffixes
                 text = re.sub(
                     r"(Team|Department|Division|Group|Unit|Office|Location|Area|Region).*$",
                     "",
@@ -1059,14 +865,11 @@ class SourceParsers:
                     flags=re.I,
                 )
                 text = re.sub(r"\s+", " ", text).strip()
-
-                # Validate and assign
                 if "," in text:
                     parts = text.split(",")
                     if len(parts) == 2:
                         city = parts[0].strip()
                         state = parts[1].strip()
-
                         if state.upper() in US_STATES.values() or len(state) == 2:
                             location = f"{city}, {state.upper()}"
                             remote = "On Site"
@@ -1085,7 +888,6 @@ class SourceParsers:
                         for skip in ["apply", "view", "click", "submit"]
                     ):
                         continue
-
                     if any(
                         state in text.upper() for state in US_STATES.values()
                     ) or any(
@@ -1101,12 +903,9 @@ class SourceParsers:
                         location = text
                         remote = SourceParsers._infer_remote(text)
                         break
-
             container_text = job_section.get_text()
             age_days = SourceParsers._extract_age_from_text(container_text)
-
             actual_url, is_company_site = jobright_auth.resolve_jobright_url(url)
-
             return {
                 "company": company,
                 "title": title,
@@ -1122,7 +921,6 @@ class SourceParsers:
 
     @staticmethod
     def _infer_remote(text):
-        """Infer remote status."""
         if not text:
             return "Unknown"
         text_lower = text.lower()
@@ -1136,61 +934,45 @@ class SourceParsers:
 
     @staticmethod
     def parse_ziprecruiter_email(soup, url):
-        """ZipRecruiter email parser."""
         return None
 
     @staticmethod
     def parse_adzuna_email(soup, url):
-        """Adzuna email parser."""
         return None
 
 
 class SimplifyGitHubScraper:
-    """GitHub scraper."""
-
     HEADER_PATTERN = re.compile(
         r"Company.*Role.*Location.*(?:Application|Link).*Date", re.I
     )
     HTML_LINK = re.compile(r'<a\s+href="(https?://[^"]+)"')
     MD_LINK = re.compile(r"\[.*?\]\((https?://[^\)]+)\)")
     EMOJI_PATTERN = re.compile(
-        "["
-        "\U0001f600-\U0001f64f"
-        "\U0001f300-\U0001f5ff"
-        "\U0001f680-\U0001f6ff"
-        "\U0001f1e0-\U0001f1ff"
-        "\U00002500-\U00002bef"
-        "]+",
+        "[\U0001f600-\U0001f64f\U0001f300-\U0001f5ff\U0001f680-\U0001f6ff\U0001f1e0-\U0001f1ff\U00002500-\U00002bef]+",
         flags=re.UNICODE,
     )
 
     @staticmethod
     def scrape(url, source_name="GitHub"):
-        """Scrape GitHub markdown tables."""
         try:
             response = requests.get(url, timeout=10)
             if response.status_code != 200:
                 return []
-
             soup = BeautifulSoup(response.text, "html.parser")
             tables = soup.find_all("table")
-
             if tables:
                 return SimplifyGitHubScraper._parse_html_tables(soup, source_name)
             else:
                 return SimplifyGitHubScraper._parse_markdown_text(
                     response.text, source_name
                 )
-
         except Exception as e:
             return []
 
     @staticmethod
     def _parse_markdown_text(text, source_name):
-        """Parse markdown tables."""
         lines = text.split("\n")
         jobs = []
-
         header_idx = next(
             (
                 i
@@ -1199,10 +981,8 @@ class SimplifyGitHubScraper:
             ),
             -1,
         )
-
         if header_idx == -1:
             return []
-
         header = lines[header_idx]
         if "\t" in header:
             delimiter, start = "\t", header_idx + 1
@@ -1210,21 +990,17 @@ class SimplifyGitHubScraper:
             delimiter, start = "|", header_idx + 2
         else:
             return []
-
         for line in lines[start:]:
             if not line.strip():
                 continue
-
             parts = [p.strip() for p in line.split(delimiter) if p.strip()]
             if len(parts) < 5:
                 continue
-
             company = SimplifyGitHubScraper._remove_emojis(parts[0])
             title = SimplifyGitHubScraper._remove_emojis(parts[1])
             location = SimplifyGitHubScraper._remove_emojis(parts[2])
             link_cell = parts[3]
             age = parts[4]
-
             match = SimplifyGitHubScraper.HTML_LINK.search(link_cell)
             if match:
                 url = match.group(1)
@@ -1235,10 +1011,8 @@ class SimplifyGitHubScraper:
                     if match
                     else (link_cell if link_cell.startswith("http") else None)
                 )
-
             if not url or any(marker in line for marker in ["🔒", "❌", "closed"]):
                 continue
-
             jobs.append(
                 {
                     "company": company,
@@ -1250,24 +1024,19 @@ class SimplifyGitHubScraper:
                     "source": source_name,
                 }
             )
-
         return jobs
 
     @staticmethod
     def _parse_html_tables(soup, source_name):
-        """Parse HTML tables."""
         jobs = []
-
         for table in soup.find_all("table"):
             for row in table.find_all("tr")[1:]:
                 cells = row.find_all("td")
                 if len(cells) < 5:
                     continue
-
                 company_link = cells[0].find("a")
                 if not company_link:
                     continue
-
                 company = SimplifyGitHubScraper._remove_emojis(
                     company_link.get_text(strip=True)
                 )
@@ -1278,14 +1047,11 @@ class SimplifyGitHubScraper:
                     cells[2].get_text(strip=True)
                 )
                 age = cells[4].get_text(strip=True)
-
                 apply_link = cells[3].find("a", href=True)
                 if not apply_link:
                     continue
-
                 url = apply_link.get("href", "")
                 is_closed = "🔒" in str(cells[3])
-
                 jobs.append(
                     {
                         "company": company,
@@ -1297,12 +1063,10 @@ class SimplifyGitHubScraper:
                         "source": source_name,
                     }
                 )
-
         return jobs
 
     @staticmethod
     def _remove_emojis(text):
-        """Remove emojis."""
         if not text:
             return text
         text = SimplifyGitHubScraper.EMOJI_PATTERN.sub("", text)
