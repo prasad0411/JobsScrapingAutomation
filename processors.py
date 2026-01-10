@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 import re
 import datetime
+import json
 
 try:
     import us as us_library
@@ -25,6 +26,10 @@ from config import (
     MIN_QUALITY_SCORE,
     SPECIAL_COMPANY_NAMES,
     MAX_JOB_AGE_DAYS,
+    STATE_NAME_TO_CODE,
+    COMPANY_PLACEHOLDERS,
+    LOCATION_CODE_PATTERNS,
+    WORKDAY_HQ_CODES,
 )
 
 
@@ -186,6 +191,12 @@ class TitleProcessor:
 class LocationProcessor:
     @staticmethod
     def extract_location_enhanced(soup, url, title=""):
+        location = LocationProcessor._extract_from_visible_elements(soup)
+        if location and location != "Unknown":
+            return location
+        json_ld_location = LocationProcessor._extract_from_json_ld(soup)
+        if json_ld_location and json_ld_location != "Unknown":
+            return json_ld_location
         url_location = LocationProcessor._extract_from_url(url)
         if url_location and url_location != "Unknown":
             return url_location
@@ -197,25 +208,6 @@ class LocationProcessor:
             simplify_loc = LocationProcessor._extract_from_simplify_page(soup)
             if simplify_loc and simplify_loc != "Unknown":
                 return simplify_loc
-        json_ld = soup.find("script", type="application/ld+json")
-        if json_ld:
-            try:
-                import json
-
-                data = json.loads(json_ld.string)
-                if isinstance(data, dict):
-                    job_location = data.get("jobLocation", {})
-                    if isinstance(job_location, dict):
-                        address = job_location.get("address", {})
-                        if isinstance(address, dict):
-                            city = address.get("addressLocality", "")
-                            state = address.get("addressRegion", "")
-                            if city and state:
-                                return f"{city}, {state}"
-                            elif city:
-                                return city
-            except:
-                pass
         location_labels = [
             "Location:",
             "Office Location:",
@@ -252,10 +244,96 @@ class LocationProcessor:
         return "Unknown"
 
     @staticmethod
+    def _extract_from_visible_elements(soup):
+        if not soup:
+            return None
+        location_dt = soup.find("dt", text=re.compile(r"Location", re.I))
+        if location_dt:
+            location_dd = location_dt.find_next_sibling("dd")
+            if location_dd:
+                location = location_dd.get_text().strip()
+                match = re.search(r"US-([A-Z]{2})-([A-Z][a-z\s]+)", location)
+                if match:
+                    state, city = match.groups()
+                    return f"{city}, {state}"
+                return location
+        job_location = soup.find(attrs={"itemprop": "jobLocation"})
+        if job_location:
+            locality = job_location.find(attrs={"itemprop": "addressLocality"})
+            region = job_location.find(attrs={"itemprop": "addressRegion"})
+            if locality and region:
+                city = locality.get_text().strip()
+                state = region.get_text().strip()
+                if len(state) > 2:
+                    state = STATE_NAME_TO_CODE.get(state.lower(), state[:2].upper())
+                return f"{city}, {state}"
+        spl_location = soup.find("spl-job-location")
+        if spl_location:
+            formatted = spl_location.get("formattedaddress", "") or spl_location.get(
+                "formattedAddress", ""
+            )
+            if formatted:
+                match = re.search(r"([A-Z][a-z\s]+),\s*([A-Z]{2})", formatted)
+                if match:
+                    return f"{match.group(1)}, {match.group(2)}"
+        job_details = soup.find("ul", class_=re.compile(r"job-details", re.I))
+        if job_details:
+            for li in job_details.find_all("li"):
+                text = li.get_text().strip()
+                match = re.search(r"([A-Z][a-z\s]+),\s*([A-Z]{2})\b", text)
+                if match:
+                    city, state = match.groups()
+                    if state in US_STATES.values():
+                        return f"{city}, {state}"
+        page_text = soup.get_text()[:15000]
+        state_name_match = re.search(
+            r"([A-Z][a-z\s]+),\s+(Illinois|California|Texas|Pennsylvania|Kansas|Maryland|Georgia|Arizona|Washington|Michigan|Ohio|Florida|Massachusetts|Virginia|New York)",
+            page_text,
+            re.I,
+        )
+        if state_name_match:
+            city = state_name_match.group(1).strip()
+            state_name = state_name_match.group(2).lower()
+            state_code = STATE_NAME_TO_CODE.get(state_name, state_name[:2].upper())
+            return f"{city}, {state_code}"
+        return None
+
+    @staticmethod
+    def _extract_from_json_ld(soup):
+        if not soup:
+            return None
+        json_ld = soup.find("script", type="application/ld+json")
+        if json_ld:
+            try:
+                data = json.loads(json_ld.string)
+                if isinstance(data, dict):
+                    job_location = data.get("jobLocation", {})
+                    if isinstance(job_location, dict):
+                        address = job_location.get("address", {})
+                        if isinstance(address, dict):
+                            city = address.get("addressLocality", "")
+                            state = address.get("addressRegion", "")
+                            if city and state:
+                                if len(state) == 2 and state in US_STATES.values():
+                                    return f"{city}, {state}"
+                                elif len(state) > 2:
+                                    state_code = STATE_NAME_TO_CODE.get(
+                                        state.lower(), state[:2].upper()
+                                    )
+                                    return f"{city}, {state_code}"
+                                elif city:
+                                    return city
+                            elif city:
+                                return city
+            except:
+                pass
+        return None
+
+    @staticmethod
     def _aggressive_page_scan(soup):
         if not soup:
             return None
-        page_text = soup.get_text()[:3000]
+        page_text = soup.get_text()[:15000]
         location_patterns = [
             (
                 r"Location:?\s*On-site in ([A-Z][a-z]+(?:\s+[A-Z][a-z]+)?),\s*([A-Z][a-z]+)",
@@ -279,12 +357,7 @@ class LocationProcessor:
                         return f"{city}, {state}"
                 elif pattern_type == "city_full_state":
                     city, state_name = match.groups()
-                    state_code = {
-                        "california": "CA",
-                        "texas": "TX",
-                        "new york": "NY",
-                        "washington": "WA",
-                    }.get(state_name.lower())
+                    state_code = STATE_NAME_TO_CODE.get(state_name.lower())
                     if state_code:
                         return f"{city}, {state_code}"
         return None
@@ -508,25 +581,20 @@ class LocationProcessor:
             return "Unknown"
         if location in ["Remote", "Hybrid"]:
             return location
-
-        WORKDAY_HQ_CODES = {
-            "TX-HDQ": ("Dallas", "TX"),
-            "CA-HDQ": ("San Francisco", "CA"),
-            "NY-HDQ": ("New York", "NY"),
-            "IL-HDQ": ("Chicago", "IL"),
-        }
-
         if location in WORKDAY_HQ_CODES:
             city, state = WORKDAY_HQ_CODES[location]
-            return f"{city} - {state}"
-
+            if state != "UNKNOWN":
+                return f"{city} - {state}"
         original = location.strip()
+        location = re.sub(r"\s*\([^)]*\)\s*", " ", location)
+        location = re.sub(r"\s*\([^)]*$", "", location)
+        location = location.strip()
+        location = re.sub(r"\s*-\s*[A-Z]{2,4}$", "", location)
         company_prefixes = ["Corporate", "Headquarters", "Office", "Campus", "ascena"]
         for prefix in company_prefixes:
             location = re.sub(f"^{prefix}\\s+", "", location, flags=re.I)
             location = re.sub(f"{prefix}\\s*[-–—]\\s*", "", location, flags=re.I)
         location = location.strip()
-
         location = re.sub(
             r",?\s*\d{3,5}\s+[A-Z][a-z]+(?:\s+[A-Z][a-z]+)?", "", location
         )
@@ -537,7 +605,12 @@ class LocationProcessor:
             flags=re.I,
         )
         location = location.strip(", ")
-
+        match = re.search(r"^([A-Z]{2})\s+(.+)$", location)
+        if match:
+            state, rest = match.groups()
+            if state in US_STATES.values():
+                rest = re.sub(r"\s*-\s*[A-Z]{2,4}$", "", rest)
+                return f"{rest.strip()} - {state}"
         match = re.search(
             r"^([A-Z]{2})\s*-\s*([A-Z][a-z]+(?:\s+[A-Z][a-z]+)*)", location
         )
@@ -546,7 +619,6 @@ class LocationProcessor:
             city = match.group(2).strip()
             if state in US_STATES.values():
                 return f"{city} - {state}"
-
         match = re.search(
             r"^US\s+([A-Z]{2})\s+([A-Z][a-z]+(?:\s+[A-Z][a-z]+)*)", location
         )
@@ -555,7 +627,6 @@ class LocationProcessor:
             city = match.group(2).strip()
             if state in US_STATES.values():
                 return f"{city} - {state}"
-
         location = re.sub(r"^[A-Z]{2}[A-Z]{2}\d{2,4}:?\s*", "", location)
         location = re.sub(
             r"\s+(Green\s+St|Street|St|Avenue|Ave|Road|Rd|Drive|Dr|Boulevard|Blvd)\b",
@@ -623,9 +694,7 @@ class LocationProcessor:
                 if page_result:
                     return page_result
             return None
-
         location_to_check = location.lower()
-
         full_provinces = {
             "ontario": "ON",
             "quebec": "QC",
@@ -637,7 +706,6 @@ class LocationProcessor:
                 if full_name == "ontario" and ", ca" in location_to_check:
                     continue
                 return f"Location: Canada ({full_name.title()})"
-
         canada_province_codes = [
             "ON",
             "QC",
@@ -672,10 +740,12 @@ class LocationProcessor:
                         ]
                         if any(city in location_to_check for city in canada_cities):
                             return f"Location: Canada (province: {province})"
-                        if ", ca" in location_to_check:
+                        if (
+                            ", ca" in location_to_check
+                            or "fremont" in location_to_check
+                        ):
                             continue
                     return f"Location: Canada (province: {province})"
-
         if ", CA" in location or " - CA" in location:
             canada_indicators = [
                 "ontario",
@@ -686,8 +756,8 @@ class LocationProcessor:
                 "canada",
             ]
             if any(indicator in location_to_check for indicator in canada_indicators):
-                return "Location: Canada (CA in Canadian context)"
-
+                if "ontario, ca" not in location_to_check:
+                    return "Location: Canada (CA in Canadian context)"
         try:
             from unidecode import unidecode
 
@@ -696,7 +766,6 @@ class LocationProcessor:
             normalized = (
                 location_to_check.replace("é", "e").replace("è", "e").replace("à", "a")
             )
-
         canadian_cities = {
             "montreal": "Canada (Montréal)",
             "toronto": "Canada (Toronto)",
@@ -710,47 +779,43 @@ class LocationProcessor:
         for city, label in canadian_cities.items():
             if city in normalized:
                 return f"Location: {label}"
-
         if "canada" in location_to_check:
             return "Location: Canada"
-
         if any(kw in location_to_check for kw in ["uk", "london", "india", "china"]):
             return f"Location: International"
-
         if soup:
             page_result = LocationProcessor._check_page_for_canada(soup)
             if page_result:
                 return page_result
-
         return None
 
     @staticmethod
     def _check_page_for_canada(soup):
         if not soup:
             return None
-        page_text = soup.get_text()[:5000]
-        page_lower = page_text.lower()
-
         meta_desc = soup.find("meta", {"property": "og:description"})
         if meta_desc:
             content = meta_desc.get("content", "").lower()
             if content == "canada" or "canada only" in content:
                 return "Location: Canada (from meta tag)"
-
+            if re.search(r"ottawa.*ontario", content, re.I):
+                return "Location: Canada (Ottawa, Ontario)"
+            if re.search(r"canada\s*\(on-site\)", content, re.I):
+                return "Location: Canada (from meta)"
+        page_text = soup.get_text()[:10000]
+        page_lower = page_text.lower()
         canadian_location_patterns = [
-            (r"Ottawa,?\s+Ontario", "Ottawa, Ontario"),
-            (r"Toronto,?\s+Ontario", "Toronto, Ontario"),
-            (r"Montreal,?\s+Quebec", "Montreal, Quebec"),
-            (r"Vancouver,?\s+(?:BC|British Columbia)", "Vancouver, BC"),
-            (r"Calgary,?\s+Alberta", "Calgary, Alberta"),
+            (r"Ottawa\s*,?\s*Ontario", "Ottawa, Ontario"),
+            (r"Toronto\s*,?\s*Ontario", "Toronto, Ontario"),
+            (r"Montreal\s*,?\s*Quebec", "Montreal, Quebec"),
+            (r"Vancouver\s*,?\s*(?:BC|British Columbia)", "Vancouver, BC"),
+            (r"Calgary\s*,?\s*Alberta", "Calgary, Alberta"),
         ]
         for pattern, city_name in canadian_location_patterns:
             if re.search(pattern, page_text, re.I):
                 return f"Location: Canada ({city_name})"
-
-        if re.search(r"Canada\s*\(On-site\)", page_text, re.I):
+        if re.search(r"Canada\s*\(.*site\)", page_text, re.I):
             return "Location: Canada (from page)"
-
         work_auth_patterns = [
             r"eligible\s+to\s+work\s+in,?\s+and\s+located\s+in,?\s+canada",
             r"legally\s+eligible.*(?:work\s+in|to\s+work).*canada",
@@ -761,21 +826,8 @@ class LocationProcessor:
         for pattern in work_auth_patterns:
             if re.search(pattern, page_lower, re.I):
                 return "Location: Canada (work authorization)"
-
         if re.search(r"remote.*in\s+canada", page_lower, re.I):
             return "Location: Canada (remote)"
-
-        return None
-
-    @staticmethod
-    def _aggressive_country_scan(soup):
-        if not soup:
-            return None
-        page_text = soup.get_text()[:3000]
-        if re.search(r"\bCanada\b", page_text, re.I):
-            return "Canada"
-        if re.search(r"\bU\.?K\.?\b", page_text, re.I):
-            return "UK"
         return None
 
 
@@ -833,10 +885,34 @@ class ValidationHelper:
     def check_page_restrictions(soup):
         if not soup:
             return None, None, []
+        degree_decision, degree_reason = (
+            ValidationHelper._check_degree_requirements_strict(soup)
+        )
+        if degree_decision == "REJECT":
+            return degree_decision, degree_reason, []
+        json_ld_desc = ValidationHelper._get_json_ld_description(soup)
+        meta_desc = ValidationHelper._get_meta_description(soup)
+        combined_meta_text = (json_ld_desc + " " + meta_desc).lower()
+        if "social security number" in combined_meta_text:
+            if re.search(
+                r"(?:must have|required).*social security number",
+                combined_meta_text,
+                re.I,
+            ):
+                return "REJECT", "SSN required", []
+            if re.search(
+                r"social security number.*(?:to complete|required)",
+                combined_meta_text,
+                re.I,
+            ):
+                return "REJECT", "SSN required", []
+        if re.search(r"ottawa.*ontario", combined_meta_text, re.I):
+            return "REJECT", "Location: Canada (Ottawa, Ontario)", []
+        if re.search(r"canada\s*\(on-site\)", combined_meta_text, re.I):
+            return "REJECT", "Location: Canada", []
         page_text = soup.get_text()
         page_lower = page_text.lower()
         review_flags = []
-
         citizenship_patterns = [
             r"u\.?s\.?\s+citizenship\s+is\s+required",
             r"u\.?s\.?\s+citizen(?:ship)?\s+required",
@@ -846,7 +922,6 @@ class ValidationHelper:
         for pattern in citizenship_patterns:
             if re.search(pattern, page_lower, re.I):
                 return "REJECT", "US citizenship required", []
-
         work_auth_patterns = [
             r"us work authorization required",
             r"must have us work authorization",
@@ -857,24 +932,22 @@ class ValidationHelper:
         for pattern in work_auth_patterns:
             if re.search(pattern, page_lower, re.I):
                 return "REJECT", "US work authorization required", []
-
+        page_normalized = " ".join(page_text.split())[:10000].lower()
         ssn_patterns = [
-            r"(?:valid|possess|have).*social security number.*(?:to complete|required)",
-            r"must have.*(?:valid\s+)?(?:u\.?s\.?\s+)?social security number",
-            r"social security number.*(?:is\s+)?required",
-            r"ssn.*(?:required|to complete)",
-            r"valid.*ssn.*(?:for|to)",
+            r"social security number.*complete.*hiring",
+            r"must have.*social security number",
+            r"valid.*social security number.*complete",
+            r"social security number.*required",
         ]
         for pattern in ssn_patterns:
-            match = re.search(pattern, page_lower, re.I)
+            match = re.search(pattern, page_normalized, re.I)
             if match:
                 context_start = max(0, match.start() - 100)
-                context_end = min(len(page_lower), match.end() + 100)
-                context = page_lower[context_start:context_end]
+                context_end = min(len(page_normalized), match.end() + 100)
+                context = page_normalized[context_start:context_end]
                 if "preferred" in context or "optional" in context:
                     continue
                 return "REJECT", "SSN required", []
-
         university_pattern = r"(?:from|attending|enrolled\s+at)\s+([A-Z][a-z]+(?:\s+[A-Z][a-z]+)?)\s+University"
         matches = re.finditer(university_pattern, page_text, re.I)
         for match in matches:
@@ -900,11 +973,9 @@ class ValidationHelper:
             if university_name in specific_schools:
                 return "REJECT", f"{university_name} University students only", []
             review_flags.append(f"⚠️ Check if {university_name} University only")
-
         if re.search(r"cooperative learning track", page_text, re.I):
             if re.search(r"Drexel", page_text, re.I):
                 return "REJECT", "Drexel cooperative program only", []
-
         clearance_requirement_patterns = [
             r"must be able to obtain.*clearance",
             r"must be able to.*maintain.*clearance",
@@ -918,7 +989,6 @@ class ValidationHelper:
         for pattern in clearance_requirement_patterns:
             if re.search(pattern, page_lower, re.I):
                 return "REJECT", "Security clearance required", []
-
         clearance_mentions = [
             m.start() for m in re.finditer(r"\bclearance\b", page_lower, re.I)
         ]
@@ -930,267 +1000,142 @@ class ValidationHelper:
             if any(kw in context for kw in requirement_keywords):
                 if "preferred" not in context:
                     return "REJECT", "Security clearance required", []
-
-        explicit_rejection_patterns = [
-            r"master'?s?\s+students?\s+not\s+eligible",
-            r"master'?s?\s+not\s+accepted",
-            r"graduate\s+students?\s+not\s+eligible",
-            r"not\s+open\s+to.*master'?s?",
-            r"undergrad(?:uate)?\s+only",
-            r"undergraduate\s+students?\s+only",
-            r"bachelor'?s?\s+candidates?\s+only",
-            r"4-year\s+degree\s+only",
-        ]
-        for pattern in explicit_rejection_patterns:
-            if re.search(pattern, page_lower, re.I):
-                return "REJECT", "Master's students not eligible", []
-
-        explicit_acceptance_patterns = [
-            r"bachelor'?s?\s+or\s+master'?s?",
-            r"bachelor\s+or\s+master\s+(?:student|candidate)",
-            r"undergraduate\s+or\s+graduate",
-            r"bachelor'?s?\s+(?:or|and)\s+(?:above|higher)",
-            r"all degree levels?",
-            r"next program.*\(ms\)",
-            r"proof of enrollment.*into next program.*\(ms\)",
-            r"into next program.*master",
-            r"proof of enrollment.*\(ms\)",
-            r"junior,?\s+senior,?\s+(?:or\s+)?graduate",
-            r"sophomore,?\s+junior,?\s+senior,?\s+(?:and\s+)?graduate",
-        ]
-        for pattern in explicit_acceptance_patterns:
-            if re.search(pattern, page_lower, re.I):
-                return None, None, []
-
-        implicit_bs_patterns = [
-            r"pursuing\s+a\s+BS\s+in",
-            r"currently\s+pursuing.*bachelor",
-            r"enrolled\s+in.*bachelor",
-            r"current.*BS\s+student",
-            r"bachelor\s+of\s+science\s+in",
-            r"pursuing.*bachelor'?s?\s+degree",
-            r"working\s+towards.*bachelor",
-        ]
-        bs_confidence_scores = []
-        for pattern in implicit_bs_patterns:
-            match = re.search(pattern, page_lower, re.I)
-            if match:
-                pos = match.start()
-                context = page_lower[
-                    max(0, pos - 200) : min(len(page_lower), pos + 200)
-                ]
-                master_keywords = [
-                    r"master",
-                    r"ms",
-                    r"graduate student",
-                    r"or ms",
-                    r"or master",
-                    r"m\.s\.",
-                ]
-                if not any(re.search(kw, context, re.I) for kw in master_keywords):
-                    bs_confidence_scores.append(0.8)
-                else:
-                    bs_confidence_scores.append(0.0)
-        if bs_confidence_scores:
-            max_bs_confidence = max(bs_confidence_scores)
-            if max_bs_confidence >= 0.8:
-                review_flags.append("⚠️ Possible BS only")
-
-        undergrad_year_patterns = [
-            r"sophomore.*year",
-            r"junior.*year",
-            r"senior.*standing",
-            r"sophomore/junior",
-            r"rising\s+(?:sophomore|junior|senior)",
-            r"1st\s+year|2nd\s+year|3rd\s+year|4th\s+year",
-        ]
-        year_found = False
-        for pattern in undergrad_year_patterns:
-            if re.search(pattern, page_lower, re.I):
-                year_found = True
-                break
-        if year_found:
-            if r"master" not in page_lower and r"graduate student" not in page_lower:
-                review_flags.append("⚠️ Mentions undergrad year")
-
-        range_match = re.search(
-            r"(?:graduating|graduate)\s+(?:between\s+)?([A-Za-z]+)\s+(\d{4})\s+(?:thru|through|to|and)\s+([A-Za-z]+)?\s*(\d{4})",
-            page_lower,
-            re.I,
-        )
-        if range_match:
-            start_month = range_match.group(1)
-            start_year = int(range_match.group(2))
-            if start_year < 2027:
-                context_pos = range_match.start()
-                context = page_lower[
-                    max(0, context_pos - 100) : min(len(page_lower), context_pos + 200)
-                ]
-                if "preferred" in context or "ideal" in context:
-                    review_flags.append(
-                        f"⚠️ Grad {start_month.title()} {start_year} preferred"
-                    )
-                else:
-                    return (
-                        "REJECT",
-                        f"Graduation {start_month.title()} {start_year} (before May 2027)",
-                        [],
-                    )
-            if start_year == 2027:
-                before_may = [
-                    "december",
-                    "january",
-                    "february",
-                    "march",
-                    "april",
-                    "dec",
-                    "jan",
-                    "feb",
-                    "mar",
-                    "apr",
-                ]
-                if start_month and start_month.lower() in before_may:
-                    return (
-                        "REJECT",
-                        f"Graduation {start_month.title()} 2027 (before May)",
-                        [],
-                    )
-
-        slash_match = re.search(
-            r"graduation.*([A-Za-z]+)/([A-Za-z]+)\s+(\d{4})", page_lower, re.I
-        )
-        if slash_match:
-            first_month = slash_match.group(1)
-            year = int(slash_match.group(3))
-            if year < 2027:
-                return (
-                    "REJECT",
-                    f"Graduation {first_month.title()}/{slash_match.group(2).title()} {year} (before May 2027)",
-                    [],
-                )
-
-        class_match = re.search(r"class\s+of\s+(\d{4})", page_lower, re.I)
-        if class_match:
-            year = int(class_match.group(1))
-            if year < 2027:
-                return "REJECT", f"Graduation Class of {year} (before 2027)", []
-
-        grad_patterns = [
-            r"graduation\s+date:?\s*([A-Za-z]+)?\s*(\d{4})",
-            r"expected\s+graduation[:\s]+([A-Za-z]+)?\s*(\d{4})",
-            r"graduating\s+([A-Za-z]+)?\s*(\d{4})",
-        ]
-        for pattern in grad_patterns:
-            match = re.search(pattern, page_lower, re.I)
-            if match:
-                month = (
-                    match.group(1)
-                    if match.group(1) and not match.group(1).isdigit()
-                    else None
-                )
-                year_str = match.group(2) if match.group(2) else match.group(1)
-                if year_str and year_str.isdigit():
-                    year = int(year_str)
-                    if year < 2027:
-                        month_str = month.title() if month else ""
-                        return (
-                            "REJECT",
-                            f"Graduation {month_str} {year} (before May 2027)",
-                            [],
-                        )
-                    if year == 2027 and month:
-                        before_may = [
-                            "december",
-                            "january",
-                            "february",
-                            "march",
-                            "april",
-                        ]
-                        if month.lower() in before_may:
-                            return (
-                                "REJECT",
-                                f"Graduation {month.title()} 2027 (before May)",
-                                [],
-                            )
-
-        if re.search(
-            r"graduating within (\d+)(?:-(\d+))? semesters?", page_lower, re.I
-        ):
-            return "REJECT", "Graduation within 1-2 semesters (before May 2027)", []
-
-        start_match = re.search(
-            r"available.*start.*(?:full-time|employment).*([A-Za-z]+)\s+(\d{4})",
-            page_lower,
-            re.I,
-        )
-        if start_match:
-            month = start_match.group(1)
-            year = int(start_match.group(2))
-            if year < 2027 or (
-                year == 2027
-                and month.lower() in ["january", "february", "march", "april"]
-            ):
-                return (
-                    "REJECT",
-                    f"Available to start {month.title()} {year} (graduates before May 2027)",
-                    [],
-                )
-
-        phd_definite_patterns = [
-            r"phd.*required",
-            r"phd\s+student\s+only",
-            r"doctoral\s+degree\s+required",
-            r"phd\s+candidate\s+required",
-        ]
-        for pattern in phd_definite_patterns:
-            if re.search(pattern, page_lower, re.I):
-                return "REJECT", "PhD requirement", []
-
-        phd_indicator_patterns = [
-            r"pursuing\s+(?:a\s+)?phd",
-            r"phd\s+student",
-            r"current\s+student\s+in\s+a\s+phd",
-            r"phd\s+in\s+(?:ML|AI|CS|machine|artificial)",
-            r"enrolled\s+in.*phd\s+program",
-            r"doctoral\s+(?:student|candidate)",
-            r"currently.*phd",
-            r"pursuing\s+doctoral",
-            r"phd\s+or\s+advanced",
-        ]
-        phd_confidence_scores = []
-        for pattern in phd_indicator_patterns:
-            match = re.search(pattern, page_lower, re.I)
-            if match:
-                pos = match.start()
-                context = page_lower[
-                    max(0, pos - 200) : min(len(page_lower), pos + 200)
-                ]
-                master_keywords = [
-                    r"or master",
-                    r"or ms",
-                    r"master'?s?\s+student",
-                    r"graduate student",
-                    r"m\.s\.",
-                ]
-                if not any(re.search(kw, context, re.I) for kw in master_keywords):
-                    phd_confidence_scores.append(0.9)
-                else:
-                    phd_confidence_scores.append(0.0)
-        if phd_confidence_scores:
-            max_phd_confidence = max(phd_confidence_scores)
-            if max_phd_confidence >= 0.9:
-                review_flags.append("⚠️ Possible PhD requirement")
-
         if review_flags:
             return None, None, review_flags
         return None, None, []
 
     @staticmethod
+    def _check_degree_requirements_strict(soup):
+        json_ld_desc = ValidationHelper._get_json_ld_description(soup)
+        meta_desc = ValidationHelper._get_meta_description(soup)
+        page_text = soup.get_text()[:15000]
+        qual_section_text = ValidationHelper._get_qualification_section_text(soup)
+        combined = (
+            json_ld_desc + " " + meta_desc + " " + page_text + " " + qual_section_text
+        ).lower()
+        bs_definite_patterns = [
+            r"bachelor'?s?\s+degree\s+program\s+majoring",
+            r"pursuing\s+a\s+bachelor'?s?\s+degree\s+in",
+            r"currently\s+enrolled.*bachelor'?s?\s+degree",
+            r"enrolled\s+in\s+a\s+bachelor'?s?\s+degree",
+            r"bachelor'?s?\s+degree\s+in\s+(?:engineering|computer\s+science|data)",
+            r"currently\s+pursuing\s+a\s+bachelor'?s?\s+degree",
+        ]
+        for pattern in bs_definite_patterns:
+            match = re.search(pattern, combined, re.I)
+            if match:
+                start = max(0, match.start() - 300)
+                end = min(len(combined), match.end() + 300)
+                context = combined[start:end]
+                preference_keywords = [
+                    "preferred",
+                    "ideal",
+                    "nice to have",
+                    "plus",
+                    "ideally",
+                ]
+                is_preferred = any(kw in context for kw in preference_keywords)
+                if is_preferred:
+                    continue
+                master_keywords = [
+                    "master's",
+                    "masters",
+                    "master",
+                    "graduate student",
+                    "m.s.",
+                    " ms ",
+                    "or graduate",
+                    "ms/",
+                ]
+                has_masters = any(kw in context for kw in master_keywords)
+                if not has_masters:
+                    return "REJECT", "Bachelor's students only"
+        phd_definite_patterns = [
+            r"current\s+phd\s+student\s+in",
+            r"phd\s+candidates?\s+to\s+intern",
+            r"looking\s+for\s+phd\s+candidates",
+            r"phd\s+student\s+in\s+computer\s+science",
+        ]
+        for pattern in phd_definite_patterns:
+            match = re.search(pattern, combined, re.I)
+            if match:
+                start = max(0, match.start() - 300)
+                end = min(len(combined), match.end() + 300)
+                context = combined[start:end]
+                preference_keywords = [
+                    "preferred",
+                    "ideal",
+                    "nice to have",
+                    "open to",
+                    "or",
+                ]
+                is_preferred = any(kw in context for kw in preference_keywords)
+                if is_preferred:
+                    continue
+                master_keywords = ["master", "graduate student", "m.s.", " ms "]
+                has_masters = any(kw in context for kw in master_keywords)
+                if not has_masters:
+                    return "REJECT", "PhD students only"
+        phd_title_check = re.search(r"phd.*intern", page_text[:500].lower(), re.I)
+        if phd_title_check:
+            context = page_text[:2000].lower()
+            if not re.search(r"master|graduate student|ms ", context):
+                return "REJECT", "PhD students only"
+        return None, None
+
+    @staticmethod
+    def _get_qualification_section_text(soup):
+        try:
+            qual_headers = soup.find_all(
+                ["h2", "h3"],
+                text=re.compile(
+                    r"(Qualifications|Requirements|Basic Qualifications|Required Qualifications)",
+                    re.I,
+                ),
+            )
+            qual_text = []
+            for header in qual_headers:
+                section_text = []
+                for sibling in header.find_next_siblings():
+                    if sibling.name in ["h2", "h3"]:
+                        break
+                    section_text.append(sibling.get_text())
+                qual_text.append(" ".join(section_text))
+            return " ".join(qual_text)
+        except:
+            return ""
+
+    @staticmethod
+    def _get_json_ld_description(soup):
+        try:
+            json_ld = soup.find("script", type="application/ld+json")
+            if json_ld:
+                data = json.loads(json_ld.string)
+                if isinstance(data, dict):
+                    return data.get("description", "")
+        except:
+            pass
+        return ""
+
+    @staticmethod
+    def _get_meta_description(soup):
+        meta_desc = soup.find("meta", {"property": "og:description"})
+        if meta_desc:
+            return meta_desc.get("content", "")
+        meta_desc2 = soup.find("meta", {"name": "description"})
+        if meta_desc2:
+            return meta_desc2.get("content", "")
+        return ""
+
+    @staticmethod
     def validate_company_field(company, title, url):
-        if not company or company == "Unknown":
+        if not company or company == "Unknown" or not company.strip():
             company_from_url = ValidationHelper.extract_company_from_domain(url)
             return True, company_from_url, None
         company = company.strip()
+        if not ValidationHelper.is_valid_company_name(company):
+            company_from_url = ValidationHelper.extract_company_from_domain(url)
+            return True, company_from_url, None
         if len(company) > 100:
             return False, company, "Company name too long"
         generic_ui_text = [
@@ -1214,6 +1159,31 @@ class ValidationHelper:
         if keyword_count >= 2:
             return False, company, "Company field contains job title"
         return True, company, None
+
+    @staticmethod
+    def is_valid_company_name(name):
+        if not name or not name.strip():
+            return False
+        if name in COMPANY_PLACEHOLDERS:
+            return False
+        if name.isupper() and len(name) < 10:
+            return False
+        title_keywords = ["intern", "engineer", "developer", "software"]
+        keyword_count = sum(1 for kw in title_keywords if kw in name.lower())
+        if keyword_count >= 2:
+            return False
+        return True
+
+    @staticmethod
+    def clean_legal_entity(company):
+        if not company:
+            return company
+        company = re.sub(r"^\d+\s+", "", company)
+        company = re.sub(r"^US\d+\s+", "", company)
+        company = re.sub(
+            r",?\s+(Inc\.?|LLC\.?|Corp\.?|Ltd\.?|Corporation)$", "", company, flags=re.I
+        )
+        return company.strip()
 
     @staticmethod
     def extract_company_from_domain(url):
@@ -1251,36 +1221,6 @@ class ValidationHelper:
         ):
             return "No"
         return "Unknown"
-
-    @staticmethod
-    def check_posted_date(posted_date_str, page_text=None, max_days=5):
-        if not posted_date_str or posted_date_str == "Unknown":
-            if page_text:
-                posted_date_str = page_text
-            else:
-                return None
-        text_to_check = posted_date_str.lower()
-        day_match = re.search(r"(\d+)\s*d(?:ay)?s?\s+ago", text_to_check, re.I)
-        if day_match:
-            days = int(day_match.group(1))
-            if days > max_days:
-                return f"Posted {days}d ago (>{max_days} days)"
-            return None
-        week_patterns = [(r"(\d+)\s*w(?:ee)?k", 7), (r"(\d+)\s*weeks?", 7)]
-        for pattern, multiplier in week_patterns:
-            match = re.search(pattern, text_to_check, re.I)
-            if match:
-                weeks = int(match.group(1))
-                days = weeks * multiplier
-                if days > max_days:
-                    return f"Posted >{weeks} week(s) ago (>{max_days} days)"
-        month_patterns = [(r"(\d+)\s*mo(?:nth)?", 30), (r"(\d+)\s*months?", 30)]
-        for pattern, multiplier in month_patterns:
-            match = re.search(pattern, text_to_check, re.I)
-            if match:
-                months = int(match.group(1))
-                return f"Posted >{months} month(s) ago (>{max_days} days)"
-        return None
 
 
 class QualityScorer:
