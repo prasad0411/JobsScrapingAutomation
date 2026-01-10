@@ -290,15 +290,21 @@ class UnifiedJobAggregator:
                 return
             if page_flags:
                 review_flags.extend(page_flags)
+            extracted_company = PageParser.extract_company(soup, final_url)
+            if not extracted_company or not extracted_company.strip():
+                extracted_company = "Unknown"
             job_id = PageParser.extract_job_id(soup, final_url)
             location_extracted = LocationProcessor.extract_location_enhanced(
                 soup, final_url, title=title
             )
+            location_formatted = LocationProcessor.format_location_clean(
+                location_extracted
+            )
             remote = LocationProcessor.extract_remote_status_enhanced(
-                soup, location_extracted, final_url
+                soup, location_formatted, final_url
             )
             sponsorship = ValidationHelper.check_sponsorship_status(soup)
-            if location_extracted == "Unknown" or "Unknown (Canada" in str(
+            if location_formatted == "Unknown" or "Unknown (Canada" in str(
                 location_extracted
             ):
                 canada_check = LocationProcessor.check_if_international("Unknown", soup)
@@ -324,7 +330,7 @@ class UnifiedJobAggregator:
                 review_flags.append("⚠️ Location extraction failed")
             else:
                 intl_check = LocationProcessor.check_if_international(
-                    location_extracted, soup
+                    location_formatted, soup
                 )
                 if intl_check and "Location:" in str(intl_check):
                     print(
@@ -333,7 +339,7 @@ class UnifiedJobAggregator:
                     logging.info(
                         f"REJECTED | {company} | {title} | {intl_check} | {final_url}"
                     )
-                    country = self._detect_country_simple(location_extracted)
+                    country = self._detect_country_simple(location_formatted)
                     self._add_to_discarded(
                         company,
                         title,
@@ -346,17 +352,16 @@ class UnifiedJobAggregator:
                         sponsorship,
                     )
                     return
-            location_clean = LocationProcessor.format_location_clean(location_extracted)
-            if location_clean and any(
-                kw in location_clean
+            if location_formatted and any(
+                kw in location_formatted
                 for kw in ["Employment", "Type", "Details", "Program"]
             ):
                 review_flags.append("⚠️ Location needs verification")
             quality = QualityScorer.calculate_score(
                 {
-                    "company": company,
+                    "company": extracted_company,
                     "title": title,
-                    "location": location_clean,
+                    "location": location_formatted,
                     "job_id": job_id,
                     "sponsorship": sponsorship,
                 }
@@ -376,12 +381,12 @@ class UnifiedJobAggregator:
             else:
                 print(f"  {company[:30]}: ✓ Valid")
                 logging.info(
-                    f"ACCEPTED | {company} | {title} | Location: {location_clean} | {final_url}"
+                    f"ACCEPTED | {company} | {title} | Location: {location_formatted} | {final_url}"
                 )
             self._add_to_valid(
-                company,
+                extracted_company,
                 title,
-                location_clean,
+                location_formatted,
                 remote,
                 final_url,
                 job_id,
@@ -708,34 +713,44 @@ class UnifiedJobAggregator:
                         page_location = LocationProcessor.extract_location_enhanced(
                             soup, final_url, title=job_data.get("title", "")
                         )
+                        page_location_formatted = (
+                            LocationProcessor.format_location_clean(page_location)
+                        )
                         page_remote = LocationProcessor.extract_remote_status_enhanced(
-                            soup, page_location, final_url
+                            soup, page_location_formatted, final_url
                         )
                         page_job_id = PageParser.extract_job_id(soup, final_url)
                         page_company = PageParser.extract_company(soup, final_url)
-                        if page_location != "Unknown" and email_location != "Unknown":
+                        if (
+                            page_location_formatted != "Unknown"
+                            and email_location != "Unknown"
+                        ):
                             email_has_city_state = (
                                 "," in email_location
                                 and len(email_location.split(",")) >= 2
                             )
                             page_has_city_state = (
-                                "," in page_location
-                                and len(page_location.split(",")) >= 2
+                                "," in page_location_formatted
+                                and len(page_location_formatted.split(",")) >= 2
                             )
                             if email_has_city_state and not page_has_city_state:
                                 pass
                             elif page_has_city_state:
-                                job_data["location"] = page_location
+                                job_data["location"] = page_location_formatted
                             else:
-                                job_data["location"] = page_location
-                        elif page_location != "Unknown":
-                            job_data["location"] = page_location
+                                job_data["location"] = page_location_formatted
+                        elif page_location_formatted != "Unknown":
+                            job_data["location"] = page_location_formatted
                         if page_remote != "Unknown":
                             job_data["remote"] = page_remote
                         if page_job_id != "N/A":
                             job_data["job_id"] = page_job_id
                         if "sig.com" not in url_lower:
-                            if page_company != "Unknown":
+                            if (
+                                page_company
+                                and page_company != "Unknown"
+                                and page_company.strip()
+                            ):
                                 if not self._looks_like_title(page_company):
                                     job_data["company"] = page_company
                         page_age = PageParser.extract_job_age_days(soup)
@@ -1081,10 +1096,11 @@ class UnifiedJobAggregator:
                         "source": sender,
                         "sponsorship": sponsorship,
                     }
+                location_formatted = LocationProcessor.format_location_clean(location)
                 return self._validate_and_decide(
                     company,
                     title,
-                    location,
+                    location_formatted,
                     remote,
                     sponsorship,
                     actual_url,
@@ -1096,10 +1112,12 @@ class UnifiedJobAggregator:
             else:
                 return None
         company = PageParser.extract_company(soup, final_url)
+        if not company or not company.strip():
+            company = "Unknown"
         title_raw = PageParser.extract_title(soup)
-        if not company or not title_raw:
+        if not title_raw or title_raw == "Unknown":
             logging.info(
-                f"REJECTED | {company or 'Unknown'} | {title_raw or 'Unknown'} | Missing company/title | {final_url}"
+                f"REJECTED | {company} | Unknown | Missing title | {final_url}"
             )
             return None
         title = TitleProcessor.clean_title_aggressive(title_raw)
@@ -1161,6 +1179,8 @@ class UnifiedJobAggregator:
                 "sponsorship": "Unknown",
             }
         company = fixed_company
+        if not company or not company.strip():
+            company = "Unknown"
         normalized_key = self._normalize(f"{company}_{title}")
         if normalized_key in self.existing_jobs:
             existing_job = self.processed_cache.get(normalized_key)
@@ -1208,11 +1228,14 @@ class UnifiedJobAggregator:
         )
         if decision == "REJECT" and restriction:
             job_id = PageParser.extract_job_id(soup, final_url)
-            location = LocationProcessor.extract_location_enhanced(
+            location_extracted = LocationProcessor.extract_location_enhanced(
                 soup, final_url, title=title
             )
+            location_formatted = LocationProcessor.format_location_clean(
+                location_extracted
+            )
             sponsorship = ValidationHelper.check_sponsorship_status(soup)
-            country_only = self._detect_country_simple(location)
+            country_only = self._detect_country_simple(location_formatted)
             logging.info(
                 f"REJECTED | {company} | {title} | {restriction} | {final_url}"
             )
@@ -1234,16 +1257,17 @@ class UnifiedJobAggregator:
         location_extracted = LocationProcessor.extract_location_enhanced(
             soup, final_url, title=title
         )
+        location_formatted = LocationProcessor.format_location_clean(location_extracted)
         remote = LocationProcessor.extract_remote_status_enhanced(
-            soup, location_extracted, final_url
+            soup, location_formatted, final_url
         )
         sponsorship = ValidationHelper.check_sponsorship_status(soup)
-        if location_extracted == "Unknown" or "Unknown (Canada" in str(
+        if location_formatted == "Unknown" or "Unknown (Canada" in str(
             location_extracted
         ):
             canada_check = LocationProcessor.check_if_international("Unknown", soup)
             if canada_check and "Canada" in str(canada_check):
-                country = self._detect_country_simple(location_extracted)
+                country = self._detect_country_simple(location_formatted)
                 logging.info(
                     f"REJECTED | {company} | {title} | {canada_check} | {final_url}"
                 )
@@ -1262,10 +1286,10 @@ class UnifiedJobAggregator:
             review_flags.append("⚠️ Location extraction failed")
         else:
             intl_check = LocationProcessor.check_if_international(
-                location_extracted, soup
+                location_formatted, soup
             )
             if intl_check and "Location:" in str(intl_check):
-                country = self._detect_country_simple(location_extracted)
+                country = self._detect_country_simple(location_formatted)
                 logging.info(
                     f"REJECTED | {company} | {title} | {intl_check} | {final_url}"
                 )
@@ -1281,16 +1305,15 @@ class UnifiedJobAggregator:
                     "source": sender,
                     "sponsorship": sponsorship,
                 }
-        location_fmt = LocationProcessor.format_location_clean(location_extracted)
-        if location_fmt and any(
-            kw in location_fmt for kw in ["Employment", "Type", "Details"]
+        if location_formatted and any(
+            kw in location_formatted for kw in ["Employment", "Type", "Details"]
         ):
             review_flags.append("⚠️ Location needs verification")
         quality = QualityScorer.calculate_score(
             {
                 "company": company,
                 "title": title,
-                "location": location_fmt,
+                "location": location_formatted,
                 "job_id": job_id,
                 "sponsorship": sponsorship,
             }
@@ -1303,7 +1326,7 @@ class UnifiedJobAggregator:
                 "decision": "discard",
                 "company": company,
                 "title": title,
-                "location": location_fmt,
+                "location": location_formatted,
                 "remote": remote,
                 "url": final_url,
                 "job_id": job_id,
@@ -1318,13 +1341,13 @@ class UnifiedJobAggregator:
             "url": final_url,
         }
         logging.info(
-            f"ACCEPTED | {company} | {title} | Location: {location_fmt} | {final_url}"
+            f"ACCEPTED | {company} | {title} | Location: {location_formatted} | {final_url}"
         )
         return {
             "decision": "valid",
             "company": company,
             "title": title,
-            "location": location_fmt,
+            "location": location_formatted,
             "remote": remote,
             "url": final_url,
             "job_id": job_id,
@@ -1402,6 +1425,8 @@ class UnifiedJobAggregator:
                 "sponsorship": sponsorship,
             }
         company = fixed_co
+        if not company or not company.strip():
+            company = "Unknown"
         norm_key = self._normalize(f"{company}_{title}")
         if norm_key in self.existing_jobs:
             existing = self.processed_cache.get(norm_key)
@@ -1476,16 +1501,13 @@ class UnifiedJobAggregator:
                     "source": sender,
                     "sponsorship": sponsorship,
                 }
-        location_fmt = LocationProcessor.format_location_clean(location)
-        if location_fmt and any(kw in location_fmt for kw in ["Employment", "Type"]):
+        if location and any(kw in location for kw in ["Employment", "Type"]):
             review_flags.append("⚠️ Location needs verification")
-        if location_fmt == "Unknown":
-            review_flags.append("⚠️ Location extraction failed")
         quality = QualityScorer.calculate_score(
             {
                 "company": company,
                 "title": title,
-                "location": location_fmt,
+                "location": location,
                 "job_id": job_id,
                 "sponsorship": sponsorship,
             }
@@ -1498,7 +1520,7 @@ class UnifiedJobAggregator:
                 "decision": "discard",
                 "company": company,
                 "title": title,
-                "location": location_fmt,
+                "location": location,
                 "remote": remote,
                 "url": url,
                 "job_id": job_id,
@@ -1512,14 +1534,12 @@ class UnifiedJobAggregator:
             "job_id": job_id,
             "url": url,
         }
-        logging.info(
-            f"ACCEPTED | {company} | {title} | Location: {location_fmt} | {url}"
-        )
+        logging.info(f"ACCEPTED | {company} | {title} | Location: {location} | {url}")
         return {
             "decision": "valid",
             "company": company,
             "title": title,
-            "location": location_fmt,
+            "location": location,
             "remote": remote,
             "url": url,
             "job_id": job_id,

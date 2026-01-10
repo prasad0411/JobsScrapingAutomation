@@ -19,6 +19,8 @@ try:
     from selenium.webdriver.chrome.options import Options
     from webdriver_manager.chrome import ChromeDriverManager
     from selenium.webdriver.common.by import By
+    from selenium.webdriver.support.ui import WebDriverWait
+    from selenium.webdriver.support import expected_conditions as EC
 
     SELENIUM_AVAILABLE = True
 except ImportError:
@@ -34,6 +36,7 @@ from config import (
     JOB_BOARD_DOMAINS,
     JOBRIGHT_COOKIES_FILE,
     US_STATES,
+    SPECIAL_COMPANY_NAMES,
 )
 
 
@@ -314,6 +317,8 @@ class PageFetcher:
             "myworkdayjobs",
             "greenhouse.io",
             "boards.greenhouse",
+            "oracle",
+            "oraclecloud",
         ]
         return any(platform in url_lower for platform in js_platforms)
 
@@ -376,12 +381,22 @@ class PageFetcher:
             driver.set_page_load_timeout(30)
             driver.get(url)
             url_lower = url.lower()
-            if "workday" in url_lower or "myworkdayjobs" in url_lower:
-                time.sleep(5)
-            elif "greenhouse" in url_lower:
+            if "oracle" in url_lower or "oraclecloud" in url_lower:
+                time.sleep(15)
+                try:
+                    WebDriverWait(driver, 10).until(
+                        EC.presence_of_element_located((By.TAG_NAME, "h1"))
+                    )
+                except:
+                    pass
+            elif "workday" in url_lower or "myworkdayjobs" in url_lower:
                 time.sleep(8)
+            elif "greenhouse" in url_lower:
+                time.sleep(10)
             else:
                 time.sleep(3)
+            driver.execute_script("window.scrollTo(0, document.body.scrollHeight);")
+            time.sleep(2)
             return driver.page_source, driver.current_url
         except:
             return None, None
@@ -396,6 +411,20 @@ class PageFetcher:
 class PageParser:
     @staticmethod
     def extract_company(soup, url):
+        meta_company = PageParser._extract_company_from_meta(soup)
+        if meta_company:
+            return meta_company
+        visible_company = PageParser._extract_company_from_visible(soup, url)
+        if visible_company:
+            return visible_company
+        json_ld_company = PageParser._extract_company_from_json_ld(soup)
+        if json_ld_company:
+            from processors import ValidationHelper
+
+            if ValidationHelper.is_valid_company_name(json_ld_company):
+                cleaned = ValidationHelper.clean_legal_entity(json_ld_company)
+                if ValidationHelper.is_valid_company_name(cleaned):
+                    return cleaned
         url_lower = url.lower() if url else ""
         url_company_map = [
             ("careers.sig.com", "Susquehanna International Group"),
@@ -410,6 +439,79 @@ class PageParser:
         for url_pattern, company_name in url_company_map:
             if url_pattern in url_lower:
                 return company_name
+        from processors import ValidationHelper
+
+        domain_company = ValidationHelper.extract_company_from_domain(url)
+        if not domain_company or not domain_company.strip():
+            return "Unknown"
+        return domain_company
+
+    @staticmethod
+    def _extract_company_from_meta(soup):
+        if not soup:
+            return None
+        from processors import ValidationHelper
+
+        meta = soup.find("meta", {"property": "og:site_name"})
+        if meta and meta.get("content"):
+            company = meta.get("content").strip()
+            company = re.sub(r"\s*[-|]\s*(careers|jobs).*$", "", company, flags=re.I)
+            if company and len(company) < 50:
+                if ValidationHelper.is_valid_company_name(company):
+                    return company
+        return None
+
+    @staticmethod
+    def _extract_company_from_visible(soup, url):
+        if not soup:
+            return None
+        from processors import ValidationHelper
+
+        url_lower = url.lower() if url else ""
+        if "icims.com" in url_lower or "university-" in url_lower:
+            mobile_header = soup.find("div", id="mobile-header-container")
+            if mobile_header:
+                h1 = mobile_header.find("h1")
+                if h1:
+                    company = h1.get_text().strip()
+                    if ValidationHelper.is_valid_company_name(company):
+                        return company
+            mobile_link = soup.find("a", class_=re.compile(r"MobileHeaderLink", re.I))
+            if mobile_link:
+                h1 = mobile_link.find("h1")
+                if h1:
+                    company = h1.get_text().strip()
+                    if ValidationHelper.is_valid_company_name(company):
+                        return company
+        if "smartrecruiters" in url_lower:
+            logo = soup.find("img", alt=re.compile(r"logo", re.I))
+            if logo:
+                alt = logo.get("alt", "").strip()
+                alt = alt.replace(" logo", "").replace(" Logo", "")
+                if ValidationHelper.is_valid_company_name(alt):
+                    return alt
+        header = soup.find(["header", "nav"])
+        if header:
+            h1 = header.find("h1")
+            if h1:
+                text = h1.get_text().strip()
+                if ValidationHelper.is_valid_company_name(text):
+                    if not PageParser._looks_like_title(text):
+                        return text
+        title_tag = soup.find("title")
+        if title_tag:
+            title = title_tag.get_text()
+            match = re.search(r"Careers at ([A-Z][a-zA-Z\s&]+)", title)
+            if match:
+                company = match.group(1).strip()
+                if ValidationHelper.is_valid_company_name(company):
+                    return company
+        return None
+
+    @staticmethod
+    def _extract_company_from_json_ld(soup):
+        if not soup:
+            return None
         json_ld = soup.find("script", type="application/ld+json")
         if json_ld:
             try:
@@ -419,66 +521,10 @@ class PageParser:
                     if isinstance(org, dict):
                         name = org.get("name", "")
                         if name and len(name) < 100:
-                            if not PageParser._is_generic_ui_text(name):
-                                if not PageParser._looks_like_title(name):
-                                    return name
+                            return name
             except:
                 pass
-        meta = soup.find("meta", {"property": "og:site_name"})
-        if meta and meta.get("content"):
-            company = meta.get("content").strip()
-            company = re.sub(r"\s*[-|]\s*(careers|jobs).*$", "", company, flags=re.I)
-            if company and len(company) < 50:
-                if not PageParser._is_generic_ui_text(company):
-                    if not PageParser._looks_like_title(company):
-                        return company
-        for tag_name in ["h2", "h3", "h4"]:
-            tag = soup.find(tag_name)
-            if tag:
-                text = tag.get_text().strip()
-                if 2 < len(text) < 60:
-                    if not PageParser._is_generic_ui_text(text):
-                        if not PageParser._looks_like_title(text):
-                            if not any(
-                                word in text.lower()
-                                for word in [
-                                    "position",
-                                    "role",
-                                    "job",
-                                    "career",
-                                    "opportunity",
-                                    "submit",
-                                    "sign in",
-                                    "apply",
-                                    "application",
-                                ]
-                            ):
-                                return text
-        from processors import ValidationHelper
-
-        return ValidationHelper.extract_company_from_domain(url)
-
-    @staticmethod
-    def _is_generic_ui_text(text):
-        if not text:
-            return False
-        text_lower = text.lower()
-        generic_terms = [
-            "cookie consent",
-            "privacy policy",
-            "terms of service",
-            "sign in",
-            "log in",
-            "apply now",
-            "get started",
-            "accept cookies",
-            "manage cookies",
-            "privacy settings",
-            "cookie manager",
-            "cookie settings",
-            "manage preferences",
-        ]
-        return any(term in text_lower for term in generic_terms)
+        return None
 
     @staticmethod
     def _looks_like_title(text):
@@ -519,9 +565,6 @@ class PageParser:
             "2025",
             "2026",
             "2027",
-            "with",
-            "university",
-            "drexel",
         ]
         keyword_count = sum(1 for kw in title_keywords if kw in text_lower)
         return keyword_count >= 2
@@ -561,13 +604,14 @@ class PageParser:
     @staticmethod
     def extract_job_id(soup, url):
         try:
+            json_ld_id = PageParser._extract_job_id_from_json_ld(soup)
+            if json_ld_id and json_ld_id != "N/A":
+                return json_ld_id
             page_text = soup.get_text()
-
             if "bytedance" in url.lower() or "joinbytedance" in url.lower():
                 match = re.search(r"Job Code:\s*([A-Z0-9]{5,15})\b", page_text, re.I)
                 if match:
                     return PageParser._clean_job_id(match.group(1))
-
             labeled_patterns = [
                 r"Job Code:\s*([A-Z0-9]{4,15})\b",
                 r"Job ID[:\s]+([A-Z0-9\-]{4,15})\b",
@@ -580,7 +624,6 @@ class PageParser:
                 if match:
                     job_id = match.group(1).strip()
                     return PageParser._clean_job_id(job_id)
-
             id_patterns = [
                 r"\b(J-\d{5,8})\b",
                 r"\b(JR\d{4,7})\b",
@@ -594,22 +637,10 @@ class PageParser:
                 if match:
                     job_id = match.group(1)
                     return PageParser._clean_job_id(job_id)
-
             if "workday" in url.lower():
-                match = re.search(r"_(\d{4,8})(?:\?|$)", url)
+                match = re.search(r"_([A-Z0-9\-]{4,20})(?:\?|$)", url, re.I)
                 if match:
-                    return match.group(1)
-                workday_patterns = [
-                    r"\b(R-\d{4,5}-\d{4,6})\b",
-                    r"\b(J-\d{5,8})\b",
-                    r"\b(REQ-?\d{4,7}(?:-\d{1,3})?)\b",
-                    r"\b(JR\d{5,10})\b",
-                ]
-                for pattern in workday_patterns:
-                    match = re.search(pattern, url, re.I)
-                    if match:
-                        return PageParser._clean_job_id(match.group(1))
-
+                    return PageParser._clean_job_id(match.group(1))
             platform_patterns = {
                 "jibe": r"/jobs/(\d+)",
                 "github": r"/jobs/(\d+)",
@@ -641,10 +672,27 @@ class PageParser:
             return "N/A"
 
     @staticmethod
+    def _extract_job_id_from_json_ld(soup):
+        if not soup:
+            return None
+        json_ld = soup.find("script", type="application/ld+json")
+        if json_ld:
+            try:
+                data = json.loads(json_ld.string)
+                if isinstance(data, dict):
+                    identifier = data.get("identifier", {})
+                    if isinstance(identifier, dict):
+                        value = identifier.get("value", "")
+                        if value and 4 <= len(value) <= 20:
+                            return value
+            except:
+                pass
+        return None
+
+    @staticmethod
     def _clean_job_id(job_id):
         if not job_id:
             return "N/A"
-
         all_caps_suffixes = [
             "START",
             "JOIN",
@@ -677,15 +725,11 @@ class PageParser:
         ]
         for suffix in all_caps_suffixes:
             job_id = re.sub(rf"{suffix}\b.*$", "", job_id, flags=re.I)
-
         job_id = re.sub(r"[a-z].*$", "", job_id)
-
         if job_id.lower().startswith("id"):
             job_id = job_id[2:]
-
         if not re.match(r"^[A-Z0-9\-]+$", job_id, re.I):
             return "N/A"
-
         if len(job_id) < 4:
             return "N/A"
         if len(job_id) > 20:
