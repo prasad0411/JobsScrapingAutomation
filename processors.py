@@ -830,6 +830,28 @@ class LocationProcessor:
             return "Location: Canada (remote)"
         return None
 
+    @staticmethod
+    def extract_remote_status_enhanced(soup, location, url):
+        if not soup:
+            return "Unknown"
+        if location:
+            location_lower = location.lower()
+            if "remote" in location_lower:
+                return "Remote"
+            if "hybrid" in location_lower:
+                return "Hybrid"
+        page_text = soup.get_text()[:2000]
+        page_lower = page_text.lower()
+        if "100% remote" in page_lower or "fully remote" in page_lower:
+            return "Remote"
+        if "remote" in page_lower[:500]:
+            return "Remote"
+        if "hybrid" in page_lower[:500]:
+            return "Hybrid"
+        if "on-site" in page_lower[:500] or "onsite" in page_lower[:500]:
+            return "On Site"
+        return "Unknown"
+
 
 class ValidationHelper:
     @staticmethod
@@ -913,15 +935,22 @@ class ValidationHelper:
         page_text = soup.get_text()
         page_lower = page_text.lower()
         review_flags = []
+
+        # ENHANCED: Citizenship patterns
         citizenship_patterns = [
             r"u\.?s\.?\s+citizenship\s+is\s+required",
             r"u\.?s\.?\s+citizen(?:ship)?\s+required",
             r"must be a u\.?s\.?\s+citizen",
             r"only u\.?s\.?\s+citizens\s+(?:are\s+)?eligible",
+            r"us\s+citizens?\s+or\s+green\s+card\s+holders?",
+            r"must\s+be\s+us\s+citizen\s+or\s+green\s+card",
+            r"citizenship\s+required",
+            r"(?:due\s+to\s+)?government\s+contracts?.*(?:citizen|green\s+card)",
         ]
         for pattern in citizenship_patterns:
             if re.search(pattern, page_lower, re.I):
                 return "REJECT", "US citizenship required", []
+
         work_auth_patterns = [
             r"us work authorization required",
             r"must have us work authorization",
@@ -932,6 +961,7 @@ class ValidationHelper:
         for pattern in work_auth_patterns:
             if re.search(pattern, page_lower, re.I):
                 return "REJECT", "US work authorization required", []
+
         page_normalized = " ".join(page_text.split())[:10000].lower()
         ssn_patterns = [
             r"social security number.*complete.*hiring",
@@ -948,6 +978,7 @@ class ValidationHelper:
                 if "preferred" in context or "optional" in context:
                     continue
                 return "REJECT", "SSN required", []
+
         university_pattern = r"(?:from|attending|enrolled\s+at)\s+([A-Z][a-z]+(?:\s+[A-Z][a-z]+)?)\s+University"
         matches = re.finditer(university_pattern, page_text, re.I)
         for match in matches:
@@ -973,9 +1004,11 @@ class ValidationHelper:
             if university_name in specific_schools:
                 return "REJECT", f"{university_name} University students only", []
             review_flags.append(f"⚠️ Check if {university_name} University only")
+
         if re.search(r"cooperative learning track", page_text, re.I):
             if re.search(r"Drexel", page_text, re.I):
                 return "REJECT", "Drexel cooperative program only", []
+
         clearance_requirement_patterns = [
             r"must be able to obtain.*clearance",
             r"must be able to.*maintain.*clearance",
@@ -989,6 +1022,7 @@ class ValidationHelper:
         for pattern in clearance_requirement_patterns:
             if re.search(pattern, page_lower, re.I):
                 return "REJECT", "Security clearance required", []
+
         clearance_mentions = [
             m.start() for m in re.finditer(r"\bclearance\b", page_lower, re.I)
         ]
@@ -1000,43 +1034,125 @@ class ValidationHelper:
             if any(kw in context for kw in requirement_keywords):
                 if "preferred" not in context:
                     return "REJECT", "Security clearance required", []
+
         if review_flags:
             return None, None, review_flags
         return None, None, []
 
     @staticmethod
     def _check_degree_requirements_strict(soup):
+        """
+        ENHANCED: Comprehensive degree requirement detection with 30+ patterns.
+        Returns: (decision, reason) where decision is "REJECT" or None
+        """
+        if not soup:
+            return None, None
+
         json_ld_desc = ValidationHelper._get_json_ld_description(soup)
         meta_desc = ValidationHelper._get_meta_description(soup)
         page_text = soup.get_text()[:15000]
         qual_section_text = ValidationHelper._get_qualification_section_text(soup)
+
+        sections = ValidationHelper._extract_requirement_sections(soup)
+        required_text = sections.get("required", "")
+
+        if not required_text:
+            required_text = page_text
+
         combined = (
-            json_ld_desc + " " + meta_desc + " " + page_text + " " + qual_section_text
+            json_ld_desc
+            + " "
+            + meta_desc
+            + " "
+            + required_text
+            + " "
+            + qual_section_text
         ).lower()
+
+        # Bachelor's-only patterns (EXPANDED)
         bs_definite_patterns = [
-            r"bachelor'?s?\s+degree\s+program\s+majoring",
-            r"pursuing\s+a\s+bachelor'?s?\s+degree\s+in",
-            r"currently\s+enrolled.*bachelor'?s?\s+degree",
-            r"enrolled\s+in\s+a\s+bachelor'?s?\s+degree",
-            r"bachelor'?s?\s+degree\s+in\s+(?:engineering|computer\s+science|data)",
-            r"currently\s+pursuing\s+a\s+bachelor'?s?\s+degree",
+            r"undergraduate\s+(?:junior|senior)\s+(?:and\s+senior\s+)?level\s+students?",
+            r"undergraduate\s+(?:junior|senior)\s+(?:or|and)\s+senior\s+level\s+students?",
+            r"current\s+(?:junior|senior)\s+pursuing",
+            r"(?:junior|senior)\s+year\s+students?",
+            r"(?:junior|senior)\s+level\s+students?",
+            r"(?:3rd|4th)\s+year\s+students?",
+            r"(?:third|fourth)\s+year\s+students?",
+            r"(?:junior|senior)\s+standing",
+            r"junior\s+or\s+senior\s+pursuing",
+            r"undergraduate\s+students?\s+majoring\s+in",
+            r"undergraduate\s+students?\s+in",
+            r"for\s+undergraduate\s+students?",
+            r"seeking\s+undergraduate\s+students?",
+            r"looking\s+for\s+undergraduate\s+(?:junior|senior)",
+            r"pursuing\s+an?\s+undergraduate\s+degree\s+in",
+            r"enrolled\s+in\s+an?\s+undergraduate\s+degree",
+            r"candidate\s+for\s+an?\s+undergraduate\s+degree",
+            r"currently\s+(?:pursuing|enrolled\s+in)\s+an?\s+undergraduate\s+degree",
+            r"bachelor'?s?\s+degree\s+program\s+majoring\s+in",
+            r"bachelor'?s?\s+degree\s+program\s+in",
+            r"pursuing\s+(?:a|their)\s+bachelor'?s?\s+degree\s+in",
+            r"pursuing\s+a\s+bachelor'?s?\s+degree\s+(?:program\s+)?in",
+            r"enrolled\s+in\s+(?:a|an)\s+bachelor'?s?\s+degree\s+(?:program\s+)?in",
+            r"candidate\s+for\s+(?:a|an)\s+bachelor'?s?\s+degree",
+            r"currently\s+a\s+candidate\s+for\s+a\s+bachelor",
+            r"pursuing\s+a\s+ba/bs\s+degree\s+in",
+            r"pursuing\s+a\s+bs/ba\s+degree\s+in",
+            r"pursuing\s+(?:a\s+)?ba\s+or\s+bs\s+(?:degree\s+)?in",
+            r"college\s+student\s+pursuing\s+(?:a|an)\s+ba\s+in",
+            r"college\s+student\s+pursuing\s+(?:a|an)\s+bs\s+in",
+            r"must\s+be\s+(?:currently\s+)?enrolled\s+in\s+(?:a|an)\s+bachelor'?s?",
+            r"must\s+be\s+(?:currently\s+)?pursuing\s+(?:a|an)\s+bachelor'?s?",
+            r"require(?:s|d)?\s+(?:currently\s+)?pursuing\s+(?:a|an)\s+bachelor'?s?",
+            r"only\s+(?:for\s+)?bachelor'?s?\s+(?:degree\s+)?students?",
+            r"bachelor'?s?\s+degree\s+students?\s+only",
         ]
+
+        # Inclusive modifiers (OVERRIDE Bachelor's-only)
+        inclusive_modifiers = [
+            r"bachelor'?s?\s+(?:degree\s+)?(?:program\s+)?or\s+higher",
+            r"bachelor'?s?\s+or\s+master'?s?",
+            r"bachelor'?s?\s+or\s+graduate\s+(?:degree|student)",
+            r"bachelor'?s?\s+or\s+ms\b",
+            r"bachelor'?s?\s+or\s+m\.s\.",
+            r"bachelor'?s?\s+or\s+m\.s\b",
+            r"undergraduate\s+or\s+graduate",
+            r"bs/ms\b",
+            r"ba/ms\b",
+            r"bachelor'?s?/master'?s?",
+            r"bachelor'?s?\s+degree\s+or\s+equivalent",
+        ]
+
         for pattern in bs_definite_patterns:
             match = re.search(pattern, combined, re.I)
             if match:
                 start = max(0, match.start() - 300)
                 end = min(len(combined), match.end() + 300)
                 context = combined[start:end]
+
+                has_inclusive = False
+                for inclusive_pattern in inclusive_modifiers:
+                    if re.search(inclusive_pattern, context, re.I):
+                        has_inclusive = True
+                        break
+
+                if has_inclusive:
+                    continue
+
                 preference_keywords = [
                     "preferred",
                     "ideal",
                     "nice to have",
                     "plus",
                     "ideally",
+                    "bonus",
+                    "a plus",
                 ]
                 is_preferred = any(kw in context for kw in preference_keywords)
+
                 if is_preferred:
                     continue
+
                 master_keywords = [
                     "master's",
                     "masters",
@@ -1044,44 +1160,150 @@ class ValidationHelper:
                     "graduate student",
                     "m.s.",
                     " ms ",
-                    "or graduate",
                     "ms/",
+                    "graduate degree",
                 ]
                 has_masters = any(kw in context for kw in master_keywords)
+
                 if not has_masters:
                     return "REJECT", "Bachelor's students only"
+
+        # PhD-only patterns (EXPANDED)
         phd_definite_patterns = [
-            r"current\s+phd\s+student\s+in",
-            r"phd\s+candidates?\s+to\s+intern",
-            r"looking\s+for\s+phd\s+candidates",
-            r"phd\s+student\s+in\s+computer\s+science",
+            r"must\s+be\s+pursuing\s+a\s+phd",
+            r"must\s+be\s+enrolled\s+in\s+a\s+phd",
+            r"currently\s+pursuing\s+a\s+phd?\s+(?:degree\s+)?in",
+            r"phd?\s+candidates?\s+to\s+intern",
+            r"looking\s+for\s+phd?\s+candidates?",
+            r"seeking\s+phd?\s+candidates?",
+            r"we'?re\s+looking\s+for\s+phd?\s+candidates?",
+            r"phd?\s+student(?:s)?\s+in\s+(?:computer|electrical|data)",
+            r"phd?\s+student(?:s)?\s+to\s+intern",
+            r"phd?.*having\s+completed\s+at\s+least",
+            r"phd?.*?(?:with|having)\s+(?:completed|finished)\s+\d+\s+years?",
+            r"at\s+least\s+\d+\s+years?\s+of\s+(?:the\s+)?phd?\s+program",
+            r"completed\s+at\s+least\s+\d+\s+years?\s+of\s+(?:the\s+)?phd",
+            r"phd?\s+\(enrolled\s+student\)",
+            r"phd?\s+\(current\s+student\)",
+            r"phd\s+intern\b",
+            r"phd\s+summer\s+intern",
+            r"phd\s+research\s+intern",
         ]
+
         for pattern in phd_definite_patterns:
             match = re.search(pattern, combined, re.I)
             if match:
                 start = max(0, match.start() - 300)
                 end = min(len(combined), match.end() + 300)
                 context = combined[start:end]
+
                 preference_keywords = [
                     "preferred",
                     "ideal",
-                    "nice to have",
                     "open to",
-                    "or",
+                    "nice to have",
+                    "or ",
+                    "bonus",
                 ]
                 is_preferred = any(kw in context for kw in preference_keywords)
+
                 if is_preferred:
                     continue
-                master_keywords = ["master", "graduate student", "m.s.", " ms "]
+
+                master_keywords = [
+                    "master",
+                    "graduate student",
+                    "m.s.",
+                    " ms ",
+                    "ms/phd",
+                    "master's",
+                ]
                 has_masters = any(kw in context for kw in master_keywords)
+
                 if not has_masters:
                     return "REJECT", "PhD students only"
-        phd_title_check = re.search(r"phd.*intern", page_text[:500].lower(), re.I)
-        if phd_title_check:
-            context = page_text[:2000].lower()
-            if not re.search(r"master|graduate student|ms ", context):
-                return "REJECT", "PhD students only"
+
+        try:
+            title_tag = soup.find("title")
+            if title_tag:
+                title_text = title_tag.get_text().lower()
+                if re.search(r"phd.*intern", title_text[:200]):
+                    if not re.search(
+                        r"master|graduate\s+student|m\.s\.|ms\b", required_text, re.I
+                    ):
+                        return "REJECT", "PhD students only"
+        except:
+            pass
+
         return None, None
+
+    @staticmethod
+    def _extract_requirement_sections(soup):
+        """NEW: Extract distinct Required vs Preferred sections."""
+        sections = {"required": None, "preferred": None, "qualifications": None}
+
+        try:
+            headers = soup.find_all(["h2", "h3", "h4", "strong", "b"])
+
+            for header in headers:
+                header_text = header.get_text().strip().lower()
+
+                if len(header_text) > 100:
+                    continue
+
+                section_type = None
+
+                if any(
+                    kw in header_text
+                    for kw in [
+                        "required qualifications",
+                        "minimum requirements",
+                        "minimum qualifications",
+                        "must have",
+                        "required skills",
+                        "requirements:",
+                        "candidate qualifications",
+                        "basic qualifications",
+                    ]
+                ):
+                    section_type = "required"
+                elif any(
+                    kw in header_text
+                    for kw in [
+                        "preferred qualifications",
+                        "preferred skills",
+                        "nice to have",
+                        "ideal candidate",
+                        "bonus",
+                        "preferred:",
+                        "ideal:",
+                        "preferred requirements",
+                    ]
+                ):
+                    section_type = "preferred"
+                elif "qualifications" in header_text or "requirements" in header_text:
+                    section_type = "qualifications"
+
+                if not section_type:
+                    continue
+
+                text_parts = []
+                current = header.find_next_sibling()
+
+                while current:
+                    if current.name in ["h2", "h3", "h4"]:
+                        break
+                    if current.name:
+                        text_parts.append(current.get_text())
+                    current = current.find_next_sibling()
+                    if len(text_parts) > 50:
+                        break
+
+                sections[section_type] = " ".join(text_parts)
+        except:
+            pass
+
+        return sections
 
     @staticmethod
     def _get_qualification_section_text(soup):
@@ -1162,27 +1384,64 @@ class ValidationHelper:
 
     @staticmethod
     def is_valid_company_name(name):
+        """ENHANCED: Stricter company name validation."""
         if not name or not name.strip():
             return False
+
         if name in COMPANY_PLACEHOLDERS:
             return False
+
+        if name.lower() in [p.lower() for p in COMPANY_PLACEHOLDERS]:
+            return False
+
+        # Check for job board / UI keywords
+        invalid_keywords = [
+            "careers",
+            "jobs",
+            "external",
+            "applicant",
+            "portal",
+            "apply",
+        ]
+        if any(kw == name.lower() for kw in invalid_keywords):
+            return False
+
+        # Check for internal codes
+        if re.match(r"^[A-Z]{2,4}-", name):
+            return False
+        if re.match(r"^[A-Z]{2,4}\s+", name):
+            return False
+
         if name.isupper() and len(name) < 10:
             return False
+
         title_keywords = ["intern", "engineer", "developer", "software"]
         keyword_count = sum(1 for kw in title_keywords if kw in name.lower())
         if keyword_count >= 2:
             return False
+
         return True
 
     @staticmethod
     def clean_legal_entity(company):
+        """ENHANCED: Clean company names by removing codes and legal entities."""
         if not company:
             return company
+
         company = re.sub(r"^\d+\s+", "", company)
         company = re.sub(r"^US\d+\s+", "", company)
+
+        # Remove internal codes
+        company = re.sub(r"^[A-Z]{2,4}-", "", company)
+        company = re.sub(r"^[A-Z]{2,4}\s+", "", company)
+
         company = re.sub(
-            r",?\s+(Inc\.?|LLC\.?|Corp\.?|Ltd\.?|Corporation)$", "", company, flags=re.I
+            r",?\s+(Inc\.?|LLC\.?|Corp\.?|Ltd\.?|Corporation|Corp\s+Svcs\.?)$",
+            "",
+            company,
+            flags=re.I,
         )
+
         return company.strip()
 
     @staticmethod

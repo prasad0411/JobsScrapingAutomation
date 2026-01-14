@@ -14,6 +14,97 @@ SIMPLIFY_URL = "https://raw.githubusercontent.com/SimplifyJobs/Summer2026-Intern
 VANSHB03_URL = (
     "https://raw.githubusercontent.com/vanshb03/Summer2026-Internships/main/README.md"
 )
+
+# Job filtering configuration
+MAX_JOB_AGE_DAYS = 5
+MIN_QUALITY_SCORE = 3
+
+# URL to Company Direct Mapping (bypasses extraction for known companies)
+URL_TO_COMPANY_MAPPING = {
+    r"quickenloans\.wd\d+\.myworkdayjobs\.com": "Rocket Companies",
+    r"geico\.wd\d+\.myworkdayjobs\.com": "GEICO",
+    r"redhat\.wd\d+\.myworkdayjobs\.com": "Red Hat",
+    r"cinemark\.wd\d+\.myworkdayjobs\.com": "Cinemark",
+    r"astrazeneca\.wd\d+\.myworkdayjobs\.com": "AstraZeneca",
+    r"sherwin\.wd\d+\.myworkdayjobs\.com": "Sherwin-Williams",
+    r"manulife\.wd\d+\.myworkdayjobs\.com": "Manulife",
+    r"wellsky\.wd\d+\.myworkdayjobs\.com": "WellSky",
+    r"micron\.wd\d+\.myworkdayjobs\.com": "Micron Technology",
+    r"cox\.wd\d+\.myworkdayjobs\.com": "Cox Automotive",
+    r"adobe\.wd\d+\.myworkdayjobs\.com": "Adobe",
+    r"roche\.wd\d+\.myworkdayjobs\.com": "Roche",
+    r"cartech\.wd\d+\.myworkdayjobs\.com": "Carpenter Technology",
+    r"cranecompany\.wd\d+\.myworkdayjobs\.com": "Crane Aerospace",
+    r"careers-lmi\.icims\.com": "LMI",
+    r"careers-kinaxis\.icims\.com": "Kinaxis",
+    r"university-uber\.icims\.com": "Uber",
+    r"aexp\.eightfold\.ai": "American Express",
+    r"ejhp\.fa\.us\d+\.oraclecloud\.com": "Sherwin-Williams",
+    r"jobs\.ashbyhq\.com/[Cc]rusoe": "Crusoe Energy",
+}
+
+COMPANY_NAME_STOPWORDS = [
+    "Careers at ",
+    "Careers | ",
+    "Work at ",
+    "Join ",
+    " Careers",
+    " Jobs",
+    " - Careers",
+    " Career Site",
+    " | Careers",
+]
+
+COMPANY_PLACEHOLDERS = [
+    "Unknown",
+    "N/A",
+    "Company",
+    "Employer",
+    "Organization",
+    "Adzuna",
+    "Jobright",
+    "ZipRecruiter",
+    "Careers",
+    "Jobs",
+    "External",
+]
+
+SPECIAL_COMPANY_NAMES = {
+    "sig": "Susquehanna International Group",
+    "nuro": "Nuro",
+    "nimblerx": "NimbleRx",
+    "singlestore": "SingleStore",
+    "geico": "GEICO",
+    "aexp": "American Express",
+    "amex": "American Express",
+}
+
+WORKDAY_HQ_CODES = {
+    "USNYNYC": ("New York", "NY"),
+    "USCASFO": ("San Francisco", "CA"),
+    "USWAEAT": ("Seattle", "WA"),
+    "USTXAUS": ("Austin", "TX"),
+    "USMABOA": ("Boston", "MA"),
+}
+
+LOCATION_CODE_PATTERNS = [
+    r"^US([A-Z]{2})([A-Z]{3})$",
+    r"^US-([A-Z]{2})-",
+]
+
+STATUS_COLORS = {
+    "Not Applied": {"red": 1.0, "green": 1.0, "blue": 1.0},
+    "Applied": {"red": 1.0, "green": 0.9, "blue": 0.6},
+    "OA Sent": {"red": 0.7, "green": 0.85, "blue": 1.0},
+    "OA Completed": {"red": 0.4, "green": 0.7, "blue": 1.0},
+    "Interview Scheduled": {"red": 1.0, "green": 0.8, "blue": 0.4},
+    "Interviewed": {"red": 1.0, "green": 0.65, "blue": 0.3},
+    "Offer Received": {"red": 0.6, "green": 0.9, "blue": 0.6},
+    "Offer accepted": {"red": 0.2, "green": 0.7, "blue": 0.2},
+    "Rejected": {"red": 1.0, "green": 0.6, "blue": 0.6},
+    "Ghosted": {"red": 0.8, "green": 0.8, "blue": 0.8},
+}
+
 GMAIL_SCOPES = ["https://www.googleapis.com/auth/gmail.readonly"]
 
 USER_AGENTS = [
@@ -76,59 +167,7 @@ US_STATES = {
     "district of columbia": "DC",
 }
 
-STATE_NAME_TO_CODE = {
-    "alabama": "AL",
-    "alaska": "AK",
-    "arizona": "AZ",
-    "arkansas": "AR",
-    "california": "CA",
-    "colorado": "CO",
-    "connecticut": "CT",
-    "delaware": "DE",
-    "florida": "FL",
-    "georgia": "GA",
-    "hawaii": "HI",
-    "idaho": "ID",
-    "illinois": "IL",
-    "indiana": "IN",
-    "iowa": "IA",
-    "kansas": "KS",
-    "kentucky": "KY",
-    "louisiana": "LA",
-    "maine": "ME",
-    "maryland": "MD",
-    "massachusetts": "MA",
-    "michigan": "MI",
-    "minnesota": "MN",
-    "mississippi": "MS",
-    "missouri": "MO",
-    "montana": "MT",
-    "nebraska": "NE",
-    "nevada": "NV",
-    "new hampshire": "NH",
-    "new jersey": "NJ",
-    "new mexico": "NM",
-    "new york": "NY",
-    "north carolina": "NC",
-    "north dakota": "ND",
-    "ohio": "OH",
-    "oklahoma": "OK",
-    "oregon": "OR",
-    "pennsylvania": "PA",
-    "rhode island": "RI",
-    "south carolina": "SC",
-    "south dakota": "SD",
-    "tennessee": "TN",
-    "texas": "TX",
-    "utah": "UT",
-    "vermont": "VT",
-    "virginia": "VA",
-    "washington": "WA",
-    "west virginia": "WV",
-    "wisconsin": "WI",
-    "wyoming": "WY",
-    "district of columbia": "DC",
-}
+STATE_NAME_TO_CODE = US_STATES.copy()
 
 CANADA_PROVINCES = {
     "ON",
@@ -297,6 +336,7 @@ CITY_TO_STATE = {
     "cleveland": "OH",
     "cincinnati": "OH",
     "toledo": "OH",
+    "brecksville": "OH",
     "charlotte": "NC",
     "raleigh": "NC",
     "cary": "NC",
@@ -376,6 +416,7 @@ CITY_TO_STATE = {
     "wilmington": "DE",
     "dover": "DE",
     "overland park": "KS",
+    "lynnwood": "WA",
 }
 
 CANADA_CITIES = {
@@ -394,6 +435,148 @@ CANADA_CITIES = {
     "winnipeg": "MB",
     "regina": "SK",
     "halifax": "NS",
+}
+
+COMPANY_NAME_STOPWORDS = [
+    "Careers at ",
+    "Careers | ",
+    "Work at ",
+    "Join ",
+    " Careers",
+    " Jobs",
+    " - Careers",
+    " Career Site",
+    " | Careers",
+]
+
+COMPANY_PLACEHOLDERS = [
+    "Unknown",
+    "N/A",
+    "Company",
+    "Employer",
+    "Organization",
+    "Adzuna",
+    "Jobright",
+    "ZipRecruiter",
+    "Careers",
+    "Jobs",
+    "External",
+]
+
+SPECIAL_COMPANY_NAMES = {
+    "sig": "Susquehanna International Group",
+    "nuro": "Nuro",
+    "nimblerx": "NimbleRx",
+    "singlestore": "SingleStore",
+    "geico": "GEICO",
+    "aexp": "American Express",
+    "amex": "American Express",
+}
+
+WORKDAY_HQ_CODES = {
+    "USNYNYC": ("New York", "NY"),
+    "USCASFO": ("San Francisco", "CA"),
+    "USWAEAT": ("Seattle", "WA"),
+    "USTXAUS": ("Austin", "TX"),
+    "USMABOA": ("Boston", "MA"),
+}
+
+LOCATION_CODE_PATTERNS = [
+    r"^US([A-Z]{2})([A-Z]{3})$",
+    r"^US-([A-Z]{2})-",
+]
+
+STATUS_COLORS = {
+    "Not Applied": {"red": 1.0, "green": 1.0, "blue": 1.0},
+    "Applied": {"red": 1.0, "green": 0.9, "blue": 0.6},
+    "OA Sent": {"red": 0.7, "green": 0.85, "blue": 1.0},
+    "OA Completed": {"red": 0.4, "green": 0.7, "blue": 1.0},
+    "Interview Scheduled": {"red": 1.0, "green": 0.8, "blue": 0.4},
+    "Interviewed": {"red": 1.0, "green": 0.65, "blue": 0.3},
+    "Offer Received": {"red": 0.6, "green": 0.9, "blue": 0.6},
+    "Offer accepted": {"red": 0.2, "green": 0.7, "blue": 0.2},
+    "Rejected": {"red": 1.0, "green": 0.6, "blue": 0.6},
+    "Ghosted": {"red": 0.8, "green": 0.8, "blue": 0.8},
+}
+
+GMAIL_SCOPES = ["https://www.googleapis.com/auth/gmail.readonly"]
+
+USER_AGENTS = [
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+]
+
+US_STATES = {
+    "alabama": "AL",
+    "alaska": "AK",
+    "arizona": "AZ",
+    "arkansas": "AR",
+    "california": "CA",
+    "colorado": "CO",
+    "connecticut": "CT",
+    "delaware": "DE",
+    "florida": "FL",
+    "georgia": "GA",
+    "hawaii": "HI",
+    "idaho": "ID",
+    "illinois": "IL",
+    "indiana": "IN",
+    "iowa": "IA",
+    "kansas": "KS",
+    "kentucky": "KY",
+    "louisiana": "LA",
+    "maine": "ME",
+    "maryland": "MD",
+    "massachusetts": "MA",
+    "michigan": "MI",
+    "minnesota": "MN",
+    "mississippi": "MS",
+    "missouri": "MO",
+    "montana": "MT",
+    "nebraska": "NE",
+    "nevada": "NV",
+    "new hampshire": "NH",
+    "new jersey": "NJ",
+    "new mexico": "NM",
+    "new york": "NY",
+    "north carolina": "NC",
+    "north dakota": "ND",
+    "ohio": "OH",
+    "oklahoma": "OK",
+    "oregon": "OR",
+    "pennsylvania": "PA",
+    "rhode island": "RI",
+    "south carolina": "SC",
+    "south dakota": "SD",
+    "tennessee": "TN",
+    "texas": "TX",
+    "utah": "UT",
+    "vermont": "VT",
+    "virginia": "VA",
+    "washington": "WA",
+    "west virginia": "WV",
+    "wisconsin": "WI",
+    "wyoming": "WY",
+    "district of columbia": "DC",
+}
+
+STATE_NAME_TO_CODE = US_STATES.copy()
+
+CANADA_PROVINCES = {
+    "ON",
+    "QC",
+    "BC",
+    "AB",
+    "MB",
+    "SK",
+    "NS",
+    "NB",
+    "NL",
+    "PE",
+    "YT",
+    "NT",
+    "NU",
 }
 
 JOB_BOARD_DOMAINS = [
