@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 
+# Sheet Configuration
 SHEET_NAME = "H1B visa"
 WORKSHEET_NAME = "Valid Entries"
 DISCARDED_WORKSHEET = "Discarded Entries"
@@ -10,14 +11,22 @@ GMAIL_CREDS_FILE = "gmail_credentials.json"
 GMAIL_TOKEN_FILE = "gmail_token.pickle"
 JOBRIGHT_COOKIES_FILE = "jobright_cookies.json"
 
+# GitHub Sources
 SIMPLIFY_URL = "https://raw.githubusercontent.com/SimplifyJobs/Summer2026-Internships/master/README.md"
 VANSHB03_URL = (
     "https://raw.githubusercontent.com/vanshb03/Summer2026-Internships/main/README.md"
 )
 
-MAX_JOB_AGE_DAYS = 5
+# Date and Quality Thresholds
+MAX_JOB_AGE_DAYS = 3  # Changed from 5 to 3
 MIN_QUALITY_SCORE = 3
 
+# NEW: Extraction Confidence Thresholds
+MIN_CONFIDENCE_JOB_ID = 0.6
+MIN_CONFIDENCE_LOCATION = 0.6
+REQUIRE_MULTIPLE_CONFIRMATIONS = True  # Require 2+ methods to agree
+
+# Platform Detection Patterns
 PLATFORM_DETECTION_PATTERNS = {
     "workday": r"\.wd\d+\.myworkdayjobs\.com",
     "greenhouse": r"(boards\.|job-boards\.)?greenhouse\.io",
@@ -29,8 +38,10 @@ PLATFORM_DETECTION_PATTERNS = {
     "bytedance": r"(joinbytedance|bytedance)",
     "oracle": r"oraclecloud\.com",
     "eightfold": r"eightfold\.ai",
+    "smartrecruiters": r"smartrecruiters\.com",
 }
 
+# URL to Company Mapping (expanded)
 URL_TO_COMPANY_MAPPING = {
     r"quickenloans\.wd\d+\.myworkdayjobs\.com": "Rocket Companies",
     r"geico\.wd\d+\.myworkdayjobs\.com": "GEICO",
@@ -55,8 +66,15 @@ URL_TO_COMPANY_MAPPING = {
     r"jobs\.ashbyhq\.com/[Cc]rusoe": "Crusoe Energy",
     r"(lifeattiktok|careers\.tiktok)\.com": "TikTok",
     r"(joinbytedance|careers\.bytedance)": "ByteDance",
+    r"nvidia\.wd\d+\.myworkdayjobs\.com": "NVIDIA",
+    r"tmobile\.wd\d+\.myworkdayjobs\.com": "T-Mobile",
+    r"disney\.wd\d+\.myworkdayjobs\.com": "The Walt Disney Company",
+    r"pru\.wd\d+\.myworkdayjobs\.com": "Prudential Financial",
+    r"coke\.wd\d+\.myworkdayjobs\.com": "The Coca-Cola Company",
+    r"visa\.wd\d+\.myworkdayjobs\.com": "Visa",
 }
 
+# Company Slug Mapping (for URL extraction)
 COMPANY_SLUG_MAPPING = {
     "google": "Google",
     "microsoft": "Microsoft",
@@ -149,8 +167,12 @@ COMPANY_SLUG_MAPPING = {
     "nimblerx": "NimbleRx",
     "singlestore": "SingleStore",
     "geico": "GEICO",
+    "visa": "Visa",
+    "comcast": "Comcast",
+    "disney": "The Walt Disney Company",
 }
 
+# Company Name Processing
 COMPANY_NAME_PREFIXES = [
     "lifeat",
     "joinat",
@@ -205,6 +227,33 @@ SPECIAL_COMPANY_NAMES = {
     "amex": "American Express",
 }
 
+# NEW: Enhanced Job ID Patterns (Priority ordered)
+JOB_ID_PATTERNS = [
+    # High confidence patterns
+    (r"/jobs?/(\d{6,})", 0.95),  # Greenhouse: /jobs/8356208002
+    (r"gh_jid=(\d+)", 0.95),  # Greenhouse query param
+    (r"_([A-Z]-?\d{5,})(?:-\d+)?(?:\?|$)", 0.90),  # Workday: _R-122963-1
+    (r"/job/([A-Z]{2,3}\d{6,})", 0.90),  # JR2010186 format
+    (r"job[/_]([A-Z0-9_-]{8,15})", 0.85),  # Generic job/ID
+    (r"reqId=([A-Z0-9_-]+)", 0.85),  # ?reqId=ABC123
+    (r"JR-?(\d+)", 0.80),  # JR-12345
+    (r"REQ[_-]?(\w+)", 0.80),  # REQ_12345
+    (r"/(\d{7,})(?:/|\?|$)", 0.70),  # Generic /1234567
+]
+
+# NEW: Enhanced Location Selectors (Priority ordered)
+LOCATION_SELECTORS = [
+    (".location", 0.85),
+    ('[data-qa="location"]', 0.90),
+    (".job-location", 0.85),
+    ('[itemprop="jobLocation"]', 0.90),
+    ('span[class*="location"]', 0.75),
+    ('div[class*="location"]', 0.75),
+    (".posting-categories .location", 0.85),
+    ("div.location", 0.80),
+]
+
+# Role Categories
 ROLE_CATEGORIES = {
     "Pure Software": {
         "keywords": [
@@ -311,6 +360,7 @@ USER_ROLE_PREFERENCES = {
     "flag_strict": ["Hardware Engineering"],
 }
 
+# Workday Location Codes
 WORKDAY_HQ_CODES = {
     "USNYNYC": ("New York", "NY"),
     "USCASFO": ("San Francisco", "CA"),
@@ -324,6 +374,7 @@ LOCATION_CODE_PATTERNS = [
     r"^US-([A-Z]{2})-",
 ]
 
+# Status Colors for Google Sheets
 STATUS_COLORS = {
     "Not Applied": {"red": 1.0, "green": 1.0, "blue": 1.0},
     "Applied": {"red": 1.0, "green": 0.9, "blue": 0.6},
@@ -337,14 +388,17 @@ STATUS_COLORS = {
     "Ghosted": {"red": 0.8, "green": 0.8, "blue": 0.8},
 }
 
+# Gmail Configuration
 GMAIL_SCOPES = ["https://www.googleapis.com/auth/gmail.readonly"]
 
+# User Agents
 USER_AGENTS = [
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
     "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
     "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
 ]
 
+# US States and Territories
 US_STATES = {
     "alabama": "AL",
     "alaska": "AK",
@@ -401,6 +455,7 @@ US_STATES = {
 
 STATE_NAME_TO_CODE = US_STATES.copy()
 
+# Canadian Provinces
 CANADA_PROVINCES = {
     "ON",
     "QC",
@@ -417,6 +472,7 @@ CANADA_PROVINCES = {
     "NU",
 }
 
+# City to State Mapping (extensive)
 CITY_TO_STATE = {
     "san francisco": "CA",
     "san jose": "CA",
@@ -649,8 +705,14 @@ CITY_TO_STATE = {
     "dover": "DE",
     "overland park": "KS",
     "lynnwood": "WA",
+    "ashburn": "VA",
+    "tinton falls": "NJ",
+    "wilton": "CT",
+    "milpitas": "CA",
+    "pleasant prairie": "WI",
 }
 
+# Canadian Cities
 CANADA_CITIES = {
     "toronto": "ON",
     "markham": "ON",
@@ -669,6 +731,7 @@ CANADA_CITIES = {
     "halifax": "NS",
 }
 
+# Job Board Domains
 JOB_BOARD_DOMAINS = [
     "greenhouse",
     "lever.co",

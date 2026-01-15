@@ -22,6 +22,7 @@ from processors import (
     QualityScorer,
 )
 from sheets_manager import SheetsManager
+from utils import RoleCategorizer
 
 logging.basicConfig(
     filename="skipped_jobs.log",
@@ -372,14 +373,23 @@ class UnifiedJobAggregator:
                     f"REJECTED | {company} | {title} | Low quality: {quality}/7 | {final_url}"
                 )
                 return
+
+            role_alert = RoleCategorizer.get_terminal_alert(title)
+
             if review_flags:
                 flags_str = ", ".join(review_flags)
-                print(f"  {company[:30]}: ✓ Valid [{flags_str}]")
+                if role_alert:
+                    print(f"  {company[:30]}: ✓ Valid [{flags_str}] {role_alert}")
+                else:
+                    print(f"  {company[:30]}: ✓ Valid [{flags_str}]")
                 logging.info(
                     f"ACCEPTED (FLAGGED) | {company} | {title} | Flags: {flags_str} | {final_url}"
                 )
             else:
-                print(f"  {company[:30]}: ✓ Valid")
+                if role_alert:
+                    print(f"  {company[:30]}: ✓ Valid {role_alert}")
+                else:
+                    print(f"  {company[:30]}: ✓ Valid")
                 logging.info(
                     f"ACCEPTED | {company} | {title} | Location: {location_formatted} | {final_url}"
                 )
@@ -419,15 +429,28 @@ class UnifiedJobAggregator:
                         )
                         result = self._validate_parsed_job(job_data, sender)
                         if result and result.get("decision") == "valid":
+                            role_alert = RoleCategorizer.get_terminal_alert(
+                                result["title"]
+                            )
                             flags = result.get("review_flags", "")
                             if flags:
-                                print(
-                                    f"  {result['company'][:30]} ({sender}/LinkedIn): ✓ Valid [{flags}]"
-                                )
+                                if role_alert:
+                                    print(
+                                        f"  {result['company'][:30]} ({sender}/LinkedIn): ✓ Valid [{flags}] {role_alert}"
+                                    )
+                                else:
+                                    print(
+                                        f"  {result['company'][:30]} ({sender}/LinkedIn): ✓ Valid [{flags}]"
+                                    )
                             else:
-                                print(
-                                    f"  {result['company'][:30]} ({sender}/LinkedIn): ✓ Valid"
-                                )
+                                if role_alert:
+                                    print(
+                                        f"  {result['company'][:30]} ({sender}/LinkedIn): ✓ Valid {role_alert}"
+                                    )
+                                else:
+                                    print(
+                                        f"  {result['company'][:30]} ({sender}/LinkedIn): ✓ Valid"
+                                    )
                             self.valid_jobs.append(
                                 {
                                     "company": result["company"],
@@ -518,15 +541,28 @@ class UnifiedJobAggregator:
                         if job_data:
                             result = self._validate_parsed_job(job_data, sender)
                             if result and result.get("decision") == "valid":
+                                role_alert = RoleCategorizer.get_terminal_alert(
+                                    result["title"]
+                                )
                                 flags = result.get("review_flags", "")
                                 if flags:
-                                    print(
-                                        f"  {result['company'][:30]} (Jobright/LinkedIn): ✓ Valid [{flags}]"
-                                    )
+                                    if role_alert:
+                                        print(
+                                            f"  {result['company'][:30]} (Jobright/LinkedIn): ✓ Valid [{flags}] {role_alert}"
+                                        )
+                                    else:
+                                        print(
+                                            f"  {result['company'][:30]} (Jobright/LinkedIn): ✓ Valid [{flags}]"
+                                        )
                                 else:
-                                    print(
-                                        f"  {result['company'][:30]} (Jobright/LinkedIn): ✓ Valid"
-                                    )
+                                    if role_alert:
+                                        print(
+                                            f"  {result['company'][:30]} (Jobright/LinkedIn): ✓ Valid {role_alert}"
+                                        )
+                                    else:
+                                        print(
+                                            f"  {result['company'][:30]} (Jobright/LinkedIn): ✓ Valid"
+                                        )
                                 self.valid_jobs.append(
                                     {
                                         "company": result["company"],
@@ -614,13 +650,24 @@ class UnifiedJobAggregator:
                 )
                 self.outcomes["discarded"] += 1
             elif decision == "valid":
+                role_alert = RoleCategorizer.get_terminal_alert(result["title"])
                 flags_str = result.get("review_flags", "")
                 if flags_str:
-                    print(
-                        f"  {result['company'][:30]} ({sender}): ✓ Valid [{flags_str}]"
-                    )
+                    if role_alert:
+                        print(
+                            f"  {result['company'][:30]} ({sender}): ✓ Valid [{flags_str}] {role_alert}"
+                        )
+                    else:
+                        print(
+                            f"  {result['company'][:30]} ({sender}): ✓ Valid [{flags_str}]"
+                        )
                 else:
-                    print(f"  {result['company'][:30]} ({sender}): ✓ Valid")
+                    if role_alert:
+                        print(
+                            f"  {result['company'][:30]} ({sender}): ✓ Valid {role_alert}"
+                        )
+                    else:
+                        print(f"  {result['company'][:30]} ({sender}): ✓ Valid")
                 self.valid_jobs.append(
                     {
                         "company": result["company"],
@@ -1655,11 +1702,8 @@ class UnifiedJobAggregator:
         country_map = {
             "canada": "Canada",
             "uk": "UK",
-            "united kingdom": "UK",
             "india": "India",
             "china": "China",
-            "australia": "Australia",
-            "singapore": "Singapore",
         }
         for key, value in country_map.items():
             if key in location_lower:
