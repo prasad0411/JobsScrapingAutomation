@@ -31,6 +31,7 @@ from config import (
     LOCATION_CODE_PATTERNS,
     WORKDAY_HQ_CODES,
 )
+from utils import RoleCategorizer, PlatformDetector
 
 
 class TitleProcessor:
@@ -191,23 +192,32 @@ class TitleProcessor:
 class LocationProcessor:
     @staticmethod
     def extract_location_enhanced(soup, url, title=""):
+        platform = (
+            PlatformDetector.detect(url) if "PlatformDetector" in dir() else "generic"
+        )
+
+        if platform == "linkedin":
+            linkedin_loc = LocationProcessor._extract_from_linkedin(soup)
+            if linkedin_loc and linkedin_loc != "Unknown":
+                return linkedin_loc
+
         location = LocationProcessor._extract_from_visible_elements(soup)
         if location and location != "Unknown":
             return location
+
         json_ld_location = LocationProcessor._extract_from_json_ld(soup)
         if json_ld_location and json_ld_location != "Unknown":
             return json_ld_location
+
         url_location = LocationProcessor._extract_from_url(url)
         if url_location and url_location != "Unknown":
             return url_location
+
         if "greenhouse" in url.lower():
             greenhouse_loc = LocationProcessor._extract_from_greenhouse(soup)
             if greenhouse_loc and greenhouse_loc != "Unknown":
                 return greenhouse_loc
-        if "simplify.jobs" in url.lower():
-            simplify_loc = LocationProcessor._extract_from_simplify_page(soup)
-            if simplify_loc and simplify_loc != "Unknown":
-                return simplify_loc
+
         location_labels = [
             "Location:",
             "Office Location:",
@@ -226,22 +236,70 @@ class LocationProcessor:
                     cleaned = LocationProcessor._clean_location_text(location)
                     if cleaned and cleaned != "Unknown":
                         return cleaned
+
         location_pattern = r"\b([A-Z][a-z]+(?:\s+[A-Z][a-z]+)?),\s*([A-Z]{2})\b"
         matches = re.findall(location_pattern, page_text[:2000])
         if matches:
             city, state = matches[0]
             if state in US_STATES.values():
                 return f"{city}, {state}"
+
         if "Remote" in page_text[:1500] or "remote" in page_text[:1500].lower():
             return "Remote"
+
         if title:
             title_location = LocationProcessor._extract_location_from_title(title)
             if title_location and title_location != "Unknown":
                 return title_location
+
         extracted = LocationProcessor._aggressive_page_scan(soup)
         if extracted and extracted != "Unknown":
             return extracted
+
         return "Unknown"
+
+    @staticmethod
+    def _extract_from_linkedin(soup):
+        if not soup:
+            return None
+
+        page_text = soup.get_text()
+
+        criteria_match = re.search(
+            r"Location.*?([A-Z][a-z]+(?:\s+[A-Z][a-z]+)?(?:,\s*[A-Z]{2})?)",
+            page_text[:2000],
+            re.I,
+        )
+        if criteria_match:
+            location = criteria_match.group(1).strip()
+            if "," in location:
+                parts = location.split(",")
+                if len(parts) == 2:
+                    city, state = parts[0].strip(), parts[1].strip()
+                    if len(state) == 2 and state.upper() in US_STATES.values():
+                        return f"{city}, {state.upper()}"
+                    elif state.lower() in US_STATES:
+                        state_code = US_STATES[state.lower()]
+                        return f"{city}, {state_code}"
+            city_lower = location.lower().replace(",", "").strip()
+            if city_lower in CITY_TO_STATE:
+                return f"{location.title()}, {CITY_TO_STATE[city_lower]}"
+            return location
+
+        state_match = re.search(
+            r"\b(California|New York|Texas|Washington|Massachusetts|Illinois)\b",
+            page_text[:1500],
+            re.I,
+        )
+        if state_match:
+            state_name = state_match.group(1).lower()
+            if state_name in US_STATES:
+                return US_STATES[state_name]
+
+        if re.search(r"\bRemote\b", page_text[:1000]):
+            return "Remote"
+
+        return None
 
     @staticmethod
     def _extract_from_visible_elements(soup):
@@ -257,6 +315,7 @@ class LocationProcessor:
                     state, city = match.groups()
                     return f"{city}, {state}"
                 return location
+
         job_location = soup.find(attrs={"itemprop": "jobLocation"})
         if job_location:
             locality = job_location.find(attrs={"itemprop": "addressLocality"})
@@ -267,6 +326,7 @@ class LocationProcessor:
                 if len(state) > 2:
                     state = STATE_NAME_TO_CODE.get(state.lower(), state[:2].upper())
                 return f"{city}, {state}"
+
         spl_location = soup.find("spl-job-location")
         if spl_location:
             formatted = spl_location.get("formattedaddress", "") or spl_location.get(
@@ -276,6 +336,7 @@ class LocationProcessor:
                 match = re.search(r"([A-Z][a-z\s]+),\s*([A-Z]{2})", formatted)
                 if match:
                     return f"{match.group(1)}, {match.group(2)}"
+
         job_details = soup.find("ul", class_=re.compile(r"job-details", re.I))
         if job_details:
             for li in job_details.find_all("li"):
@@ -285,9 +346,10 @@ class LocationProcessor:
                     city, state = match.groups()
                     if state in US_STATES.values():
                         return f"{city}, {state}"
+
         page_text = soup.get_text()[:15000]
         state_name_match = re.search(
-            r"([A-Z][a-z\s]+),\s+(Illinois|California|Texas|Pennsylvania|Kansas|Maryland|Georgia|Arizona|Washington|Michigan|Ohio|Florida|Massachusetts|Virginia|New York)",
+            r"([A-Z][a-z\s]+),\s+(Illinois|California|Texas|Pennsylvania|Maryland|Georgia|Washington|Michigan|Ohio|Florida|Massachusetts|Virginia|New York)",
             page_text,
             re.I,
         )
@@ -296,6 +358,7 @@ class LocationProcessor:
             state_name = state_name_match.group(2).lower()
             state_code = STATE_NAME_TO_CODE.get(state_name, state_name[:2].upper())
             return f"{city}, {state_code}"
+
         return None
 
     @staticmethod
@@ -321,8 +384,6 @@ class LocationProcessor:
                                         state.lower(), state[:2].upper()
                                     )
                                     return f"{city}, {state_code}"
-                                elif city:
-                                    return city
                             elif city:
                                 return city
             except:
@@ -381,32 +442,20 @@ class LocationProcessor:
                 "engineer",
                 "developer",
                 "analyst",
-                "shift",
-                "1st",
-                "2nd",
-                "3rd",
-                "may",
-                "june",
-                "july",
-                "august",
                 "bs",
                 "ms",
                 "phd",
-                "bachelor",
-                "master",
                 "2025",
                 "2026",
             ]
             if any(kw in part_lower for kw in skip_keywords):
                 continue
             if part_lower in CITY_TO_STATE:
-                state = CITY_TO_STATE[part_lower]
-                return f"{part_clean.title()} - {state}"
+                return f"{part_clean.title()} - {CITY_TO_STATE[part_lower]}"
             if len(part_clean.split()) >= 2:
                 multi_word_lower = " ".join(part_clean.lower().split())
                 if multi_word_lower in CITY_TO_STATE:
-                    state = CITY_TO_STATE[multi_word_lower]
-                    return f"{part_clean.title()} - {state}"
+                    return f"{part_clean.title()} - {CITY_TO_STATE[multi_word_lower]}"
         return None
 
     @staticmethod
@@ -422,6 +471,7 @@ class LocationProcessor:
                     return part
             if parts:
                 location_text = parts[0].strip()
+
         stop_keywords = [
             "Employment",
             "Type",
@@ -435,6 +485,7 @@ class LocationProcessor:
             if keyword in location_text:
                 location_text = location_text.split(keyword)[0].strip()
                 break
+
         match = re.search(
             r"^([A-Z][a-z]+(?:\s+[A-Z][a-z]+)*),?\s*([A-Z]{2})?", location_text
         )
@@ -448,6 +499,7 @@ class LocationProcessor:
                 if city_lower in CITY_TO_STATE:
                     return f"{city} - {CITY_TO_STATE[city_lower]}"
                 return city
+
         if 3 <= len(location_text) <= 100:
             return location_text
         return original
@@ -468,6 +520,7 @@ class LocationProcessor:
         )
         if match:
             return f"{match.group(1)}, {match.group(2)}"
+
         location_div = soup.find("div", class_=re.compile("location", re.I))
         if location_div:
             text = location_div.get_text(separator="|||").strip()
@@ -485,28 +538,6 @@ class LocationProcessor:
                         first_part = first_part.split(keyword)[0].strip()
                         break
                 return first_part if len(first_part) > 2 else None
-        meta = soup.find("meta", {"property": "og:street-address"})
-        if meta and meta.get("content"):
-            return meta.get("content")
-        match = re.search(r"\b([A-Z][a-z]+),\s*([A-Z]{2})\b", page_text[:3000])
-        if match:
-            city, state = match.groups()
-            us_states_list = [
-                "CA",
-                "NY",
-                "WA",
-                "TX",
-                "IL",
-                "MA",
-                "AZ",
-                "NC",
-                "OH",
-                "FL",
-                "PA",
-                "GA",
-            ]
-            if state in us_states_list:
-                return f"{city}, {state}"
         return None
 
     @staticmethod
@@ -534,24 +565,6 @@ class LocationProcessor:
         if "/remote" in url_lower or "remote-" in url_lower:
             return "Remote"
         return None
-
-    @staticmethod
-    def _extract_from_simplify_page(soup):
-        try:
-            page_text = soup.get_text()
-            match = re.search(r"Location:\s*([A-Za-z\s,]+,\s*[A-Z]{2})", page_text)
-            if match:
-                return match.group(1).strip()
-            match = re.search(
-                r"\b([A-Z][a-z]+(?:\s+[A-Z][a-z]+)?),\s*([A-Z]{2})\b", page_text[:1000]
-            )
-            if match:
-                city, state = match.group(1), match.group(2)
-                if state in US_STATES.values():
-                    return f"{city}, {state}"
-            return None
-        except:
-            return None
 
     @staticmethod
     def extract_remote_status_enhanced(soup, location, url):
@@ -585,96 +598,63 @@ class LocationProcessor:
             city, state = WORKDAY_HQ_CODES[location]
             if state != "UNKNOWN":
                 return f"{city} - {state}"
+
         original = location.strip()
         location = re.sub(r"\s*\([^)]*\)\s*", " ", location)
         location = re.sub(r"\s*\([^)]*$", "", location)
         location = location.strip()
         location = re.sub(r"\s*-\s*[A-Z]{2,4}$", "", location)
-        company_prefixes = ["Corporate", "Headquarters", "Office", "Campus", "ascena"]
+
+        company_prefixes = ["Corporate", "Headquarters", "Office", "Campus"]
         for prefix in company_prefixes:
             location = re.sub(f"^{prefix}\\s+", "", location, flags=re.I)
-            location = re.sub(f"{prefix}\\s*[-–—]\\s*", "", location, flags=re.I)
-        location = location.strip()
+
         location = re.sub(
             r",?\s*\d{3,5}\s+[A-Z][a-z]+(?:\s+[A-Z][a-z]+)?", "", location
         )
         location = re.sub(
-            r",?\s*\d{1,5}\s+(?:Street|St|Avenue|Ave|Road|Rd|Drive|Dr|Boulevard|Blvd)",
-            "",
-            location,
-            flags=re.I,
+            r",?\s*\d{1,5}\s+(?:Street|St|Avenue|Ave|Road|Rd)", "", location, flags=re.I
         )
         location = location.strip(", ")
+
         match = re.search(r"^([A-Z]{2})\s+(.+)$", location)
         if match:
             state, rest = match.groups()
             if state in US_STATES.values():
-                rest = re.sub(r"\s*-\s*[A-Z]{2,4}$", "", rest)
                 return f"{rest.strip()} - {state}"
+
         match = re.search(
             r"^([A-Z]{2})\s*-\s*([A-Z][a-z]+(?:\s+[A-Z][a-z]+)*)", location
         )
         if match:
-            state = match.group(1).upper()
-            city = match.group(2).strip()
+            state, city = match.group(1).upper(), match.group(2).strip()
             if state in US_STATES.values():
                 return f"{city} - {state}"
-        match = re.search(
-            r"^US\s+([A-Z]{2})\s+([A-Z][a-z]+(?:\s+[A-Z][a-z]+)*)", location
-        )
-        if match:
-            state = match.group(1).upper()
-            city = match.group(2).strip()
-            if state in US_STATES.values():
-                return f"{city} - {state}"
+
         location = re.sub(r"^[A-Z]{2}[A-Z]{2}\d{2,4}:?\s*", "", location)
-        location = re.sub(
-            r"\s+(Green\s+St|Street|St|Avenue|Ave|Road|Rd|Drive|Dr|Boulevard|Blvd)\b",
-            "",
-            location,
-            flags=re.I,
-        )
-        if location.strip() in ["Headquarters", "Office", "Campus", "Building"]:
+        location = re.sub(r"\s+(Street|Ave|Road|Rd)\b", "", location, flags=re.I)
+
+        if location.strip() in ["Headquarters", "Office", "Campus"]:
             return "Unknown"
+
         location = re.sub(
-            r"(Team|Department|Division|Group|Office|Building|Campus).*$",
-            "",
-            location,
-            flags=re.I,
+            r"(Team|Department|Office|Building).*$", "", location, flags=re.I
         )
         location = location.strip()
         location = re.sub(r"\s*\d{5}(-\d{4})?\s*", " ", location)
-        location = re.sub(
-            r",?\s*(?:USA|U\.S\.A\.|United States)\s*", "", location, flags=re.I
-        )
-        location = re.sub(r"^[A-Z]{2}\d+:\s*", "", location)
-        location = re.sub(
-            r"\s*(?:Bldg|Building|Office|Suite|Floor|Drive|Street|Road|Avenue|Concord).*$",
-            "",
-            location,
-            flags=re.I,
-        )
+        location = re.sub(r",?\s*(?:USA|United States)\s*", "", location, flags=re.I)
+
         match = re.search(r"([A-Z][a-z]+(?:\s+[A-Z][a-z]+)*),\s*([A-Z]{2})\b", location)
         if match:
-            city = match.group(1).strip()
-            state = match.group(2).upper()
+            city, state = match.group(1).strip(), match.group(2).upper()
             if state in US_STATES.values():
                 return f"{city} - {state}"
+
         location_clean = re.sub(r"\s+", " ", location).strip()
         location_lower = location_clean.lower()
         if location_lower in CITY_TO_STATE:
             return f"{location_clean.title()} - {CITY_TO_STATE[location_lower]}"
-        known_cities = {
-            "san jose": "CA",
-            "san francisco": "CA",
-            "seattle": "WA",
-            "newark": "CA",
-            "milpitas": "CA",
-            "chicago": "IL",
-            "scottsdale": "AZ",
-        }
-        if location_lower in known_cities:
-            return f"{location_clean.title()} - {known_cities[location_lower]}"
+
         if PGEOCODE_AVAILABLE and 2 < len(location_clean) < 50:
             try:
                 result = _pgeocode_nomi.query_location(location_clean, top_k=1)
@@ -684,6 +664,7 @@ class LocationProcessor:
                         return f"{location_clean.title()} - {state_code}"
             except:
                 pass
+
         return location_clean
 
     @staticmethod
@@ -694,7 +675,9 @@ class LocationProcessor:
                 if page_result:
                     return page_result
             return None
+
         location_to_check = location.lower()
+
         full_provinces = {
             "ontario": "ON",
             "quebec": "QC",
@@ -706,6 +689,7 @@ class LocationProcessor:
                 if full_name == "ontario" and ", ca" in location_to_check:
                     continue
                 return f"Location: Canada ({full_name.title()})"
+
         canada_province_codes = [
             "ON",
             "QC",
@@ -717,9 +701,6 @@ class LocationProcessor:
             "NB",
             "PE",
             "NL",
-            "NT",
-            "YT",
-            "NU",
         ]
         for province in canada_province_codes:
             patterns = [
@@ -733,7 +714,6 @@ class LocationProcessor:
                         canada_cities = [
                             "toronto",
                             "ottawa",
-                            "london",
                             "kingston",
                             "hamilton",
                             "waterloo",
@@ -746,6 +726,7 @@ class LocationProcessor:
                         ):
                             continue
                     return f"Location: Canada (province: {province})"
+
         if ", CA" in location or " - CA" in location:
             canada_indicators = [
                 "ontario",
@@ -758,6 +739,7 @@ class LocationProcessor:
             if any(indicator in location_to_check for indicator in canada_indicators):
                 if "ontario, ca" not in location_to_check:
                     return "Location: Canada (CA in Canadian context)"
+
         try:
             from unidecode import unidecode
 
@@ -766,6 +748,7 @@ class LocationProcessor:
             normalized = (
                 location_to_check.replace("é", "e").replace("è", "e").replace("à", "a")
             )
+
         canadian_cities = {
             "montreal": "Canada (Montréal)",
             "toronto": "Canada (Toronto)",
@@ -773,26 +756,29 @@ class LocationProcessor:
             "vancouver": "Canada (Vancouver)",
             "calgary": "Canada (Calgary)",
             "mississauga": "Canada (Mississauga)",
-            "edmonton": "Canada (Edmonton)",
-            "quebec": "Canada (Québec)",
         }
         for city, label in canadian_cities.items():
             if city in normalized:
                 return f"Location: {label}"
+
         if "canada" in location_to_check:
             return "Location: Canada"
+
         if any(kw in location_to_check for kw in ["uk", "london", "india", "china"]):
             return f"Location: International"
+
         if soup:
             page_result = LocationProcessor._check_page_for_canada(soup)
             if page_result:
                 return page_result
+
         return None
 
     @staticmethod
     def _check_page_for_canada(soup):
         if not soup:
             return None
+
         meta_desc = soup.find("meta", {"property": "og:description"})
         if meta_desc:
             content = meta_desc.get("content", "").lower()
@@ -800,57 +786,19 @@ class LocationProcessor:
                 return "Location: Canada (from meta tag)"
             if re.search(r"ottawa.*ontario", content, re.I):
                 return "Location: Canada (Ottawa, Ontario)"
-            if re.search(r"canada\s*\(on-site\)", content, re.I):
-                return "Location: Canada (from meta)"
+
         page_text = soup.get_text()[:10000]
-        page_lower = page_text.lower()
         canadian_location_patterns = [
             (r"Ottawa\s*,?\s*Ontario", "Ottawa, Ontario"),
             (r"Toronto\s*,?\s*Ontario", "Toronto, Ontario"),
             (r"Montreal\s*,?\s*Quebec", "Montreal, Quebec"),
             (r"Vancouver\s*,?\s*(?:BC|British Columbia)", "Vancouver, BC"),
-            (r"Calgary\s*,?\s*Alberta", "Calgary, Alberta"),
         ]
         for pattern, city_name in canadian_location_patterns:
             if re.search(pattern, page_text, re.I):
                 return f"Location: Canada ({city_name})"
-        if re.search(r"Canada\s*\(.*site\)", page_text, re.I):
-            return "Location: Canada (from page)"
-        work_auth_patterns = [
-            r"eligible\s+to\s+work\s+in,?\s+and\s+located\s+in,?\s+canada",
-            r"legally\s+eligible.*(?:work\s+in|to\s+work).*canada",
-            r"canada\s+work\s+permit",
-            r"canadian\s+(?:citizen|permanent\s+resident)",
-            r"must\s+be\s+(?:located\s+in|based\s+in)\s+canada",
-        ]
-        for pattern in work_auth_patterns:
-            if re.search(pattern, page_lower, re.I):
-                return "Location: Canada (work authorization)"
-        if re.search(r"remote.*in\s+canada", page_lower, re.I):
-            return "Location: Canada (remote)"
-        return None
 
-    @staticmethod
-    def extract_remote_status_enhanced(soup, location, url):
-        if not soup:
-            return "Unknown"
-        if location:
-            location_lower = location.lower()
-            if "remote" in location_lower:
-                return "Remote"
-            if "hybrid" in location_lower:
-                return "Hybrid"
-        page_text = soup.get_text()[:2000]
-        page_lower = page_text.lower()
-        if "100% remote" in page_lower or "fully remote" in page_lower:
-            return "Remote"
-        if "remote" in page_lower[:500]:
-            return "Remote"
-        if "hybrid" in page_lower[:500]:
-            return "Hybrid"
-        if "on-site" in page_lower[:500] or "onsite" in page_lower[:500]:
-            return "On Site"
-        return "Unknown"
+        return None
 
 
 class ValidationHelper:
@@ -883,7 +831,7 @@ class ValidationHelper:
             return None
         url_lower = url.lower()
         canada_patterns = [
-            "/montral-quebec-can/",
+            "/montreal-quebec-can/",
             "/toronto-ontario/",
             "/ottawa-ontario/",
             "-quebec-can",
@@ -891,7 +839,6 @@ class ValidationHelper:
             "/can/",
             "canada/",
             ".ca/",
-            ".ca2.",
             "/ottawa",
             "/toronto",
             "/montreal",
@@ -907,14 +854,17 @@ class ValidationHelper:
     def check_page_restrictions(soup):
         if not soup:
             return None, None, []
+
         degree_decision, degree_reason = (
             ValidationHelper._check_degree_requirements_strict(soup)
         )
         if degree_decision == "REJECT":
             return degree_decision, degree_reason, []
+
         json_ld_desc = ValidationHelper._get_json_ld_description(soup)
         meta_desc = ValidationHelper._get_meta_description(soup)
         combined_meta_text = (json_ld_desc + " " + meta_desc).lower()
+
         if "social security number" in combined_meta_text:
             if re.search(
                 r"(?:must have|required).*social security number",
@@ -922,21 +872,10 @@ class ValidationHelper:
                 re.I,
             ):
                 return "REJECT", "SSN required", []
-            if re.search(
-                r"social security number.*(?:to complete|required)",
-                combined_meta_text,
-                re.I,
-            ):
-                return "REJECT", "SSN required", []
-        if re.search(r"ottawa.*ontario", combined_meta_text, re.I):
-            return "REJECT", "Location: Canada (Ottawa, Ontario)", []
-        if re.search(r"canada\s*\(on-site\)", combined_meta_text, re.I):
-            return "REJECT", "Location: Canada", []
+
         page_text = soup.get_text()
         page_lower = page_text.lower()
-        review_flags = []
 
-        # ENHANCED: Citizenship patterns
         citizenship_patterns = [
             r"u\.?s\.?\s+citizenship\s+is\s+required",
             r"u\.?s\.?\s+citizen(?:ship)?\s+required",
@@ -955,96 +894,23 @@ class ValidationHelper:
             r"us work authorization required",
             r"must have us work authorization",
             r"requires us work authorization",
-            r"valid us work authorization",
-            r"authorized to work in the us",
         ]
         for pattern in work_auth_patterns:
             if re.search(pattern, page_lower, re.I):
                 return "REJECT", "US work authorization required", []
 
-        page_normalized = " ".join(page_text.split())[:10000].lower()
-        ssn_patterns = [
-            r"social security number.*complete.*hiring",
-            r"must have.*social security number",
-            r"valid.*social security number.*complete",
-            r"social security number.*required",
-        ]
-        for pattern in ssn_patterns:
-            match = re.search(pattern, page_normalized, re.I)
-            if match:
-                context_start = max(0, match.start() - 100)
-                context_end = min(len(page_normalized), match.end() + 100)
-                context = page_normalized[context_start:context_end]
-                if "preferred" in context or "optional" in context:
-                    continue
-                return "REJECT", "SSN required", []
-
-        university_pattern = r"(?:from|attending|enrolled\s+at)\s+([A-Z][a-z]+(?:\s+[A-Z][a-z]+)?)\s+University"
-        matches = re.finditer(university_pattern, page_text, re.I)
-        for match in matches:
-            university_name = match.group(1)
-            generic_words = [
-                "an",
-                "a",
-                "any",
-                "accredited",
-                "top",
-                "leading",
-                "participating",
-            ]
-            if university_name.lower() in generic_words:
-                continue
-            specific_schools = [
-                "Drexel",
-                "MIT",
-                "Stanford",
-                "Cornell",
-                "Carnegie Mellon",
-            ]
-            if university_name in specific_schools:
-                return "REJECT", f"{university_name} University students only", []
-            review_flags.append(f"⚠️ Check if {university_name} University only")
-
-        if re.search(r"cooperative learning track", page_text, re.I):
-            if re.search(r"Drexel", page_text, re.I):
-                return "REJECT", "Drexel cooperative program only", []
-
         clearance_requirement_patterns = [
             r"must be able to obtain.*clearance",
-            r"must be able to.*maintain.*clearance",
-            r"shall.*obtain.*clearance",
-            r"ability to obtain.*clearance.*required",
-            r"obtain and maintain.*clearance",
-            r"applicable security clearance",
-            r"government clearance",
             r"clearance.*required",
         ]
         for pattern in clearance_requirement_patterns:
             if re.search(pattern, page_lower, re.I):
                 return "REJECT", "Security clearance required", []
 
-        clearance_mentions = [
-            m.start() for m in re.finditer(r"\bclearance\b", page_lower, re.I)
-        ]
-        for mention_pos in clearance_mentions:
-            context = page_lower[
-                max(0, mention_pos - 250) : min(len(page_lower), mention_pos + 250)
-            ]
-            requirement_keywords = ["required", "must have", "must obtain", "necessary"]
-            if any(kw in context for kw in requirement_keywords):
-                if "preferred" not in context:
-                    return "REJECT", "Security clearance required", []
-
-        if review_flags:
-            return None, None, review_flags
         return None, None, []
 
     @staticmethod
     def _check_degree_requirements_strict(soup):
-        """
-        ENHANCED: Comprehensive degree requirement detection with 30+ patterns.
-        Returns: (decision, reason) where decision is "REJECT" or None
-        """
         if not soup:
             return None, None
 
@@ -1069,26 +935,17 @@ class ValidationHelper:
             + qual_section_text
         ).lower()
 
-        # Bachelor's-only patterns (EXPANDED)
         bs_definite_patterns = [
             r"undergraduate\s+(?:junior|senior)\s+(?:and\s+senior\s+)?level\s+students?",
             r"undergraduate\s+(?:junior|senior)\s+(?:or|and)\s+senior\s+level\s+students?",
             r"current\s+(?:junior|senior)\s+pursuing",
             r"(?:junior|senior)\s+year\s+students?",
-            r"(?:junior|senior)\s+level\s+students?",
             r"(?:3rd|4th)\s+year\s+students?",
-            r"(?:third|fourth)\s+year\s+students?",
-            r"(?:junior|senior)\s+standing",
-            r"junior\s+or\s+senior\s+pursuing",
             r"undergraduate\s+students?\s+majoring\s+in",
             r"undergraduate\s+students?\s+in",
             r"for\s+undergraduate\s+students?",
-            r"seeking\s+undergraduate\s+students?",
-            r"looking\s+for\s+undergraduate\s+(?:junior|senior)",
             r"pursuing\s+an?\s+undergraduate\s+degree\s+in",
             r"enrolled\s+in\s+an?\s+undergraduate\s+degree",
-            r"candidate\s+for\s+an?\s+undergraduate\s+degree",
-            r"currently\s+(?:pursuing|enrolled\s+in)\s+an?\s+undergraduate\s+degree",
             r"bachelor'?s?\s+degree\s+program\s+majoring\s+in",
             r"bachelor'?s?\s+degree\s+program\s+in",
             r"pursuing\s+(?:a|their)\s+bachelor'?s?\s+degree\s+in",
@@ -1097,30 +954,20 @@ class ValidationHelper:
             r"candidate\s+for\s+(?:a|an)\s+bachelor'?s?\s+degree",
             r"currently\s+a\s+candidate\s+for\s+a\s+bachelor",
             r"pursuing\s+a\s+ba/bs\s+degree\s+in",
-            r"pursuing\s+a\s+bs/ba\s+degree\s+in",
-            r"pursuing\s+(?:a\s+)?ba\s+or\s+bs\s+(?:degree\s+)?in",
-            r"college\s+student\s+pursuing\s+(?:a|an)\s+ba\s+in",
-            r"college\s+student\s+pursuing\s+(?:a|an)\s+bs\s+in",
+            r"college\s+student\s+pursuing\s+(?:a|an)\s+ba",
             r"must\s+be\s+(?:currently\s+)?enrolled\s+in\s+(?:a|an)\s+bachelor'?s?",
             r"must\s+be\s+(?:currently\s+)?pursuing\s+(?:a|an)\s+bachelor'?s?",
-            r"require(?:s|d)?\s+(?:currently\s+)?pursuing\s+(?:a|an)\s+bachelor'?s?",
             r"only\s+(?:for\s+)?bachelor'?s?\s+(?:degree\s+)?students?",
-            r"bachelor'?s?\s+degree\s+students?\s+only",
         ]
 
-        # Inclusive modifiers (OVERRIDE Bachelor's-only)
         inclusive_modifiers = [
             r"bachelor'?s?\s+(?:degree\s+)?(?:program\s+)?or\s+higher",
             r"bachelor'?s?\s+or\s+master'?s?",
             r"bachelor'?s?\s+or\s+graduate\s+(?:degree|student)",
             r"bachelor'?s?\s+or\s+ms\b",
-            r"bachelor'?s?\s+or\s+m\.s\.",
-            r"bachelor'?s?\s+or\s+m\.s\b",
             r"undergraduate\s+or\s+graduate",
             r"bs/ms\b",
-            r"ba/ms\b",
             r"bachelor'?s?/master'?s?",
-            r"bachelor'?s?\s+degree\s+or\s+equivalent",
         ]
 
         for pattern in bs_definite_patterns:
@@ -1130,64 +977,40 @@ class ValidationHelper:
                 end = min(len(combined), match.end() + 300)
                 context = combined[start:end]
 
-                has_inclusive = False
-                for inclusive_pattern in inclusive_modifiers:
-                    if re.search(inclusive_pattern, context, re.I):
-                        has_inclusive = True
-                        break
-
+                has_inclusive = any(
+                    re.search(inc, context, re.I) for inc in inclusive_modifiers
+                )
                 if has_inclusive:
                     continue
 
-                preference_keywords = [
-                    "preferred",
-                    "ideal",
-                    "nice to have",
-                    "plus",
-                    "ideally",
-                    "bonus",
-                    "a plus",
-                ]
-                is_preferred = any(kw in context for kw in preference_keywords)
-
+                is_preferred = any(
+                    kw in context
+                    for kw in ["preferred", "ideal", "nice to have", "bonus"]
+                )
                 if is_preferred:
                     continue
 
-                master_keywords = [
-                    "master's",
-                    "masters",
-                    "master",
-                    "graduate student",
-                    "m.s.",
-                    " ms ",
-                    "ms/",
-                    "graduate degree",
-                ]
-                has_masters = any(kw in context for kw in master_keywords)
-
+                has_masters = any(
+                    kw in context
+                    for kw in [
+                        "master's",
+                        "masters",
+                        "graduate student",
+                        " ms ",
+                        "graduate degree",
+                    ]
+                )
                 if not has_masters:
                     return "REJECT", "Bachelor's students only"
 
-        # PhD-only patterns (EXPANDED)
         phd_definite_patterns = [
             r"must\s+be\s+pursuing\s+a\s+phd",
-            r"must\s+be\s+enrolled\s+in\s+a\s+phd",
             r"currently\s+pursuing\s+a\s+phd?\s+(?:degree\s+)?in",
             r"phd?\s+candidates?\s+to\s+intern",
             r"looking\s+for\s+phd?\s+candidates?",
-            r"seeking\s+phd?\s+candidates?",
-            r"we'?re\s+looking\s+for\s+phd?\s+candidates?",
-            r"phd?\s+student(?:s)?\s+in\s+(?:computer|electrical|data)",
-            r"phd?\s+student(?:s)?\s+to\s+intern",
+            r"phd?\s+student(?:s)?\s+in",
             r"phd?.*having\s+completed\s+at\s+least",
-            r"phd?.*?(?:with|having)\s+(?:completed|finished)\s+\d+\s+years?",
-            r"at\s+least\s+\d+\s+years?\s+of\s+(?:the\s+)?phd?\s+program",
-            r"completed\s+at\s+least\s+\d+\s+years?\s+of\s+(?:the\s+)?phd",
             r"phd?\s+\(enrolled\s+student\)",
-            r"phd?\s+\(current\s+student\)",
-            r"phd\s+intern\b",
-            r"phd\s+summer\s+intern",
-            r"phd\s+research\s+intern",
         ]
 
         for pattern in phd_definite_patterns:
@@ -1197,29 +1020,15 @@ class ValidationHelper:
                 end = min(len(combined), match.end() + 300)
                 context = combined[start:end]
 
-                preference_keywords = [
-                    "preferred",
-                    "ideal",
-                    "open to",
-                    "nice to have",
-                    "or ",
-                    "bonus",
-                ]
-                is_preferred = any(kw in context for kw in preference_keywords)
-
+                is_preferred = any(
+                    kw in context for kw in ["preferred", "ideal", "open to"]
+                )
                 if is_preferred:
                     continue
 
-                master_keywords = [
-                    "master",
-                    "graduate student",
-                    "m.s.",
-                    " ms ",
-                    "ms/phd",
-                    "master's",
-                ]
-                has_masters = any(kw in context for kw in master_keywords)
-
+                has_masters = any(
+                    kw in context for kw in ["master", "graduate student", " ms "]
+                )
                 if not has_masters:
                     return "REJECT", "PhD students only"
 
@@ -1229,7 +1038,7 @@ class ValidationHelper:
                 title_text = title_tag.get_text().lower()
                 if re.search(r"phd.*intern", title_text[:200]):
                     if not re.search(
-                        r"master|graduate\s+student|m\.s\.|ms\b", required_text, re.I
+                        r"master|graduate\s+student|ms\b", required_text, re.I
                     ):
                         return "REJECT", "PhD students only"
         except:
@@ -1239,8 +1048,7 @@ class ValidationHelper:
 
     @staticmethod
     def _extract_requirement_sections(soup):
-        """NEW: Extract distinct Required vs Preferred sections."""
-        sections = {"required": None, "preferred": None, "qualifications": None}
+        sections = {"required": None, "preferred": None}
 
         try:
             headers = soup.find_all(["h2", "h3", "h4", "strong", "b"])
@@ -1258,11 +1066,8 @@ class ValidationHelper:
                     for kw in [
                         "required qualifications",
                         "minimum requirements",
-                        "minimum qualifications",
                         "must have",
-                        "required skills",
                         "requirements:",
-                        "candidate qualifications",
                         "basic qualifications",
                     ]
                 ):
@@ -1275,14 +1080,9 @@ class ValidationHelper:
                         "nice to have",
                         "ideal candidate",
                         "bonus",
-                        "preferred:",
-                        "ideal:",
-                        "preferred requirements",
                     ]
                 ):
                     section_type = "preferred"
-                elif "qualifications" in header_text or "requirements" in header_text:
-                    section_type = "qualifications"
 
                 if not section_type:
                     continue
@@ -1310,10 +1110,7 @@ class ValidationHelper:
         try:
             qual_headers = soup.find_all(
                 ["h2", "h3"],
-                text=re.compile(
-                    r"(Qualifications|Requirements|Basic Qualifications|Required Qualifications)",
-                    re.I,
-                ),
+                text=re.compile(r"(Qualifications|Requirements)", re.I),
             )
             qual_text = []
             for header in qual_headers:
@@ -1354,37 +1151,25 @@ class ValidationHelper:
         if not company or company == "Unknown" or not company.strip():
             company_from_url = ValidationHelper.extract_company_from_domain(url)
             return True, company_from_url, None
+
         company = company.strip()
+
         if not ValidationHelper.is_valid_company_name(company):
             company_from_url = ValidationHelper.extract_company_from_domain(url)
             return True, company_from_url, None
+
         if len(company) > 100:
             return False, company, "Company name too long"
-        generic_ui_text = [
-            "Cookie Consent",
-            "Privacy Policy",
-            "Terms of Service",
-            "Sign In",
-            "Log In",
-            "Apply Now",
-            "Get Started",
-            "Accept Cookies",
-            "Manage Cookies",
-            "Privacy Settings",
-        ]
-        for generic in generic_ui_text:
-            if generic.lower() in company.lower():
-                company_from_url = ValidationHelper.extract_company_from_domain(url)
-                return True, company_from_url, None
+
         job_keywords = ["intern", "software", "engineer", "developer"]
         keyword_count = sum(1 for kw in job_keywords if kw in company.lower())
         if keyword_count >= 2:
             return False, company, "Company field contains job title"
+
         return True, company, None
 
     @staticmethod
     def is_valid_company_name(name):
-        """ENHANCED: Stricter company name validation."""
         if not name or not name.strip():
             return False
 
@@ -1394,7 +1179,6 @@ class ValidationHelper:
         if name.lower() in [p.lower() for p in COMPANY_PLACEHOLDERS]:
             return False
 
-        # Check for job board / UI keywords
         invalid_keywords = [
             "careers",
             "jobs",
@@ -1406,10 +1190,7 @@ class ValidationHelper:
         if any(kw == name.lower() for kw in invalid_keywords):
             return False
 
-        # Check for internal codes
         if re.match(r"^[A-Z]{2,4}-", name):
-            return False
-        if re.match(r"^[A-Z]{2,4}\s+", name):
             return False
 
         if name.isupper() and len(name) < 10:
@@ -1424,17 +1205,13 @@ class ValidationHelper:
 
     @staticmethod
     def clean_legal_entity(company):
-        """ENHANCED: Clean company names by removing codes and legal entities."""
         if not company:
             return company
 
         company = re.sub(r"^\d+\s+", "", company)
         company = re.sub(r"^US\d+\s+", "", company)
-
-        # Remove internal codes
         company = re.sub(r"^[A-Z]{2,4}-", "", company)
         company = re.sub(r"^[A-Z]{2,4}\s+", "", company)
-
         company = re.sub(
             r",?\s+(Inc\.?|LLC\.?|Corp\.?|Ltd\.?|Corporation|Corp\s+Svcs\.?)$",
             "",

@@ -38,9 +38,10 @@ from config import (
     US_STATES,
     SPECIAL_COMPANY_NAMES,
     URL_TO_COMPANY_MAPPING,
-    COMPANY_NAME_STOPWORDS,
     COMPANY_PLACEHOLDERS,
 )
+
+from utils import PlatformDetector, CompanyNormalizer, CompanyValidator
 
 
 class JobrightAuthenticator:
@@ -414,215 +415,104 @@ class PageFetcher:
 class PageParser:
     @staticmethod
     def extract_company(soup, url):
-        """
-        ENHANCED: Extract company name with multi-stage fallback strategy.
-        Priority: URL mapping > Subdomain > Meta > Visible > JSON-LD > Domain
-        """
-        # STAGE 0: Direct URL mapping (HIGHEST PRIORITY - bypasses all extraction)
+        platform = PlatformDetector.detect(url)
+
         for pattern, company_name in URL_TO_COMPANY_MAPPING.items():
             if re.search(pattern, url, re.I):
                 return company_name
 
-        # STAGE 1: Smart subdomain extraction for job board platforms
+        path_company = CompanyNormalizer.extract_from_url_path(url, platform)
+        if path_company and CompanyValidator.is_valid(path_company):
+            return path_company
+
         url_lower = url.lower()
 
-        # Workday: Extract subdomain before .wd
-        workday_match = re.search(
-            r"https?://([^/]+)\.wd\d+\.myworkdayjobs\.com", url, re.I
-        )
-        if workday_match:
-            subdomain = workday_match.group(1)
-            company = subdomain.replace("-", " ").replace("_", " ").title()
-            if (
-                company
-                and len(company) < 50
-                and PageParser._validate_company_name(company)
-            ):
-                return company
+        if platform == "workday":
+            workday_match = re.search(
+                r"https?://([^/]+)\.wd\d+\.myworkdayjobs\.com", url, re.I
+            )
+            if workday_match:
+                subdomain = workday_match.group(1)
+                normalized = CompanyNormalizer.normalize(subdomain, url)
+                if normalized and CompanyValidator.is_valid(normalized):
+                    return normalized
 
-        # iCIMS: Extract from subdomain (handle "careers-company" or "company-careers")
-        icims_match = re.search(r"https?://([^/]+)\.icims\.com", url, re.I)
-        if icims_match:
-            subdomain = icims_match.group(1)
-            if "-" in subdomain:
-                parts = subdomain.split("-")
-                # Try last part first (usually company), then first part
-                for part in [parts[-1], parts[0]]:
-                    company = part.replace("_", " ").title()
-                    if (
-                        company.lower() not in ["careers", "jobs", "external"]
-                        and len(company) > 2
-                    ):
-                        if PageParser._validate_company_name(company):
-                            return company
-            else:
-                company = subdomain.replace("_", " ").title()
-                if PageParser._validate_company_name(company):
-                    return company
+        elif platform == "icims":
+            icims_match = re.search(r"https?://([^/]+)\.icims\.com", url, re.I)
+            if icims_match:
+                subdomain = icims_match.group(1)
+                if "-" in subdomain:
+                    parts = subdomain.split("-")
+                    for part in [parts[-1], parts[0]]:
+                        normalized = CompanyNormalizer.normalize(part, url)
+                        if normalized and CompanyValidator.is_valid(normalized):
+                            return normalized
+                else:
+                    normalized = CompanyNormalizer.normalize(subdomain, url)
+                    if normalized and CompanyValidator.is_valid(normalized):
+                        return normalized
 
-        # STAGE 2: Meta tag extraction
         meta_company = PageParser._extract_company_from_meta(soup)
         if meta_company:
-            cleaned = PageParser._clean_company_name(meta_company)
-            if cleaned and PageParser._validate_company_name(cleaned):
-                return cleaned
+            normalized = CompanyNormalizer.normalize(meta_company, url)
+            if normalized and CompanyValidator.is_valid(normalized):
+                return normalized
 
-        # STAGE 3: Visible text extraction
         visible_company = PageParser._extract_company_from_visible(soup, url)
         if visible_company:
-            cleaned = PageParser._clean_company_name(visible_company)
-            if cleaned and PageParser._validate_company_name(cleaned):
-                return cleaned
+            normalized = CompanyNormalizer.normalize(visible_company, url)
+            if normalized and CompanyValidator.is_valid(normalized):
+                return normalized
 
-        # STAGE 4: JSON-LD extraction
         json_ld_company = PageParser._extract_company_from_json_ld(soup)
         if json_ld_company:
             from processors import ValidationHelper
 
-            if ValidationHelper.is_valid_company_name(json_ld_company):
-                cleaned = ValidationHelper.clean_legal_entity(json_ld_company)
-                cleaned2 = PageParser._clean_company_name(cleaned)
-                if cleaned2 and PageParser._validate_company_name(cleaned2):
-                    return cleaned2
+            cleaned = ValidationHelper.clean_legal_entity(json_ld_company)
+            normalized = CompanyNormalizer.normalize(cleaned, url)
+            if normalized and CompanyValidator.is_valid(normalized):
+                return normalized
 
-        # STAGE 5: Special URL mappings (fallback for specific sites)
         url_company_map = [
             ("careers.sig.com", "Susquehanna International Group"),
             ("sig.com/job", "Susquehanna International Group"),
             ("lever.co/nimblerx", "NimbleRx"),
-            ("nimblerx", "NimbleRx"),
             ("nuro.ai", "Nuro"),
             ("jobs.nuro.team", "Nuro"),
             ("singlestore.com/careers", "SingleStore"),
-            ("careers.singlestore", "SingleStore"),
         ]
         for url_pattern, company_name in url_company_map:
             if url_pattern in url_lower:
                 return company_name
 
-        # STAGE 6: Domain fallback (ONLY if not a job board)
         is_job_board = any(board in url_lower for board in JOB_BOARD_DOMAINS)
         if not is_job_board:
             from processors import ValidationHelper
 
             domain_company = ValidationHelper.extract_company_from_domain(url)
             if domain_company and domain_company != "Unknown":
-                cleaned = PageParser._clean_company_name(domain_company)
-                if cleaned and PageParser._validate_company_name(cleaned):
-                    return cleaned
+                normalized = CompanyNormalizer.normalize(domain_company, url)
+                if normalized and CompanyValidator.is_valid(normalized):
+                    return normalized
 
         return "Unknown"
-
-    @staticmethod
-    def _clean_company_name(name):
-        """NEW: Remove common stopwords and clean company names."""
-        if not name:
-            return None
-
-        original = name
-
-        # Remove stopwords
-        for stopword in COMPANY_NAME_STOPWORDS:
-            name = name.replace(stopword, "")
-
-        # Remove extra whitespace
-        name = re.sub(r"\s+", " ", name).strip()
-
-        # If result is just a generic word, return None
-        generic_words = [
-            "careers",
-            "jobs",
-            "work",
-            "join",
-            "external",
-            "portal",
-            "applicant",
-        ]
-        if name.lower() in generic_words:
-            return None
-
-        # If result is empty or too short, return None
-        if not name or len(name) < 2:
-            return None
-
-        # Clean internal codes (e.g., "ADUS-Adobe" → "Adobe")
-        name = re.sub(r"^[A-Z]{2,4}-", "", name)
-        name = re.sub(r"^[A-Z]{2,4}\s+", "", name)
-
-        # Clean legal entities and extra text
-        name = re.sub(
-            r"\s+(Corp\.?\s+Svcs\.?|Corporation|Inc\.?|LLC|Ltd\.?)$",
-            "",
-            name,
-            flags=re.I,
-        )
-        name = name.strip()
-
-        return name if len(name) > 1 else None
-
-    @staticmethod
-    def _validate_company_name(name):
-        """NEW: Validate that extracted name is actually a company, not UI text."""
-        if not name or not name.strip():
-            return False
-
-        # Check against placeholders
-        if name in COMPANY_PLACEHOLDERS or name.lower() in [
-            p.lower() for p in COMPANY_PLACEHOLDERS
-        ]:
-            return False
-
-        # Check for job board/UI keywords
-        invalid_keywords = [
-            "careers",
-            "jobs",
-            "external",
-            "applicant",
-            "portal",
-            "apply",
-            "join",
-        ]
-        name_lower = name.lower()
-        if any(kw == name_lower for kw in invalid_keywords):
-            return False
-
-        # Check if too long
-        if len(name) > 60:
-            return False
-
-        # Check if all caps and short (likely code)
-        if name.isupper() and len(name) < 10 and not any(c.isdigit() for c in name):
-            return False
-
-        # Check if looks like a title
-        title_indicators = ["intern", "engineer", "developer", "software"]
-        keyword_count = sum(1 for kw in title_indicators if kw in name_lower)
-        if keyword_count >= 2:
-            return False
-
-        return True
 
     @staticmethod
     def _extract_company_from_meta(soup):
         if not soup:
             return None
-        from processors import ValidationHelper
-
         meta = soup.find("meta", {"property": "og:site_name"})
         if meta and meta.get("content"):
             company = meta.get("content").strip()
             company = re.sub(r"\s*[-|]\s*(careers|jobs).*$", "", company, flags=re.I)
             if company and len(company) < 50:
-                if ValidationHelper.is_valid_company_name(company):
-                    return company
+                return company
         return None
 
     @staticmethod
     def _extract_company_from_visible(soup, url):
         if not soup:
             return None
-        from processors import ValidationHelper
-
         url_lower = url.lower() if url else ""
 
         if "icims.com" in url_lower or "university-" in url_lower:
@@ -630,23 +520,19 @@ class PageParser:
             if mobile_header:
                 h1 = mobile_header.find("h1")
                 if h1:
-                    company = h1.get_text().strip()
-                    if ValidationHelper.is_valid_company_name(company):
-                        return company
+                    return h1.get_text().strip()
             mobile_link = soup.find("a", class_=re.compile(r"MobileHeaderLink", re.I))
             if mobile_link:
                 h1 = mobile_link.find("h1")
                 if h1:
-                    company = h1.get_text().strip()
-                    if ValidationHelper.is_valid_company_name(company):
-                        return company
+                    return h1.get_text().strip()
 
         if "smartrecruiters" in url_lower:
             logo = soup.find("img", alt=re.compile(r"logo", re.I))
             if logo:
                 alt = logo.get("alt", "").strip()
                 alt = alt.replace(" logo", "").replace(" Logo", "")
-                if ValidationHelper.is_valid_company_name(alt):
+                if alt and len(alt) > 2:
                     return alt
 
         header = soup.find(["header", "nav"])
@@ -654,18 +540,16 @@ class PageParser:
             h1 = header.find("h1")
             if h1:
                 text = h1.get_text().strip()
-                if ValidationHelper.is_valid_company_name(text):
-                    if not PageParser._looks_like_title(text):
-                        return text
+                if text and not PageParser._looks_like_title(text):
+                    return text
 
         title_tag = soup.find("title")
         if title_tag:
             title = title_tag.get_text()
             match = re.search(r"Careers at ([A-Z][a-zA-Z\s&]+)", title)
             if match:
-                company = match.group(1).strip()
-                if ValidationHelper.is_valid_company_name(company):
-                    return company
+                return match.group(1).strip()
+
         return None
 
     @staticmethod
@@ -693,38 +577,20 @@ class PageParser:
         text_lower = text.lower()
         if any(
             phrase in text_lower
-            for phrase in [
-                "submit your",
-                "sign in",
-                "apply now",
-                "application",
-                "sign up",
-            ]
+            for phrase in ["submit your", "sign in", "apply now", "application"]
         ):
             return True
         title_keywords = [
             "intern",
             "co-op",
-            "coop",
             "engineer",
             "developer",
             "software",
-            "full stack",
-            "backend",
-            "frontend",
-            "junior",
-            "senior",
-            "staff",
             "position",
             "role",
-            "opportunity",
             "summer",
-            "spring",
-            "fall",
-            "winter",
             "2025",
             "2026",
-            "2027",
         ]
         keyword_count = sum(1 for kw in title_keywords if kw in text_lower)
         return keyword_count >= 2
@@ -763,9 +629,7 @@ class PageParser:
 
     @staticmethod
     def extract_job_id(soup, url):
-        """ENHANCED: Prioritize page content over URL extraction."""
         try:
-            # PRIORITY 1: Page content (labeled patterns) - MOVED TO FIRST
             page_text = soup.get_text()
 
             if "bytedance" in url.lower() or "joinbytedance" in url.lower():
@@ -784,15 +648,12 @@ class PageParser:
             for pattern in labeled_patterns:
                 match = re.search(pattern, page_text, re.I)
                 if match:
-                    job_id = match.group(1).strip()
-                    return PageParser._clean_job_id(job_id)
+                    return PageParser._clean_job_id(match.group(1).strip())
 
-            # PRIORITY 2: JSON-LD
             json_ld_id = PageParser._extract_job_id_from_json_ld(soup)
             if json_ld_id and json_ld_id != "N/A":
                 return json_ld_id
 
-            # Pattern-based IDs
             id_patterns = [
                 r"\b(J-\d{5,8})\b",
                 r"\b(JR\d{4,7})\b",
@@ -804,10 +665,8 @@ class PageParser:
             for pattern in id_patterns:
                 match = re.search(pattern, page_text, re.I)
                 if match:
-                    job_id = match.group(1)
-                    return PageParser._clean_job_id(job_id)
+                    return PageParser._clean_job_id(match.group(1))
 
-            # PRIORITY 3: URL patterns (LAST RESORT)
             if "workday" in url.lower():
                 match = re.search(r"_([A-Z0-9\-]{4,20})(?:\?|$)", url, re.I)
                 if match:
@@ -819,19 +678,12 @@ class PageParser:
                 "tiktok": r"/search/(\d{10,})",
                 "lifeattiktok": r"/search/(\d{10,})",
                 "bytedance": r"/search/(\d{10,})",
-                "joinbytedance": r"/search/(\d{10,})",
                 "oracle": r"/job/(\d{5,})",
                 "micron": r"/job/(\d{7,10})",
                 "sig.com": r"/job/([A-Z0-9]+)",
-                "careers.sig": r"/job/([A-Z0-9]+)",
                 "lever.co": r"/([a-f0-9\-]{36})",
                 "linkedin.com": r"/view/(\d+)",
-                "mathworks.com": r"/(\d{5,6})-",
-                "idexx": r"/(J-\d{5,8})",
-                "selinc": r"_([0-9\-]{5,15})",
-                "gilead": r"_(R\d{7,10})",
                 "eightfold.ai": r"/job/(\d{8,10})",
-                "eightfold": r"/job/(\d{8,10})",
             }
             url_lower = url.lower()
             for platform, pattern in platform_patterns.items():
@@ -959,10 +811,11 @@ class PageParser:
                         else:
                             remote = "Unknown"
                         recommendation_tags = job_result.get("recommendationTags", [])
-                        if "H1B Sponsor Likely" in recommendation_tags:
-                            sponsorship = "Yes"
-                        else:
-                            sponsorship = "Unknown"
+                        sponsorship = (
+                            "Yes"
+                            if "H1B Sponsor Likely" in recommendation_tags
+                            else "Unknown"
+                        )
                         actual_url = (
                             job_result.get("applyLink")
                             or job_result.get("originalUrl")
@@ -1022,6 +875,7 @@ class SourceParsers:
                         break
             if not title_link:
                 return None
+
             job_section = title_link.find_parent("table", id="job-container")
             if not job_section:
                 current = title_link
@@ -1032,8 +886,10 @@ class SourceParsers:
                         break
             if not job_section:
                 return None
+
             company_elem = job_section.find("p", id="job-company-name")
             company = company_elem.get_text().strip() if company_elem else "Unknown"
+
             title_text = title_link.get_text(separator="|||", strip=True)
             title_parts = title_text.split("|||")
             title = "Unknown"
@@ -1067,12 +923,12 @@ class SourceParsers:
                             r"\s*(APPLY NOW|Apply|View).*$", "", part, flags=re.I
                         ).strip()
                         break
+
             location = "Unknown"
             remote = "Unknown"
             job_tags = job_section.find_all("p", id="job-tag")
             for tag in job_tags:
-                text = tag.get_text(separator="|||", strip=True)
-                text = text.split("|||")[0]
+                text = tag.get_text(separator="|||", strip=True).split("|||")[0]
                 if "$" in text or "referral" in text.lower():
                     continue
                 text = re.sub(
@@ -1085,8 +941,7 @@ class SourceParsers:
                 if "," in text:
                     parts = text.split(",")
                     if len(parts) == 2:
-                        city = parts[0].strip()
-                        state = parts[1].strip()
+                        city, state = parts[0].strip(), parts[1].strip()
                         if state.upper() in US_STATES.values() or len(state) == 2:
                             location = f"{city}, {state.upper()}"
                             remote = "On Site"
@@ -1105,24 +960,15 @@ class SourceParsers:
                         for skip in ["apply", "view", "click", "submit"]
                     ):
                         continue
-                    if any(
-                        state in text.upper() for state in US_STATES.values()
-                    ) or any(
-                        city in text.lower()
-                        for city in [
-                            "philadelphia",
-                            "seattle",
-                            "francisco",
-                            "greater",
-                            "metro",
-                        ]
-                    ):
+                    if any(state in text.upper() for state in US_STATES.values()):
                         location = text
                         remote = SourceParsers._infer_remote(text)
                         break
+
             container_text = job_section.get_text()
             age_days = SourceParsers._extract_age_from_text(container_text)
             actual_url, is_company_site = jobright_auth.resolve_jobright_url(url)
+
             return {
                 "company": company,
                 "title": title,
@@ -1133,7 +979,7 @@ class SourceParsers:
                 "is_company_site": is_company_site,
                 "email_age_days": age_days,
             }
-        except Exception as e:
+        except:
             return None
 
     @staticmethod
@@ -1183,7 +1029,7 @@ class SimplifyGitHubScraper:
                 return SimplifyGitHubScraper._parse_markdown_text(
                     response.text, source_name
                 )
-        except Exception as e:
+        except:
             return []
 
     @staticmethod
