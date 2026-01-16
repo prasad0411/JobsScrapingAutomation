@@ -1,6 +1,75 @@
 #!/usr/bin/env python3
 
-# Sheet Configuration
+import sys
+import os
+
+try:
+    from uszipcode import SearchEngine
+
+    US_ZIPCODE_AVAILABLE = True
+    _search_engine = SearchEngine()
+except:
+    US_ZIPCODE_AVAILABLE = False
+    _search_engine = None
+
+try:
+    import pycountry
+
+    PYCOUNTRY_AVAILABLE = True
+except:
+    PYCOUNTRY_AVAILABLE = False
+
+try:
+    import us as us_library
+
+    US_LIBRARY_AVAILABLE = True
+except:
+    US_LIBRARY_AVAILABLE = False
+
+try:
+    import tldextract
+
+    TLDEXTRACT_AVAILABLE = True
+except:
+    TLDEXTRACT_AVAILABLE = False
+
+try:
+    from rapidfuzz import fuzz, process
+
+    RAPIDFUZZ_AVAILABLE = True
+except:
+    RAPIDFUZZ_AVAILABLE = False
+
+try:
+    from dateutil import parser as dateutil_parser
+
+    DATEUTIL_AVAILABLE = True
+except:
+    DATEUTIL_AVAILABLE = False
+
+try:
+    import validators
+
+    VALIDATORS_AVAILABLE = True
+except:
+    VALIDATORS_AVAILABLE = False
+
+try:
+    import pgeocode
+
+    PGEOCODE_AVAILABLE = True
+    _pgeocode_nomi = pgeocode.Nominatim("us")
+except:
+    PGEOCODE_AVAILABLE = False
+    _pgeocode_nomi = None
+
+try:
+    from unidecode import unidecode as unidecode_func
+
+    UNIDECODE_AVAILABLE = True
+except:
+    UNIDECODE_AVAILABLE = False
+
 SHEET_NAME = "H1B visa"
 WORKSHEET_NAME = "Valid Entries"
 DISCARDED_WORKSHEET = "Discarded Entries"
@@ -11,22 +80,119 @@ GMAIL_CREDS_FILE = "gmail_credentials.json"
 GMAIL_TOKEN_FILE = "gmail_token.pickle"
 JOBRIGHT_COOKIES_FILE = "jobright_cookies.json"
 
-# GitHub Sources
 SIMPLIFY_URL = "https://raw.githubusercontent.com/SimplifyJobs/Summer2026-Internships/master/README.md"
 VANSHB03_URL = (
     "https://raw.githubusercontent.com/vanshb03/Summer2026-Internships/main/README.md"
 )
 
-# Date and Quality Thresholds
-MAX_JOB_AGE_DAYS = 3  # Changed from 5 to 3
-MIN_QUALITY_SCORE = 3
+MAX_JOB_AGE_DAYS = 3
+MIN_QUALITY_SCORE = 4
+MIN_CONFIDENCE_JOB_ID = 0.70
+MIN_CONFIDENCE_LOCATION = 0.70
+MIN_CONFIDENCE_COMPANY = 0.70
+REQUIRE_MULTIPLE_CONFIRMATIONS = True
 
-# NEW: Extraction Confidence Thresholds
-MIN_CONFIDENCE_JOB_ID = 0.6
-MIN_CONFIDENCE_LOCATION = 0.6
-REQUIRE_MULTIPLE_CONFIRMATIONS = True  # Require 2+ methods to agree
+US_STATES_FALLBACK = {
+    "AL",
+    "AK",
+    "AZ",
+    "AR",
+    "CA",
+    "CO",
+    "CT",
+    "DE",
+    "FL",
+    "GA",
+    "HI",
+    "ID",
+    "IL",
+    "IN",
+    "IA",
+    "KS",
+    "KY",
+    "LA",
+    "ME",
+    "MD",
+    "MA",
+    "MI",
+    "MN",
+    "MS",
+    "MO",
+    "MT",
+    "NE",
+    "NV",
+    "NH",
+    "NJ",
+    "NM",
+    "NY",
+    "NC",
+    "ND",
+    "OH",
+    "OK",
+    "OR",
+    "PA",
+    "RI",
+    "SC",
+    "SD",
+    "TN",
+    "TX",
+    "UT",
+    "VT",
+    "VA",
+    "WA",
+    "WV",
+    "WI",
+    "WY",
+    "DC",
+}
 
-# Platform Detection Patterns
+CITY_TO_STATE_FALLBACK = {
+    "san francisco": "CA",
+    "san jose": "CA",
+    "palo alto": "CA",
+    "mountain view": "CA",
+    "sunnyvale": "CA",
+    "santa clara": "CA",
+    "cupertino": "CA",
+    "menlo park": "CA",
+    "redwood city": "CA",
+    "foster city": "CA",
+    "santa monica": "CA",
+    "south san francisco": "CA",
+    "milpitas": "CA",
+    "fremont": "CA",
+    "los angeles": "CA",
+    "san diego": "CA",
+    "new york": "NY",
+    "brooklyn": "NY",
+    "seattle": "WA",
+    "bellevue": "WA",
+    "lynnwood": "WA",
+    "pullman": "WA",
+    "boston": "MA",
+    "cambridge": "MA",
+    "chicago": "IL",
+    "atlanta": "GA",
+    "philadelphia": "PA",
+    "denver": "CO",
+    "golden": "CO",
+    "phoenix": "AZ",
+    "orlando": "FL",
+    "dallas": "TX",
+    "austin": "TX",
+    "plano": "TX",
+    "newark": "NJ",
+    "tinton falls": "NJ",
+    "charlotte": "NC",
+    "wilton": "CT",
+    "pleasant prairie": "WI",
+    "zionsville": "IN",
+    "bloomington": "MN",
+    "draper": "UT",
+    "rockville": "MD",
+    "chevy chase": "MD",
+}
+
 PLATFORM_DETECTION_PATTERNS = {
     "workday": r"\.wd\d+\.myworkdayjobs\.com",
     "greenhouse": r"(boards\.|job-boards\.)?greenhouse\.io",
@@ -34,145 +200,172 @@ PLATFORM_DETECTION_PATTERNS = {
     "ashby": r"jobs\.ashbyhq\.com",
     "linkedin": r"linkedin\.com/jobs",
     "icims": r"\.icims\.com",
-    "tiktok": r"(lifeattiktok|tiktok)\.com",
-    "bytedance": r"(joinbytedance|bytedance)",
-    "oracle": r"oraclecloud\.com",
-    "eightfold": r"eightfold\.ai",
-    "smartrecruiters": r"smartrecruiters\.com",
+    "smartrecruiters": r"(jobs\.)?smartrecruiters\.com",
+    "oracle": r"(\.fa\.|oraclecloud\.com)",
+    "eightfold": r"\.eightfold\.ai",
 }
 
-# URL to Company Mapping (expanded)
+PLATFORM_CONFIGS = {
+    "workday": {
+        "requires_selenium": True,
+        "wait_time": 8,
+        "location_selectors": [
+            ('dd[data-automation-id="locations"]', 0.95),
+            ('span[data-automation-id="jobLocation"]', 0.92),
+            (".jobProperty .jobPropertyValue", 0.75),
+        ],
+        "company_selector": 'meta[property="og:site_name"]',
+        "title_selector": 'h1[data-automation-id="jobTitle"]',
+        "job_id_pattern": r"_([A-Z]R?-?\d{5,})(?:-\d+)?(?:\?|$)",
+    },
+    "greenhouse": {
+        "requires_selenium": False,
+        "wait_time": 3,
+        "location_selectors": [
+            (".location", 0.92),
+            (".job-location", 0.88),
+        ],
+        "company_selector": 'meta[property="og:site_name"]',
+        "title_selector": ".app-title",
+        "job_id_pattern": r"/jobs?/(\d{7,})",
+    },
+    "oracle": {
+        "requires_selenium": True,
+        "wait_time": 15,
+        "location_selectors": [
+            ('[data-automation="jobLocation"]', 0.95),
+            (".jobProperty", 0.80),
+        ],
+        "company_selector": 'meta[property="og:site_name"]',
+        "title_selector": 'h1[data-automation="jobTitle"]',
+        "job_id_pattern": r"/job/(\d{6,})",
+    },
+    "lever": {
+        "requires_selenium": False,
+        "wait_time": 3,
+        "location_selectors": [
+            (".location", 0.92),
+            (".posting-categories .location", 0.88),
+        ],
+        "company_selector": 'meta[property="og:site_name"]',
+        "title_selector": ".posting-headline h2",
+        "job_id_pattern": r"lever\.co/[^/]+/([a-f0-9-]{36})",
+    },
+    "smartrecruiters": {
+        "requires_selenium": False,
+        "wait_time": 3,
+        "location_selectors": [
+            ('[itemprop="jobLocation"]', 0.92),
+            (".job-location", 0.85),
+        ],
+        "company_selector": 'img[alt*="logo"]',
+        "title_selector": 'h1[itemprop="title"]',
+        "job_id_pattern": r"/(\d{15})",
+    },
+}
+
 URL_TO_COMPANY_MAPPING = {
     r"quickenloans\.wd\d+\.myworkdayjobs\.com": "Rocket Companies",
     r"geico\.wd\d+\.myworkdayjobs\.com": "GEICO",
-    r"redhat\.wd\d+\.myworkdayjobs\.com": "Red Hat",
-    r"cinemark\.wd\d+\.myworkdayjobs\.com": "Cinemark",
-    r"astrazeneca\.wd\d+\.myworkdayjobs\.com": "AstraZeneca",
-    r"sherwin\.wd\d+\.myworkdayjobs\.com": "Sherwin-Williams",
-    r"manulife\.wd\d+\.myworkdayjobs\.com": "Manulife",
-    r"wellsky\.wd\d+\.myworkdayjobs\.com": "WellSky",
-    r"micron\.wd\d+\.myworkdayjobs\.com": "Micron Technology",
     r"cox\.wd\d+\.myworkdayjobs\.com": "Cox Automotive",
-    r"adobe\.wd\d+\.myworkdayjobs\.com": "Adobe",
     r"roche\.wd\d+\.myworkdayjobs\.com": "Roche",
-    r"cartech\.wd\d+\.myworkdayjobs\.com": "Carpenter Technology",
-    r"cranecompany\.wd\d+\.myworkdayjobs\.com": "Crane Aerospace",
+    r"cranecompany\.wd\d+\.myworkdayjobs\.com": "Crane Co.",
     r"motorola.*\.wd\d+\.myworkdayjobs\.com": "Motorola Solutions",
-    r"careers-lmi\.icims\.com": "LMI",
-    r"careers-kinaxis\.icims\.com": "Kinaxis",
-    r"university-uber\.icims\.com": "Uber",
-    r"aexp\.eightfold\.ai": "American Express",
-    r"ejhp\.fa\.us\d+\.oraclecloud\.com": "Sherwin-Williams",
-    r"jobs\.ashbyhq\.com/[Cc]rusoe": "Crusoe Energy",
-    r"(lifeattiktok|careers\.tiktok)\.com": "TikTok",
-    r"(joinbytedance|careers\.bytedance)": "ByteDance",
     r"nvidia\.wd\d+\.myworkdayjobs\.com": "NVIDIA",
     r"tmobile\.wd\d+\.myworkdayjobs\.com": "T-Mobile",
+    r"att\.wd\d+\.myworkdayjobs\.com": "AT&T Services",
     r"disney\.wd\d+\.myworkdayjobs\.com": "The Walt Disney Company",
     r"pru\.wd\d+\.myworkdayjobs\.com": "Prudential Financial",
     r"coke\.wd\d+\.myworkdayjobs\.com": "The Coca-Cola Company",
-    r"visa\.wd\d+\.myworkdayjobs\.com": "Visa",
+    r"lilly\.wd\d+\.myworkdayjobs\.com": "Eli Lilly and Company",
+    r"donaldson\.wd\d+\.myworkdayjobs\.com": "Donaldson Company",
+    r"intapp\.wd\d+\.myworkdayjobs\.com": "Intapp",
+    r"assetmark\.wd\d+\.myworkdayjobs\.com": "AssetMark",
+    r"axos\.wd\d+\.myworkdayjobs\.com": "Axos Bank",
+    r"nrel\.wd\d+\.myworkdayjobs\.com": "National Renewable Energy Laboratory",
+    r"hhmi\.wd\d+\.myworkdayjobs\.com": "Howard Hughes Medical Institute (HHMI)",
+    r"nasdaq\.wd\d+\.myworkdayjobs\.com": "Nasdaq",
+    r"comcast\.wd\d+\.myworkdayjobs\.com": "Comcast",
+    r"sbdinc\.wd\d+\.myworkdayjobs\.com": "Stanley Black & Decker",
+    r"abb\.wd\d+\.myworkdayjobs\.com": "ABB",
+    r"selinc\.wd\d+\.myworkdayjobs\.com": "Schweitzer Engineering Laboratories",
+    r"asml\.wd\d+\.myworkdayjobs\.com": "ASML",
+    r"ciena\.wd\d+\.myworkdayjobs\.com": "Ciena",
+    r"globalfoundries\.wd\d+\.myworkdayjobs\.com": "GlobalFoundries",
+    r"spgi\.wd\d+\.myworkdayjobs\.com": "S&P Global",
+    r"cadence\.wd\d+\.myworkdayjobs\.com": "Cadence Design Systems",
+    r"finra\.wd\d+\.myworkdayjobs\.com": "Finra",
+    r"rb\.wd\d+\.myworkdayjobs\.com": "The Federal Reserve System",
+    r"group1001wd\.wd\d+\.myworkdayjobs\.com": "Group 1001",
+    r"uline\.wd\d+\.myworkdayjobs\.com": "Uline",
+    r"wnc\.wd\d+\.myworkdayjobs\.com": "WNC",
+    r"job-boards\.greenhouse\.io/asteraearlycareer": "Astera Labs",
+    r"job-boards\.greenhouse\.io/samsungresearchamericainternship": "Samsung Research America",
+    r"job-boards\.greenhouse\.io/obsidiansecurity": "Obsidian Security",
+    r"job-boards\.greenhouse\.io/commvault": "Commvault",
+    r"job-boards\.greenhouse\.io/audaxgroup": "Audax Group",
+    r"generatebiomedicines\.com": "Generate Biomedicines",
+    r"jobs\.smartrecruiters\.com/Visa": "Visa",
+    r"jobs\.smartrecruiters\.com/Intuitive": "Intuitive Surgical",
+    r"jobs\.smartrecruiters\.com/Experian": "Experian",
+    r"jobs\.smartrecruiters\.com/BoschGroup": "Robert Bosch Venture Capital",
+    r"jobs\.lever\.co/zoox": "Zoox",
+    r"jobs\.lever\.co/veeva": "Veeva Systems",
+    r"jobs\.ashbyhq\.com/uipath": "UiPath",
+    r"jobs\.ashbyhq\.com/Ridealso": "ALSO",
+    r"eeho\.fa\.us2\.oraclecloud\.com": "Oracle",
+    r"fa-evmr.*\.oraclecloud\.com": "Nokia",
+    r"jobs-legrand\.icims\.com": "Legrand",
+    r"jobs\.paccar\.com": "Paccar",
+    r"apply\.careers\.microsoft\.com": "Microsoft",
+    r"3ds\.com/careers": "Dassault Systèmes",
 }
 
-# Company Slug Mapping (for URL extraction)
+JUNK_SUBDOMAIN_PATTERNS = [
+    r".*\d{4,}.*",
+    r".*earlycareer.*",
+    r".*internship.*",
+    r".*careers?$",
+    r".*jobs?$",
+    r".*wd\d+$",
+]
+
 COMPANY_SLUG_MAPPING = {
-    "google": "Google",
-    "microsoft": "Microsoft",
-    "apple": "Apple",
-    "amazon": "Amazon",
-    "meta": "Meta",
-    "facebook": "Meta",
-    "netflix": "Netflix",
-    "tesla": "Tesla",
-    "tiktok": "TikTok",
-    "bytedance": "ByteDance",
-    "linkedin": "LinkedIn",
-    "twitter": "Twitter",
-    "snapchat": "Snapchat",
-    "pinterest": "Pinterest",
-    "reddit": "Reddit",
-    "openai": "OpenAI",
-    "anthropic": "Anthropic",
-    "togetherai": "Together AI",
-    "together-ai": "Together AI",
-    "huggingface": "Hugging Face",
-    "hugging-face": "Hugging Face",
-    "scaleai": "Scale AI",
-    "scale-ai": "Scale AI",
-    "perplexity": "Perplexity",
-    "cohere": "Cohere",
-    "stripe": "Stripe",
-    "square": "Square",
-    "plaid": "Plaid",
-    "ramp": "Ramp",
-    "brex": "Brex",
-    "affirm": "Affirm",
-    "chime": "Chime",
-    "robinhood": "Robinhood",
-    "notion": "Notion",
-    "figma": "Figma",
-    "airtable": "Airtable",
-    "asana": "Asana",
-    "monday": "Monday.com",
-    "slack": "Slack",
-    "zoom": "Zoom",
-    "dropbox": "Dropbox",
-    "databricks": "Databricks",
-    "snowflake": "Snowflake",
-    "cloudflare": "Cloudflare",
-    "datadog": "Datadog",
-    "splunk": "Splunk",
-    "rivian": "Rivian",
-    "cruise": "Cruise",
-    "waymo": "Waymo",
-    "zoox": "Zoox",
-    "uber": "Uber",
-    "lyft": "Lyft",
-    "doordash": "DoorDash",
-    "instacart": "Instacart",
-    "shopify": "Shopify",
-    "ebay": "eBay",
-    "etsy": "Etsy",
-    "roblox": "Roblox",
-    "unity": "Unity",
-    "epicgames": "Epic Games",
-    "jpmorgan": "JPMorgan Chase",
-    "goldmansachs": "Goldman Sachs",
-    "morganstanley": "Morgan Stanley",
-    "bankofamerica": "Bank of America",
-    "wellsfargo": "Wells Fargo",
-    "capitalone": "Capital One",
-    "americanexpress": "American Express",
-    "citigroup": "Citigroup",
-    "motorolasolutions": "Motorola Solutions",
-    "pelco": "Motorola Solutions",
-    "boeing": "Boeing",
-    "lockheedmartin": "Lockheed Martin",
-    "northropgrumman": "Northrop Grumman",
-    "raytheon": "Raytheon Technologies",
-    "att": "AT&T",
-    "verizon": "Verizon",
-    "tmobile": "T-Mobile",
-    "salesforce": "Salesforce",
-    "oracle": "Oracle",
-    "sap": "SAP",
-    "servicenow": "ServiceNow",
-    "workday": "Workday",
-    "nvidia": "NVIDIA",
-    "intel": "Intel",
-    "amd": "AMD",
-    "qualcomm": "Qualcomm",
-    "crusoe": "Crusoe Energy",
-    "nuro": "Nuro",
-    "nimblerx": "NimbleRx",
-    "singlestore": "SingleStore",
+    "sig": "Susquehanna International Group",
+    "spgi": "S&P Global",
+    "hhmi": "Howard Hughes Medical Institute",
+    "nrel": "National Renewable Energy Laboratory",
+    "sbdinc": "Stanley Black & Decker",
+    "selinc": "Schweitzer Engineering Laboratories",
+    "asml": "ASML",
+    "abb": "ABB",
     "geico": "GEICO",
-    "visa": "Visa",
-    "comcast": "Comcast",
-    "disney": "The Walt Disney Company",
+    "asteraearlycareer2026": "Astera Labs",
+    "asteraearlycareer": "Astera Labs",
+    "samsungresearchamericainternship": "Samsung Research America",
+    "obsidiansecurity": "Obsidian Security",
+    "group1001wd": "Group 1001",
+    "audaxgroup": "Audax Group",
+    "ridealso": "ALSO",
+    "openai": "OpenAI",
+    "tiktok": "TikTok",
+    "linkedin": "LinkedIn",
+    "paypal": "PayPal",
 }
 
-# Company Name Processing
+COMPANY_PLACEHOLDERS = [
+    "Unknown",
+    "N/A",
+    "Company",
+    "Employer",
+    "Careers",
+    "Jobs",
+    "External",
+    "Portal",
+    "Applicant",
+    "Apply",
+]
+
 COMPANY_NAME_PREFIXES = [
     "lifeat",
     "joinat",
@@ -195,543 +388,116 @@ COMPANY_NAME_STOPWORDS = [
     " Jobs",
     " - Careers",
     " Career Site",
-    " | Careers",
-    " | Jobs",
-    " - Jobs",
 ]
 
-COMPANY_PLACEHOLDERS = [
-    "Unknown",
-    "N/A",
-    "Company",
-    "Employer",
-    "Organization",
-    "Adzuna",
-    "Jobright",
-    "ZipRecruiter",
-    "Careers",
-    "Jobs",
-    "External",
-    "Portal",
-    "Applicant",
-    "Apply",
+JOB_ID_PATTERNS = [
+    (r"/jobs?/(\d{10})", 0.96),
+    (r"gh_jid=(\d{7,})", 0.96),
+    (r"/jobs?/(\d{7,})", 0.94),
+    (r"_([A-Z]R?-?\d{5,})(?:-\d+)?(?:\?|$)", 0.93),
+    (r"/([A-Z]{2,3}\d{5,})(?:-\d+)?(?:\?|$)", 0.91),
+    (r"lever\.co/[^/]+/([a-f0-9-]{36})", 0.96),
+    (r"ashbyhq\.com/[^/]+/([a-f0-9-]{36})", 0.96),
+    (r"smartrecruiters\.com/[^/]+/(\d{15})", 0.96),
+    (r"REQ[_-]?(\d{6,})", 0.92),
+    (r"job[/_]([A-Z0-9_-]{6,15})(?:\?|$|/)", 0.86),
+    (r"[?&]reqId=([A-Z0-9_-]{4,15})(?:&|$)", 0.88),
+    (r"/(\d{7,})(?:/|\?|$)", 0.76),
 ]
 
-SPECIAL_COMPANY_NAMES = {
-    "sig": "Susquehanna International Group",
-    "nuro": "Nuro",
-    "nimblerx": "NimbleRx",
-    "singlestore": "SingleStore",
-    "geico": "GEICO",
-    "aexp": "American Express",
-    "amex": "American Express",
+LOCATION_SELECTORS = [
+    ('[data-qa="location"]', 0.92),
+    ('[data-automation-id="locations"]', 0.95),
+    ('[data-automation="jobLocation"]', 0.95),
+    ('[itemprop="jobLocation"]', 0.92),
+    (".location", 0.86),
+    (".job-location", 0.86),
+    (".posting-categories .location", 0.88),
+]
+
+LOCATION_METADATA_PATTERNS = [
+    r"time\s+type.*$",
+    r"Full\s+time.*$",
+    r"Part\s+time.*$",
+    r"posted\s+on.*$",
+    r"Employment\s+Type.*$",
+    r"Details.*$",
+    r"Program.*$",
+]
+
+HTML_ARTIFACT_PATTERNS = [
+    r"^s(?=[A-Z])",
+    r"^p(?=[A-Z])",
+]
+
+INVALID_LOCATION_KEYWORDS = [
+    "time",
+    "type",
+    "full",
+    "part",
+    "posted",
+    "employment",
+]
+
+DEPARTMENT_KEYWORDS = [
+    "quantum",
+    "performance",
+    "analytics",
+    "maintenance",
+    "wearables",
+    "search",
+    "external",
+    "product",
+    "oracle analytics",
+]
+
+CANADA_PROVINCES = {"ON", "QC", "BC", "AB", "MB", "SK", "NS", "NB", "NL", "PE"}
+
+CANADA_PROVINCE_NAMES = {
+    "ontario": "ON",
+    "quebec": "QC",
+    "british columbia": "BC",
+    "alberta": "AB",
 }
 
-# NEW: Enhanced Job ID Patterns (Priority ordered)
-JOB_ID_PATTERNS = [
-    # High confidence patterns
-    (r"/jobs?/(\d{6,})", 0.95),  # Greenhouse: /jobs/8356208002
-    (r"gh_jid=(\d+)", 0.95),  # Greenhouse query param
-    (r"_([A-Z]-?\d{5,})(?:-\d+)?(?:\?|$)", 0.90),  # Workday: _R-122963-1
-    (r"/job/([A-Z]{2,3}\d{6,})", 0.90),  # JR2010186 format
-    (r"job[/_]([A-Z0-9_-]{8,15})", 0.85),  # Generic job/ID
-    (r"reqId=([A-Z0-9_-]+)", 0.85),  # ?reqId=ABC123
-    (r"JR-?(\d+)", 0.80),  # JR-12345
-    (r"REQ[_-]?(\w+)", 0.80),  # REQ_12345
-    (r"/(\d{7,})(?:/|\?|$)", 0.70),  # Generic /1234567
-]
+MAJOR_CANADIAN_CITIES = {
+    "toronto": "ON",
+    "ottawa": "ON",
+    "montreal": "QC",
+    "vancouver": "BC",
+    "calgary": "AB",
+}
 
-# NEW: Enhanced Location Selectors (Priority ordered)
-LOCATION_SELECTORS = [
-    (".location", 0.85),
-    ('[data-qa="location"]', 0.90),
-    (".job-location", 0.85),
-    ('[itemprop="jobLocation"]', 0.90),
-    ('span[class*="location"]', 0.75),
-    ('div[class*="location"]', 0.75),
-    (".posting-categories .location", 0.85),
-    ("div.location", 0.80),
-]
+AMBIGUOUS_CITIES = {
+    "vancouver": {"US": "WA", "Canada": "BC"},
+    "ontario": {"US": "CA", "Canada": "ON"},
+}
 
-# Role Categories
+US_CONTEXT_KEYWORDS = ["usa", "united states", "bay area", "silicon valley"]
+CANADA_CONTEXT_KEYWORDS = ["canada", "canadian", "gta", "greater toronto"]
+
 ROLE_CATEGORIES = {
     "Pure Software": {
-        "keywords": [
-            "backend",
-            "frontend",
-            "full stack",
-            "fullstack",
-            "web developer",
-            "mobile developer",
-            "application developer",
-            "software development",
-            "web engineer",
-            "mobile engineer",
-            "app developer",
-        ],
-        "exclude": ["embedded", "firmware", "hardware", "fpga", "asic"],
+        "keywords": ["backend", "frontend", "full stack", "web developer"],
+        "exclude": ["embedded", "firmware", "hardware"],
         "action": "ACCEPT",
         "alert": "✅ SOFTWARE",
     },
     "Data & AI": {
-        "keywords": [
-            "data scien",
-            "machine learning",
-            "ml engineer",
-            "ai engineer",
-            "data engineer",
-            "analytics",
-            "data analyst",
-            "business intelligence",
-            "deep learning",
-            "computer vision",
-            "nlp",
-            "ai research",
-        ],
+        "keywords": ["data scien", "machine learning", "ai engineer", "analytics"],
         "exclude": [],
         "action": "ACCEPT",
         "alert": "✅ DATA/AI",
     },
-    "DevOps & Infrastructure": {
-        "keywords": [
-            "devops",
-            "sre",
-            "site reliability",
-            "cloud engineer",
-            "infrastructure",
-            "platform engineer",
-        ],
-        "exclude": ["embedded systems", "hardware"],
-        "action": "ACCEPT",
-        "alert": "✅ DEVOPS",
-    },
-    "Embedded & Firmware": {
-        "keywords": [
-            "embedded",
-            "firmware",
-            "iot",
-            "robotics",
-            "real-time systems",
-            "microcontroller",
-            "embedded linux",
-            "rtos",
-        ],
-        "exclude": [],
-        "action": "FLAG",
-        "alert": "⚠️  EMBEDDED/FIRMWARE",
-    },
-    "Hardware Engineering": {
-        "keywords": [
-            "hardware engineer",
-            "fpga",
-            "asic",
-            "vlsi",
-            "pcb design",
-            "circuit design",
-            "digital design",
-            "analog",
-        ],
-        "exclude": ["software"],
-        "action": "FLAG_STRICT",
-        "alert": "⚠️⚠️  HARDWARE",
-    },
-    "Security & QA": {
-        "keywords": [
-            "security engineer",
-            "cybersecurity",
-            "qa engineer",
-            "test automation",
-            "quality assurance",
-        ],
-        "exclude": [],
-        "action": "ACCEPT",
-        "alert": "✅ SECURITY/QA",
-    },
 }
 
-USER_ROLE_PREFERENCES = {
-    "auto_accept": [
-        "Pure Software",
-        "Data & AI",
-        "DevOps & Infrastructure",
-        "Security & QA",
-    ],
-    "flag_for_review": ["Embedded & Firmware"],
-    "flag_strict": ["Hardware Engineering"],
-}
-
-# Workday Location Codes
-WORKDAY_HQ_CODES = {
-    "USNYNYC": ("New York", "NY"),
-    "USCASFO": ("San Francisco", "CA"),
-    "USWAEAT": ("Seattle", "WA"),
-    "USTXAUS": ("Austin", "TX"),
-    "USMABOA": ("Boston", "MA"),
-}
-
-LOCATION_CODE_PATTERNS = [
-    r"^US([A-Z]{2})([A-Z]{3})$",
-    r"^US-([A-Z]{2})-",
-]
-
-# Status Colors for Google Sheets
-STATUS_COLORS = {
-    "Not Applied": {"red": 1.0, "green": 1.0, "blue": 1.0},
-    "Applied": {"red": 1.0, "green": 0.9, "blue": 0.6},
-    "OA Sent": {"red": 0.7, "green": 0.85, "blue": 1.0},
-    "OA Completed": {"red": 0.4, "green": 0.7, "blue": 1.0},
-    "Interview Scheduled": {"red": 1.0, "green": 0.8, "blue": 0.4},
-    "Interviewed": {"red": 1.0, "green": 0.65, "blue": 0.3},
-    "Offer Received": {"red": 0.6, "green": 0.9, "blue": 0.6},
-    "Offer accepted": {"red": 0.2, "green": 0.7, "blue": 0.2},
-    "Rejected": {"red": 1.0, "green": 0.6, "blue": 0.6},
-    "Ghosted": {"red": 0.8, "green": 0.8, "blue": 0.8},
-}
-
-# Gmail Configuration
 GMAIL_SCOPES = ["https://www.googleapis.com/auth/gmail.readonly"]
 
-# User Agents
 USER_AGENTS = [
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
     "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-    "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
 ]
 
-# US States and Territories
-US_STATES = {
-    "alabama": "AL",
-    "alaska": "AK",
-    "arizona": "AZ",
-    "arkansas": "AR",
-    "california": "CA",
-    "colorado": "CO",
-    "connecticut": "CT",
-    "delaware": "DE",
-    "florida": "FL",
-    "georgia": "GA",
-    "hawaii": "HI",
-    "idaho": "ID",
-    "illinois": "IL",
-    "indiana": "IN",
-    "iowa": "IA",
-    "kansas": "KS",
-    "kentucky": "KY",
-    "louisiana": "LA",
-    "maine": "ME",
-    "maryland": "MD",
-    "massachusetts": "MA",
-    "michigan": "MI",
-    "minnesota": "MN",
-    "mississippi": "MS",
-    "missouri": "MO",
-    "montana": "MT",
-    "nebraska": "NE",
-    "nevada": "NV",
-    "new hampshire": "NH",
-    "new jersey": "NJ",
-    "new mexico": "NM",
-    "new york": "NY",
-    "north carolina": "NC",
-    "north dakota": "ND",
-    "ohio": "OH",
-    "oklahoma": "OK",
-    "oregon": "OR",
-    "pennsylvania": "PA",
-    "rhode island": "RI",
-    "south carolina": "SC",
-    "south dakota": "SD",
-    "tennessee": "TN",
-    "texas": "TX",
-    "utah": "UT",
-    "vermont": "VT",
-    "virginia": "VA",
-    "washington": "WA",
-    "west virginia": "WV",
-    "wisconsin": "WI",
-    "wyoming": "WY",
-    "district of columbia": "DC",
-}
-
-STATE_NAME_TO_CODE = US_STATES.copy()
-
-# Canadian Provinces
-CANADA_PROVINCES = {
-    "ON",
-    "QC",
-    "BC",
-    "AB",
-    "MB",
-    "SK",
-    "NS",
-    "NB",
-    "NL",
-    "PE",
-    "YT",
-    "NT",
-    "NU",
-}
-
-# City to State Mapping (extensive)
-CITY_TO_STATE = {
-    "san francisco": "CA",
-    "san jose": "CA",
-    "palo alto": "CA",
-    "mountain view": "CA",
-    "sunnyvale": "CA",
-    "santa clara": "CA",
-    "cupertino": "CA",
-    "menlo park": "CA",
-    "redwood city": "CA",
-    "foster city": "CA",
-    "san mateo": "CA",
-    "fremont": "CA",
-    "san carlos": "CA",
-    "los angeles": "CA",
-    "san diego": "CA",
-    "irvine": "CA",
-    "santa monica": "CA",
-    "pasadena": "CA",
-    "berkeley": "CA",
-    "oakland": "CA",
-    "sacramento": "CA",
-    "fresno": "CA",
-    "long beach": "CA",
-    "anaheim": "CA",
-    "cerritos": "CA",
-    "san bruno": "CA",
-    "burbank": "CA",
-    "santa barbara": "CA",
-    "new york": "NY",
-    "brooklyn": "NY",
-    "manhattan": "NY",
-    "queens": "NY",
-    "bronx": "NY",
-    "staten island": "NY",
-    "albany": "NY",
-    "buffalo": "NY",
-    "rochester": "NY",
-    "syracuse": "NY",
-    "yonkers": "NY",
-    "white plains": "NY",
-    "seattle": "WA",
-    "bellevue": "WA",
-    "redmond": "WA",
-    "tacoma": "WA",
-    "spokane": "WA",
-    "pullman": "WA",
-    "olympia": "WA",
-    "vancouver": "WA",
-    "boston": "MA",
-    "cambridge": "MA",
-    "somerville": "MA",
-    "worcester": "MA",
-    "natick": "MA",
-    "framingham": "MA",
-    "quincy": "MA",
-    "waltham": "MA",
-    "newton": "MA",
-    "brookline": "MA",
-    "houston": "TX",
-    "dallas": "TX",
-    "austin": "TX",
-    "san antonio": "TX",
-    "fort worth": "TX",
-    "el paso": "TX",
-    "arlington": "TX",
-    "plano": "TX",
-    "irving": "TX",
-    "richardson": "TX",
-    "chicago": "IL",
-    "naperville": "IL",
-    "aurora": "IL",
-    "rockford": "IL",
-    "des plaines": "IL",
-    "la grange park": "IL",
-    "schaumburg": "IL",
-    "north chicago": "IL",
-    "phoenix": "AZ",
-    "tucson": "AZ",
-    "mesa": "AZ",
-    "chandler": "AZ",
-    "scottsdale": "AZ",
-    "tempe": "AZ",
-    "gilbert": "AZ",
-    "philadelphia": "PA",
-    "pittsburgh": "PA",
-    "allentown": "PA",
-    "reading": "PA",
-    "denver": "CO",
-    "colorado springs": "CO",
-    "boulder": "CO",
-    "aurora": "CO",
-    "atlanta": "GA",
-    "augusta": "GA",
-    "columbus": "GA",
-    "savannah": "GA",
-    "alpharetta": "GA",
-    "miami": "FL",
-    "orlando": "FL",
-    "tampa": "FL",
-    "jacksonville": "FL",
-    "fort lauderdale": "FL",
-    "tallahassee": "FL",
-    "st petersburg": "FL",
-    "sarasota": "FL",
-    "plantation": "FL",
-    "detroit": "MI",
-    "grand rapids": "MI",
-    "warren": "MI",
-    "ann arbor": "MI",
-    "dearborn": "MI",
-    "minneapolis": "MN",
-    "st paul": "MN",
-    "rochester": "MN",
-    "bloomington": "MN",
-    "shakopee": "MN",
-    "chaska": "MN",
-    "portland": "OR",
-    "salem": "OR",
-    "eugene": "OR",
-    "hillsboro": "OR",
-    "beaverton": "OR",
-    "las vegas": "NV",
-    "reno": "NV",
-    "henderson": "NV",
-    "baltimore": "MD",
-    "frederick": "MD",
-    "rockville": "MD",
-    "gaithersburg": "MD",
-    "germantown": "MD",
-    "annapolis": "MD",
-    "silver spring": "MD",
-    "hanover": "MD",
-    "north bethesda": "MD",
-    "chevy chase": "MD",
-    "westbrook": "ME",
-    "portland": "ME",
-    "lewiston": "ME",
-    "milwaukee": "WI",
-    "madison": "WI",
-    "green bay": "WI",
-    "nashville": "TN",
-    "memphis": "TN",
-    "knoxville": "TN",
-    "indianapolis": "IN",
-    "fort wayne": "IN",
-    "evansville": "IN",
-    "columbus": "OH",
-    "cleveland": "OH",
-    "cincinnati": "OH",
-    "toledo": "OH",
-    "brecksville": "OH",
-    "charlotte": "NC",
-    "raleigh": "NC",
-    "cary": "NC",
-    "durham": "NC",
-    "greensboro": "NC",
-    "chapel hill": "NC",
-    "wilmington": "NC",
-    "salt lake city": "UT",
-    "provo": "UT",
-    "west valley city": "UT",
-    "oklahoma city": "OK",
-    "tulsa": "OK",
-    "norman": "OK",
-    "louisville": "KY",
-    "lexington": "KY",
-    "kansas city": "MO",
-    "st louis": "MO",
-    "springfield": "MO",
-    "omaha": "NE",
-    "lincoln": "NE",
-    "albuquerque": "NM",
-    "santa fe": "NM",
-    "boise": "ID",
-    "meridian": "ID",
-    "des moines": "IA",
-    "cedar rapids": "IA",
-    "little rock": "AR",
-    "fayetteville": "AR",
-    "providence": "RI",
-    "warwick": "RI",
-    "bridgeport": "CT",
-    "new haven": "CT",
-    "stamford": "CT",
-    "hartford": "CT",
-    "newark": "NJ",
-    "jersey city": "NJ",
-    "princeton": "NJ",
-    "hoboken": "NJ",
-    "richmond": "VA",
-    "virginia beach": "VA",
-    "norfolk": "VA",
-    "chesapeake": "VA",
-    "arlington": "VA",
-    "alexandria": "VA",
-    "mclean": "VA",
-    "reston": "VA",
-    "charleston": "SC",
-    "columbia": "SC",
-    "greenville": "SC",
-    "birmingham": "AL",
-    "montgomery": "AL",
-    "huntsville": "AL",
-    "new orleans": "LA",
-    "baton rouge": "LA",
-    "shreveport": "LA",
-    "jackson": "MS",
-    "gulfport": "MS",
-    "honolulu": "HI",
-    "pearl city": "HI",
-    "anchorage": "AK",
-    "fairbanks": "AK",
-    "manchester": "NH",
-    "nashua": "NH",
-    "concord": "NH",
-    "burlington": "VT",
-    "essex": "VT",
-    "sioux falls": "SD",
-    "rapid city": "SD",
-    "fargo": "ND",
-    "bismarck": "ND",
-    "billings": "MT",
-    "missoula": "MT",
-    "bozeman": "MT",
-    "helena": "MT",
-    "cheyenne": "WY",
-    "casper": "WY",
-    "wilmington": "DE",
-    "dover": "DE",
-    "overland park": "KS",
-    "lynnwood": "WA",
-    "ashburn": "VA",
-    "tinton falls": "NJ",
-    "wilton": "CT",
-    "milpitas": "CA",
-    "pleasant prairie": "WI",
-}
-
-# Canadian Cities
-CANADA_CITIES = {
-    "toronto": "ON",
-    "markham": "ON",
-    "ottawa": "ON",
-    "mississauga": "ON",
-    "montreal": "QC",
-    "quebec city": "QC",
-    "quebec": "QC",
-    "vancouver": "BC",
-    "victoria": "BC",
-    "burnaby": "BC",
-    "calgary": "AB",
-    "edmonton": "AB",
-    "winnipeg": "MB",
-    "regina": "SK",
-    "halifax": "NS",
-}
-
-# Job Board Domains
 JOB_BOARD_DOMAINS = [
     "greenhouse",
     "lever.co",
@@ -740,39 +506,124 @@ JOB_BOARD_DOMAINS = [
     "smartrecruiters",
     "icims.com",
     "myworkdayjobs",
-    "jobs.lever.co",
-    "boards.greenhouse.io",
-    "job-boards.greenhouse.io",
     "simplify.jobs",
     "linkedin.com/jobs",
-    "indeed.com",
-    "glassdoor.com",
-    "angellist.com",
-    "wellfound.com",
-    "monster.com",
-    "dice.com",
-    "builtin.com",
-    "ycombinator.com/jobs",
-    "stackoverflow.com/jobs",
-    "jobs.github.com",
-    "careers.",
-    "apply.workable.com",
-    "breezy.hr",
-    "recruiting.",
-    "talentify",
-    "workable",
-    "jobvite",
-    "ultipro",
-    "paylocity",
-    "paycomonline",
-    "bamboohr",
-    "fountain.com",
-    "ziprecruiter",
-    "ziprecruiter.com",
-    "adzuna",
-    "adzuna.com",
-    "jobright",
-    "jobright.ai",
-    "fursah",
-    "fursah.com",
 ]
+
+STATUS_COLORS = {
+    "Not Applied": {"red": 1.0, "green": 1.0, "blue": 1.0},
+    "Applied": {"red": 1.0, "green": 0.9, "blue": 0.6},
+    "Interview Scheduled": {"red": 1.0, "green": 0.8, "blue": 0.4},
+    "Offer Received": {"red": 0.6, "green": 0.9, "blue": 0.6},
+}
+
+
+def get_state_for_city(city_name):
+    if US_ZIPCODE_AVAILABLE and _search_engine:
+        try:
+            city_clean = city_name.strip().title()
+            results = _search_engine.by_city(city_clean)
+            if results:
+                states = [r.state for r in results if r.state]
+                if states:
+                    from collections import Counter
+
+                    return Counter(states).most_common(1)[0][0]
+        except:
+            pass
+    return CITY_TO_STATE_FALLBACK.get(city_name.lower())
+
+
+def validate_us_state_code(state_code):
+    if US_LIBRARY_AVAILABLE:
+        try:
+            return us_library.states.lookup(state_code) is not None
+        except:
+            pass
+    return state_code.upper() in US_STATES_FALLBACK
+
+
+def get_canadian_province(text):
+    if PYCOUNTRY_AVAILABLE:
+        try:
+            for subdivision in pycountry.subdivisions.get(country_code="CA"):
+                if subdivision.code.split("-")[1] in text.upper():
+                    return subdivision.code.split("-")[1]
+                if subdivision.name.lower() in text.lower():
+                    return subdivision.code.split("-")[1]
+        except:
+            pass
+    for province_name, code in CANADA_PROVINCE_NAMES.items():
+        if province_name in text.lower():
+            return code
+    return None
+
+
+def extract_domain_and_subdomain(url):
+    if TLDEXTRACT_AVAILABLE:
+        try:
+            extracted = tldextract.extract(url)
+            return extracted.subdomain, f"{extracted.domain}.{extracted.suffix}"
+        except:
+            pass
+    import re
+
+    match = re.search(r"https?://(?:www\.)?([^/]+)", url)
+    if match:
+        domain = match.group(1)
+        parts = domain.split(".")
+        if len(parts) >= 2:
+            return parts[0], ".".join(parts[-2:])
+    return None, None
+
+
+def fuzzy_match_company(candidate, known_companies, threshold=85):
+    if not RAPIDFUZZ_AVAILABLE:
+        return None
+    try:
+        result = process.extractOne(candidate, known_companies, scorer=fuzz.ratio)
+        if result and result[1] >= threshold:
+            return result[0]
+        return None
+    except:
+        return None
+
+
+def parse_date_flexible(date_string):
+    if not DATEUTIL_AVAILABLE:
+        return None
+    try:
+        return dateutil_parser.parse(date_string, fuzzy=True)
+    except:
+        return None
+
+
+def is_valid_url(url):
+    if VALIDATORS_AVAILABLE:
+        try:
+            return validators.url(url) == True
+        except:
+            pass
+    import re
+
+    return bool(re.match(r"https?://.+\..+", url))
+
+
+def normalize_unicode(text):
+    if UNIDECODE_AVAILABLE:
+        try:
+            return unidecode_func(text)
+        except:
+            pass
+    return text.replace("é", "e").replace("è", "e").replace("à", "a").replace("ô", "o")
+
+
+def get_city_state_from_zipcode(zipcode):
+    if PGEOCODE_AVAILABLE and _pgeocode_nomi:
+        try:
+            result = _pgeocode_nomi.query_postal_code(zipcode)
+            if result is not None and not result.isna().all():
+                return result.get("place_name"), result.get("state_code")
+        except:
+            pass
+    return None, None
