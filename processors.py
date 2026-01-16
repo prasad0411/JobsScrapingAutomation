@@ -2,20 +2,13 @@
 
 import re
 import json
+import logging
 from functools import lru_cache
-from collections import Counter
 
 from config import (
-    US_ZIPCODE_AVAILABLE,
-    VALIDATORS_AVAILABLE,
-    DATEUTIL_AVAILABLE,
-    TLDEXTRACT_AVAILABLE,
     CANADA_PROVINCES,
     CANADA_PROVINCE_NAMES,
     MAJOR_CANADIAN_CITIES,
-    AMBIGUOUS_CITIES,
-    US_CONTEXT_KEYWORDS,
-    CANADA_CONTEXT_KEYWORDS,
     PLATFORM_CONFIGS,
     JOB_ID_PATTERNS,
     LOCATION_SELECTORS,
@@ -26,16 +19,19 @@ from config import (
     WORKDAY_HQ_CODES,
     URL_TO_COMPANY_MAPPING,
     COMPANY_SLUG_MAPPING,
-    COMPANY_PLACEHOLDERS,
     MIN_CONFIDENCE_JOB_ID,
     MIN_CONFIDENCE_LOCATION,
     MIN_CONFIDENCE_COMPANY,
     get_state_for_city,
     validate_us_state_code,
-    get_canadian_province,
-    extract_domain_and_subdomain,
-    is_valid_url,
     normalize_unicode,
+    extract_domain_and_subdomain,
+    FULL_STATE_NAMES,
+    CITY_ABBREVIATIONS,
+    LOCATION_SUFFIXES,
+    AMBIGUOUS_CITIES,
+    US_CONTEXT_KEYWORDS,
+    CANADA_CONTEXT_KEYWORDS,
 )
 
 from utils import (
@@ -45,6 +41,10 @@ from utils import (
     CompanyValidator,
     PlatformDetector,
 )
+
+# ============================================================================
+# Compiled Patterns (Performance Optimization)
+# ============================================================================
 
 _COMPILED_JOB_ID_PATTERNS = [(re.compile(p, re.I), c) for p, c in JOB_ID_PATTERNS]
 _COMPILED_URL_COMPANY_PATTERNS = [
@@ -63,6 +63,10 @@ _CITY_STATE_PATTERN = re.compile(r"([A-Z][a-z]+(?:\s+[A-Z][a-z]+)*),?\s*([A-Z]{2
 _LOCATION_LABEL_PATTERN = re.compile(
     r"Location\s*:?\s*([A-Za-z\s,]+(?:,\s*[A-Z]{2})?)", re.I
 )
+
+# ============================================================================
+# Title Processing
+# ============================================================================
 
 
 class TitleProcessor:
@@ -148,10 +152,7 @@ class TitleProcessor:
     def check_season_requirement(title, page_text=""):
         combined = (title + " " + page_text).lower()
 
-        multi_season = re.search(
-            r"(spring.*summer|summer.*spring|spring/summer)", combined, re.I
-        )
-        if multi_season:
+        if re.search(r"(spring.*summer|summer.*spring|spring/summer)", combined, re.I):
             return True, ""
 
         wrong_patterns = [
@@ -175,6 +176,11 @@ class TitleProcessor:
         return True, ""
 
 
+# ============================================================================
+# Job ID Extraction
+# ============================================================================
+
+
 class JobIDExtractor:
     @staticmethod
     def extract_from_url(url):
@@ -182,11 +188,15 @@ class JobIDExtractor:
             return ExtractionResult(None, 0.0, "url_extract")
 
         for pattern, confidence in _COMPILED_JOB_ID_PATTERNS:
-            match = pattern.search(url)
-            if match:
-                job_id = match.group(1).strip()
-                if JobIDExtractor._is_valid_id(job_id):
-                    return ExtractionResult(job_id, confidence, "url_pattern")
+            try:
+                match = pattern.search(url)
+                if match:
+                    job_id = match.group(1).strip()
+                    if JobIDExtractor._is_valid_id(job_id):
+                        return ExtractionResult(job_id, confidence, "url_pattern")
+            except Exception as e:
+                logging.debug(f"Job ID pattern failed on URL {url}: {e}")
+                continue
 
         return ExtractionResult(None, 0.0, "url_extract")
 
@@ -195,24 +205,23 @@ class JobIDExtractor:
         if not soup:
             return ExtractionResult(None, 0.0, "html_meta")
 
-        meta_selectors = [
-            ("meta", {"property": "og:job:id"}),
-            ("meta", {"name": "job-id"}),
-            ("meta", {"property": "job:id"}),
-        ]
+        try:
+            for tag_name, attrs in [
+                ("meta", {"property": "og:job:id"}),
+                ("meta", {"name": "job-id"}),
+            ]:
+                elem = soup.find(tag_name, attrs)
+                if elem:
+                    value = elem.get("content") or elem.get("value")
+                    if value and JobIDExtractor._is_valid_id(value):
+                        return ExtractionResult(value, 0.95, "html_meta")
 
-        for tag_name, attrs in meta_selectors:
-            elem = soup.find(tag_name, attrs)
-            if elem:
-                value = elem.get("content") or elem.get("value")
+            for elem in soup.find_all(attrs={"data-job-id": True}):
+                value = elem.get("data-job-id")
                 if value and JobIDExtractor._is_valid_id(value):
-                    return ExtractionResult(value, 0.95, "html_meta")
-
-        data_elems = soup.find_all(attrs={"data-job-id": True})
-        for elem in data_elems:
-            value = elem.get("data-job-id")
-            if value and JobIDExtractor._is_valid_id(value):
-                return ExtractionResult(value, 0.90, "html_data_attr")
+                    return ExtractionResult(value, 0.90, "html_data_attr")
+        except Exception as e:
+            logging.debug(f"HTML meta extraction failed: {e}")
 
         return ExtractionResult(None, 0.0, "html_meta")
 
@@ -221,18 +230,18 @@ class JobIDExtractor:
         if not soup:
             return ExtractionResult(None, 0.0, "json_ld")
 
-        json_ld = soup.find("script", {"type": "application/ld+json"})
-        if json_ld:
-            try:
+        try:
+            json_ld = soup.find("script", {"type": "application/ld+json"})
+            if json_ld:
                 data = json.loads(json_ld.string)
                 if isinstance(data, dict):
                     identifier = data.get("identifier", {})
-                    if isinstance(identifier, dict):
-                        value = identifier.get("value", "")
-                        if value and JobIDExtractor._is_valid_id(value):
+                    if isinstance(identifier, dict) and identifier.get("value"):
+                        value = identifier["value"]
+                        if JobIDExtractor._is_valid_id(value):
                             return ExtractionResult(value, 0.95, "json_ld")
-            except:
-                pass
+        except Exception as e:
+            logging.debug(f"JSON-LD job ID extraction failed: {e}")
 
         return ExtractionResult(None, 0.0, "json_ld")
 
@@ -241,30 +250,32 @@ class JobIDExtractor:
         if not soup:
             return ExtractionResult(None, 0.0, "page_text")
 
-        page_text = soup.get_text()[:5000]
-        labeled_patterns = [
-            (r"Job\s*Code\s*:?\s*([A-Z0-9]{4,15})\b", 0.90),
-            (r"Job\s*ID\s*:?\s*([A-Z0-9\-]{4,15})\b", 0.85),
-            (r"Req(?:uisition)?\s*ID\s*:?\s*([A-Z0-9\-]{4,20})\b", 0.85),
-        ]
-
-        for pattern, confidence in labeled_patterns:
-            match = re.search(pattern, page_text, re.I)
-            if match:
-                job_id = match.group(1).strip()
-                if JobIDExtractor._is_valid_id(job_id):
-                    return ExtractionResult(job_id, confidence, "page_text_labeled")
+        try:
+            page_text = soup.get_text()[:5000]
+            for pattern, confidence in [
+                (r"Job\s*Code\s*:?\s*([A-Z0-9]{4,15})\b", 0.90),
+                (r"Job\s*ID\s*:?\s*([A-Z0-9\-]{4,15})\b", 0.85),
+                (r"Req(?:uisition)?\s*ID\s*:?\s*([A-Z0-9\-]{4,20})\b", 0.85),
+                (r"Role\s*ID\s*:?\s*([A-Z0-9\-]{4,20})\b", 0.85),
+            ]:
+                match = re.search(pattern, page_text, re.I)
+                if match:
+                    job_id = match.group(1).strip()
+                    if JobIDExtractor._is_valid_id(job_id):
+                        return ExtractionResult(job_id, confidence, "page_text_labeled")
+        except Exception as e:
+            logging.debug(f"Page text job ID extraction failed: {e}")
 
         return ExtractionResult(None, 0.0, "page_text")
 
     @staticmethod
     @lru_cache(maxsize=512)
     def _is_valid_id(job_id):
-        if not job_id or len(job_id) < 4 or len(job_id) > 20:
+        if not job_id or not (4 <= len(job_id) <= 40):
             return False
         if not re.match(r"^[A-Z0-9\-_]+$", job_id, re.I):
             return False
-        false_positives = {
+        return job_id.upper() not in {
             "APPLY",
             "NOW",
             "HERE",
@@ -274,7 +285,6 @@ class JobIDExtractor:
             "SOFTWARE",
             "ENGINEER",
         }
-        return job_id.upper() not in false_positives
 
     @staticmethod
     def extract_all_methods(url, soup):
@@ -292,9 +302,15 @@ class JobIDExtractor:
         if best_result:
             return best_result.value
 
+        # Fallback: Generate hash-based ID
         import hashlib
 
         return f"HASH_{hashlib.md5(url.encode()).hexdigest()[:10]}"
+
+
+# ============================================================================
+# Location Extraction - ENHANCED WITH 5 METHODS
+# ============================================================================
 
 
 class LocationExtractor:
@@ -303,12 +319,17 @@ class LocationExtractor:
         if not title:
             return ExtractionResult(None, 0.0, "title_parse")
 
-        match = re.search(r"[-–]\s*([A-Za-z\s]+,\s*[A-Z]{2})(?:\s|$)", title)
-        if match:
-            return ExtractionResult(match.group(1).strip(), 0.80, "title_city_state")
+        try:
+            match = re.search(r"[-–]\s*([A-Za-z\s]+,\s*[A-Z]{2})(?:\s|$)", title)
+            if match:
+                return ExtractionResult(
+                    match.group(1).strip(), 0.80, "title_city_state"
+                )
 
-        if re.search(r"\(remote\)", title, re.I):
-            return ExtractionResult("Remote", 0.90, "title_remote")
+            if re.search(r"\(remote\)", title, re.I):
+                return ExtractionResult("Remote", 0.90, "title_remote")
+        except Exception as e:
+            logging.debug(f"Title location extraction failed: {e}")
 
         return ExtractionResult(None, 0.0, "title_parse")
 
@@ -332,7 +353,8 @@ class LocationExtractor:
                             return ExtractionResult(
                                 cleaned, confidence, "html_selector"
                             )
-            except:
+            except Exception as e:
+                logging.debug(f"Selector {selector} failed: {e}")
                 continue
 
         return ExtractionResult(None, 0.0, "html_selectors")
@@ -342,9 +364,9 @@ class LocationExtractor:
         if not soup:
             return ExtractionResult(None, 0.0, "json_ld")
 
-        json_ld = soup.find("script", {"type": "application/ld+json"})
-        if json_ld:
-            try:
+        try:
+            json_ld = soup.find("script", {"type": "application/ld+json"})
+            if json_ld:
                 data = json.loads(json_ld.string)
                 if isinstance(data, dict):
                     job_location = data.get("jobLocation", {})
@@ -357,24 +379,41 @@ class LocationExtractor:
                                 return ExtractionResult(
                                     f"{city}, {state}", 0.95, "json_ld"
                                 )
-            except:
-                pass
+        except Exception as e:
+            logging.debug(f"JSON-LD location extraction failed: {e}")
 
         return ExtractionResult(None, 0.0, "json_ld")
 
     @staticmethod
     def extract_from_page_text(soup):
+        """NEW: Enhanced page text extraction with multiple patterns"""
         if not soup:
             return ExtractionResult(None, 0.0, "page_text")
 
-        page_text = soup.get_text()[:3000]
-        match = _LOCATION_LABEL_PATTERN.search(page_text)
-        if match:
-            location = match.group(1).strip()
-            if len(location) < 50:
-                cleaned = LocationProcessor.clean_location_aggressive(location)
-                if cleaned and cleaned != "Unknown":
-                    return ExtractionResult(cleaned, 0.75, "page_text_labeled")
+        try:
+            page_text = soup.get_text()[:5000]
+
+            # Pattern 1: "Location: City, State"
+            match = _LOCATION_LABEL_PATTERN.search(page_text)
+            if match:
+                location = match.group(1).strip()
+                if len(location) < 50:
+                    cleaned = LocationProcessor.clean_location_aggressive(location)
+                    if cleaned and cleaned != "Unknown":
+                        return ExtractionResult(cleaned, 0.75, "page_text_labeled")
+
+            # Pattern 2: "Locations: City, State, Country" (EA format)
+            ea_pattern = r"Locations?:\s*([^,\n]+(?:,\s*[^,\n]+){1,2})"
+            match = re.search(ea_pattern, page_text, re.I)
+            if match:
+                location = match.group(1).strip()
+                if len(location) < 100:
+                    cleaned = LocationProcessor.clean_location_aggressive(location)
+                    if cleaned and cleaned != "Unknown":
+                        return ExtractionResult(cleaned, 0.80, "page_text_ea_format")
+
+        except Exception as e:
+            logging.debug(f"Page text location extraction failed: {e}")
 
         return ExtractionResult(None, 0.0, "page_text")
 
@@ -383,28 +422,41 @@ class LocationExtractor:
         if not url:
             return ExtractionResult(None, 0.0, "url_parse")
 
-        patterns = [
-            r"/job/([A-Z][a-z]+(?:-[A-Z][a-z]+)*)-([A-Z]{2})(?:-USA)?/",
-            r"/([A-Z][a-z]+(?:-[A-Z][a-z]+)*)-([A-Z]{2})/",
-            r"/job/([A-Z][a-z]+-[A-Z]{2})/",
-        ]
-
-        for pattern in patterns:
-            match = re.search(pattern, url)
+        try:
+            # Pattern 1: Workday-style with full state name
+            match = re.search(r"/job/([A-Za-z-]+)-([A-Za-z\s]+)/", url)
             if match:
-                if len(match.groups()) == 2:
+                city = match.group(1).replace("-", " ").title()
+                state_text = match.group(2).replace("-", " ").title()
+
+                # Try to convert full state name to code
+                state_code = LocationProcessor.convert_state_name_to_code(state_text)
+                if state_code:
+                    return ExtractionResult(
+                        f"{city}, {state_code}", 0.80, "url_path_full_state"
+                    )
+
+            # Pattern 2: Standard City-StateCode format
+            patterns = [
+                r"/job/([A-Z][a-z]+(?:-[A-Z][a-z]+)*)-([A-Z]{2})(?:-USA)?/",
+                r"/([A-Z][a-z]+(?:-[A-Z][a-z]+)*)-([A-Z]{2})/",
+            ]
+
+            for pattern in patterns:
+                match = re.search(pattern, url)
+                if match and len(match.groups()) == 2:
                     city, state = match.groups()
                     city = city.replace("-", " ")
                     if validate_us_state_code(state):
                         return ExtractionResult(f"{city}, {state}", 0.75, "url_path")
-                else:
-                    location = match.group(1).replace("-", ", ")
-                    return ExtractionResult(location, 0.65, "url_path")
+        except Exception as e:
+            logging.debug(f"URL location extraction failed: {e}")
 
         return ExtractionResult(None, 0.0, "url_parse")
 
     @staticmethod
     def extract_all_methods(url, soup, title="", platform="generic"):
+        """Enhanced with 5 extraction methods"""
         results = [
             LocationExtractor.extract_from_json_ld(soup),
             LocationExtractor.extract_from_html_selectors(soup, platform),
@@ -416,11 +468,16 @@ class LocationExtractor:
         best_result = ExtractionVoter.vote(
             results, min_confidence=MIN_CONFIDENCE_LOCATION
         )
+        return (
+            LocationProcessor.format_location_clean(best_result.value)
+            if best_result
+            else "Unknown"
+        )
 
-        if best_result:
-            return LocationProcessor.format_location_clean(best_result.value)
 
-        return "Unknown"
+# ============================================================================
+# Location Processing - SIGNIFICANTLY ENHANCED
+# ============================================================================
 
 
 class LocationProcessor:
@@ -430,194 +487,395 @@ class LocationProcessor:
         if not location_text or len(location_text) < 2:
             return "Unknown"
 
-        location = location_text.strip()
+        try:
+            location = location_text.strip()
 
-        for pattern in _COMPILED_METADATA_PATTERNS:
-            location = pattern.sub("", location)
+            # Step 1: Remove metadata patterns
+            for pattern in _COMPILED_METADATA_PATTERNS:
+                location = pattern.sub("", location)
 
-        for pattern in _COMPILED_ARTIFACT_PATTERNS:
-            location = pattern.sub("", location)
+            # Step 2: Remove HTML artifacts
+            for pattern in _COMPILED_ARTIFACT_PATTERNS:
+                location = pattern.sub("", location)
 
-        location = re.sub(r"\s*\([^)]*\)", "", location)
-        location = re.sub(r"\s*-\s*[A-Z]{2,4}$", "", location)
+            # Step 3: Remove parenthetical content
+            location = re.sub(r"\s*\([^)]*\)", "", location)
+            location = re.sub(r"\s*-\s*[A-Z]{2,4}$", "", location)
 
-        stop_keywords = [
-            "Employment",
-            "Type",
-            "Details",
-            "Program",
-            "Internship",
-            "Job",
-            "Position",
-            "Careers",
-        ]
-        for keyword in stop_keywords:
-            if keyword in location:
-                location = location.split(keyword)[0].strip()
-                break
+            # Step 4: Remove department keywords
+            for keyword in [
+                "Employment",
+                "Type",
+                "Details",
+                "Program",
+                "Internship",
+                "Job",
+                "Position",
+            ]:
+                if keyword in location:
+                    location = location.split(keyword)[0].strip()
+                    break
 
-        location = re.sub(
-            r",?\s*\d{3,5}\s+[A-Z][a-z]+(?:\s+[A-Z][a-z]+)?", "", location
-        )
-        location = re.sub(r"\s*\d{5}(-\d{4})?\s*", "", location)
-        location = re.sub(r",?\s*(?:USA|United States)\s*", "", location, flags=re.I)
+            # Step 5: Remove addresses/zipcodes
+            location = re.sub(r",?\s*\d{3,5}\s+[A-Z][a-z]+", "", location)
+            location = re.sub(r"\s*\d{5}(-\d{4})?\s*", "", location)
 
-        match = _CITY_STATE_PATTERN.search(location)
-        if match:
-            city, state = match.group(1).strip(), match.group(2).upper()
-            if validate_us_state_code(state):
-                return f"{city}, {state}"
+            # Step 6: Remove country suffixes
+            location = re.sub(
+                r",?\s*(?:USA|United States)\s*", "", location, flags=re.I
+            )
 
-        location = re.sub(r"\s+", " ", location).strip()
+            # Step 7: Extract City, State pattern
+            match = _CITY_STATE_PATTERN.search(location)
+            if match:
+                city, state = match.group(1).strip(), match.group(2).upper()
+                if validate_us_state_code(state):
+                    return f"{city}, {state}"
 
-        if not location or len(location) < 2:
-            return "Unknown"
+            # Step 8: Normalize whitespace
+            location = re.sub(r"\s+", " ", location).strip()
 
-        if location.lower() in DEPARTMENT_KEYWORDS:
-            return "Unknown"
+            if not location or len(location) < 2:
+                return "Unknown"
 
-        if any(kw in location.lower() for kw in INVALID_LOCATION_KEYWORDS):
-            return "Unknown"
+            # Step 9: Reject if matches department keywords
+            if location.lower() in DEPARTMENT_KEYWORDS:
+                return "Unknown"
 
-        if US_ZIPCODE_AVAILABLE:
+            # Step 10: Reject invalid location keywords
+            if any(kw in location.lower() for kw in INVALID_LOCATION_KEYWORDS):
+                return "Unknown"
+
+            # Step 11: Try to infer state from city name
             state = get_state_for_city(location)
             if state:
                 return f"{location.title()}, {state}"
 
-        return location
+            return location
+        except Exception as e:
+            logging.debug(f"Location cleaning failed for '{location_text}': {e}")
+            return "Unknown"
 
     @staticmethod
     @lru_cache(maxsize=512)
     def format_location_clean(location):
+        """Enhanced with suffix stripping, abbreviation expansion, state conversion"""
         if not location or location == "Unknown":
             return "Unknown"
 
-        if location in ["Remote", "Hybrid"]:
+        try:
+            if location in ["Remote", "Hybrid"]:
+                return location
+
+            # Step 1: Handle Workday HQ codes
+            if location in WORKDAY_HQ_CODES:
+                city, state = WORKDAY_HQ_CODES[location]
+                return f"{city}, {state}" if state != "UNKNOWN" else "Unknown"
+
+            # Step 2: Clean the location
+            location = LocationProcessor.clean_location_aggressive(location)
+
+            # Step 3: Strip location suffixes (NEW)
+            for suffix in LOCATION_SUFFIXES:
+                if location.endswith(suffix):
+                    location = location[: -len(suffix)].strip()
+                    break
+
+            # Step 4: Expand city abbreviations (NEW)
+            location_lower = location.lower()
+            if location_lower in CITY_ABBREVIATIONS:
+                return CITY_ABBREVIATIONS[location_lower]
+
+            # Step 5: Convert full state names to codes (NEW)
+            location = LocationProcessor.convert_state_name_to_code(location)
+
+            # Step 6: Handle state code prefix (MA Cambridge -> Cambridge, MA)
+            match = re.search(r"^([A-Z]{2})\s+(.+)$", location)
+            if match:
+                state, rest = match.groups()
+                if validate_us_state_code(state):
+                    return f"{rest.strip()}, {state}"
+
+            # Step 7: Remove technical prefixes
+            location = re.sub(r"^[A-Z]{2,4}[:_-]\s*", "", location)
+
+            # Step 8: Reject generic locations (NEW)
+            if not LocationProcessor.is_valid_location_text(location):
+                return "Unknown"
+
             return location
-
-        if location in WORKDAY_HQ_CODES:
-            city, state = WORKDAY_HQ_CODES[location]
-            if state != "UNKNOWN":
-                return f"{city}, {state}"
-
-        location = LocationProcessor.clean_location_aggressive(location)
-
-        match = re.search(r"^([A-Z]{2})\s+(.+)$", location)
-        if match:
-            state, rest = match.groups()
-            if validate_us_state_code(state):
-                return f"{rest.strip()}, {state}"
-
-        location = re.sub(r"^[A-Z]{2,4}[:_-]\s*", "", location)
-
-        if location in {"Headquarters", "Office", "Campus"}:
+        except Exception as e:
+            logging.debug(f"Location formatting failed for '{location}': {e}")
             return "Unknown"
 
-        match = _CITY_STATE_PATTERN.search(location)
-        if match:
-            city, state = match.group(1).strip(), match.group(2).upper()
-            if validate_us_state_code(state):
-                return f"{city}, {state}"
+    @staticmethod
+    @lru_cache(maxsize=256)
+    def convert_state_name_to_code(location):
+        """NEW: Convert full state/province names to codes"""
+        if not location:
+            return location
+
+        location_lower = location.lower()
+
+        # Check US states
+        for full_name, code in FULL_STATE_NAMES.items():
+            if full_name in location_lower:
+                # Replace "Vancouver, British Columbia" -> "Vancouver, BC"
+                location = re.sub(rf"\b{full_name}\b", code, location, flags=re.I)
+                return location
+
+        # Check Canadian provinces
+        for full_name, code in CANADA_PROVINCE_NAMES.items():
+            if full_name in location_lower:
+                location = re.sub(rf"\b{full_name}\b", code, location, flags=re.I)
+                return location
 
         return location
+
+    @staticmethod
+    @lru_cache(maxsize=256)
+    def is_valid_location_text(text):
+        """NEW: Validate location isn't garbage or too generic"""
+        if not text or text == "Unknown":
+            return False
+
+        if len(text) > 50:
+            return False
+        if len(text) < 3:
+            return False
+
+        # Reject garbage phrases
+        garbage_phrases = [
+            "as well as",
+            "in accordance with",
+            "equal opportunity",
+            "without regard to",
+            "applicants",
+            "candidates",
+        ]
+        text_lower = text.lower()
+        if any(phrase in text_lower for phrase in garbage_phrases):
+            return False
+
+        # Reject too generic
+        if text_lower in [
+            "united states",
+            "us",
+            "usa",
+            "headquarters",
+            "office",
+            "campus",
+        ]:
+            return False
+
+        # Reject state-only (no city)
+        if text.upper() in US_STATES_FALLBACK:
+            return False
+
+        return True
 
     @staticmethod
     def extract_remote_status_enhanced(soup, location, url):
         if not soup:
             return "Unknown"
 
-        if location:
-            location_lower = location.lower()
-            if "remote" in location_lower:
+        try:
+            if location:
+                location_lower = location.lower()
+                if "remote" in location_lower:
+                    return "Remote"
+                if "hybrid" in location_lower:
+                    return "Hybrid"
+
+            page_text = soup.get_text()[:2000].lower()
+
+            if "100% remote" in page_text or "fully remote" in page_text:
                 return "Remote"
-            if "hybrid" in location_lower:
+            if "remote" in page_text[:500]:
+                return "Remote"
+            if "hybrid" in page_text[:500]:
                 return "Hybrid"
-
-        page_text = soup.get_text()[:2000].lower()
-
-        if "100% remote" in page_text or "fully remote" in page_text:
-            return "Remote"
-        if "remote" in page_text[:500]:
-            return "Remote"
-        if "hybrid" in page_text[:500]:
-            return "Hybrid"
-        if "on-site" in page_text[:500] or "onsite" in page_text[:500]:
-            return "On Site"
+            if "on-site" in page_text[:500] or "onsite" in page_text[:500]:
+                return "On Site"
+        except Exception as e:
+            logging.debug(f"Remote status extraction failed: {e}")
 
         return "Unknown"
 
     @staticmethod
-    def check_if_international(location, soup=None):
-        if not location or location == "Unknown":
-            if soup:
-                return LocationProcessor._check_page_for_canada(soup)
-            return None
+    def check_if_international(location, soup=None, url=None):
+        """ENHANCED: Multi-method Canadian detection that ALWAYS runs"""
 
-        location_lower = location.lower()
-        normalized = (
-            normalize_unicode(location_lower)
-            if hasattr(LocationProcessor, "normalize_unicode")
-            else location_lower
-        )
+        # Method 1: Check extracted location
+        if location and location != "Unknown":
+            location_lower = location.lower()
+            normalized = normalize_unicode(location_lower)
 
-        for full_name, code in CANADA_PROVINCE_NAMES.items():
-            if re.search(rf"\b{full_name}\b", location_lower, re.I):
-                if full_name == "ontario" and ", ca" in location_lower:
-                    continue
-                return f"Location: Canada ({full_name.title()})"
+            # Check for "Canada" keyword
+            if "canada" in location_lower:
+                return "Location: Canada"
 
-        for province in CANADA_PROVINCES:
-            patterns = [rf",\s*{province}\b", rf"\s+-\s+{province}\b"]
-            for pattern in patterns:
-                if re.search(pattern, location):
+            # Check for Canadian provinces (full names)
+            for full_name, code in CANADA_PROVINCE_NAMES.items():
+                if re.search(rf"\b{full_name}\b", location_lower, re.I):
+                    # Exclude "Ontario, CA" (California)
+                    if full_name == "ontario" and ", ca" in location_lower:
+                        continue
+                    return f"Location: Canada ({full_name.title()})"
+
+            # Check for province codes
+            for province in CANADA_PROVINCES:
+                if re.search(rf",\s*{province}\b", location):
+                    # Exclude "ON" in "Ontario, CA"
                     if province == "ON" and ", ca" in location_lower:
                         continue
                     return f"Location: Canada (province: {province})"
 
-        if ", CA" in location or " - CA" in location:
-            canada_indicators = ["toronto", "ottawa", "montreal", "canada"]
-            if any(ind in location_lower for ind in canada_indicators):
+            # Check for ", CA" with Canadian city indicators
+            if (", CA" in location or " - CA" in location) and any(
+                ind in location_lower for ind in ["toronto", "ottawa", "montreal"]
+            ):
                 if "ontario, ca" not in location_lower:
-                    return "Location: Canada (CA in Canadian context)"
+                    return "Location: Canada"
 
-        for city, label in MAJOR_CANADIAN_CITIES.items():
-            if city in normalized:
-                return f"Location: Canada ({city.title()}, {label})"
+            # Check for major Canadian cities
+            for city, province in MAJOR_CANADIAN_CITIES.items():
+                if city in normalized:
+                    # Resolve ambiguous cities
+                    if city in AMBIGUOUS_CITIES:
+                        resolved = LocationProcessor._resolve_ambiguous_city(
+                            city, location, soup, url
+                        )
+                        if resolved == "Canada":
+                            return f"Location: Canada ({city.title()})"
+                    else:
+                        return f"Location: Canada ({city.title()})"
 
-        if "canada" in location_lower:
-            return "Location: Canada"
+        # Method 2: Check page text (BACKUP - always runs even if location fails)
+        canadian_result = LocationProcessor._check_page_for_canada(soup)
+        if canadian_result:
+            return canadian_result
 
-        if any(kw in location_lower for kw in ["uk", "london", "india", "china"]):
-            return "Location: International"
-
-        if soup:
-            return LocationProcessor._check_page_for_canada(soup)
+        # Method 3: Check URL
+        if url:
+            url_result = LocationProcessor._check_url_for_canada(url)
+            if url_result:
+                return url_result
 
         return None
+
+    @staticmethod
+    def _resolve_ambiguous_city(city, location, soup, url):
+        """NEW: Resolve ambiguous cities using context"""
+        if not city in AMBIGUOUS_CITIES:
+            return "Unknown"
+
+        context_text = ""
+
+        # Gather context from location string
+        if location:
+            context_text += location.lower() + " "
+
+        # Gather context from page text
+        if soup:
+            context_text += soup.get_text()[:3000].lower() + " "
+
+        # Gather context from URL
+        if url:
+            context_text += url.lower() + " "
+
+        # Check for Canadian indicators
+        canada_score = sum(1 for kw in CANADA_CONTEXT_KEYWORDS if kw in context_text)
+        us_score = sum(1 for kw in US_CONTEXT_KEYWORDS if kw in context_text)
+
+        # Check domain
+        if url and ".ca" in url.lower():
+            canada_score += 2
+
+        # Check for explicit province/state mention
+        for province in CANADA_PROVINCES:
+            if f", {province}" in location:
+                canada_score += 3
+
+        if canada_score > us_score:
+            return "Canada"
+        elif us_score > canada_score:
+            return "US"
+
+        # Default: assume US for ambiguous cases
+        return "US"
 
     @staticmethod
     def _check_page_for_canada(soup):
         if not soup:
             return None
 
-        meta_desc = soup.find("meta", {"property": "og:description"})
-        if meta_desc:
-            content = meta_desc.get("content", "").lower()
-            if content == "canada" or "canada only" in content:
-                return "Location: Canada (from meta tag)"
+        try:
+            # Check meta description
+            meta_desc = soup.find("meta", {"property": "og:description"})
+            if meta_desc and meta_desc.get("content"):
+                content = meta_desc["content"].lower()
+                if content == "canada" or "canada only" in content:
+                    return "Location: Canada (from meta tag)"
 
-        page_text = soup.get_text()[:10000]
-        canadian_patterns = [
-            (r"Ottawa\s*,?\s*Ontario", "Ottawa, Ontario"),
-            (r"Toronto\s*,?\s*Ontario", "Toronto, Ontario"),
-            (r"Montreal\s*,?\s*Quebec", "Montreal, Quebec"),
-        ]
+            # Check page text
+            page_text = soup.get_text()[:10000].lower()
 
-        for pattern, city_name in canadian_patterns:
-            if re.search(pattern, page_text, re.I):
-                return f"Location: Canada ({city_name})"
+            # Pattern 1: City, Province, Canada
+            canadian_city_patterns = [
+                r"ottawa\s*,?\s*ontario",
+                r"toronto\s*,?\s*ontario",
+                r"montreal\s*,?\s*quebec",
+                r"vancouver\s*,?\s*british\s*columbia",
+                r"calgary\s*,?\s*alberta",
+            ]
+            for pattern in canadian_city_patterns:
+                if re.search(pattern, page_text, re.I):
+                    match = re.search(pattern, page_text, re.I)
+                    city_province = match.group(0) if match else "Canada"
+                    return f"Location: Canada ({city_province})"
+
+            # Pattern 2: "work in Canada", "located in Canada"
+            if re.search(r"(work|located|based)\s+in\s+canada", page_text, re.I):
+                return "Location: Canada (page text indicator)"
+
+        except Exception as e:
+            logging.debug(f"Canada page check failed: {e}")
 
         return None
+
+    @staticmethod
+    def _check_url_for_canada(url):
+        """NEW: Check URL for Canadian indicators"""
+        if not url:
+            return None
+
+        url_lower = url.lower()
+
+        # Check domain
+        if ".ca/" in url_lower or url_lower.endswith(".ca"):
+            return "Location: Canada (domain .ca)"
+
+        # Check path
+        canada_patterns = [
+            "/montreal-quebec-can/",
+            "/toronto-ontario/",
+            "-ontario-can",
+            "/can/",
+            "/canada/",
+            "-canada-",
+            "vancouver-british-columbia",
+        ]
+        for pattern in canada_patterns:
+            if pattern in url_lower:
+                return "Location: Canada (from URL path)"
+
+        return None
+
+
+# ============================================================================
+# Validation Helpers
+# ============================================================================
 
 
 class ValidationHelper:
@@ -627,24 +885,19 @@ class ValidationHelper:
         if not url or not url.startswith("http"):
             return False, "Invalid URL format"
 
-        if VALIDATORS_AVAILABLE:
-            if not is_valid_url(url):
-                return False, "Invalid URL format"
-
         url_lower = url.lower()
 
         if "jobright.ai" in url_lower and "/jobs/info/" not in url_lower:
             return False, "Invalid Jobright URL"
 
-        excluded = [
+        for pattern in [
             "/unsubscribe",
             "/my-alerts",
             "/blog",
             "/terms",
             "/privacy",
-            "chromewebstore.google.com",
-        ]
-        for pattern in excluded:
+            "chromewebstore",
+        ]:
             if pattern in url_lower:
                 return False, f"{pattern.split('/')[-1].title()} link"
 
@@ -652,57 +905,34 @@ class ValidationHelper:
 
     @staticmethod
     def check_url_for_international(url):
-        if not url:
-            return None
-
-        url_lower = url.lower()
-        canada_patterns = [
-            "/montreal-quebec-can/",
-            "/toronto-ontario/",
-            "/ottawa-ontario/",
-            "-quebec-can",
-            "-ontario-can",
-            "/can/",
-            "canada/",
-            ".ca/",
-        ]
-
-        for pattern in canada_patterns:
-            if pattern in url_lower:
-                return "International: Canada (from URL)"
-
-        return None
+        """Delegates to LocationProcessor._check_url_for_canada"""
+        return LocationProcessor._check_url_for_canada(url)
 
     @staticmethod
     def check_page_restrictions(soup):
         if not soup:
             return None, None, []
 
-        degree_decision, degree_reason = (
-            ValidationHelper._check_degree_requirements_strict(soup)
-        )
-        if degree_decision == "REJECT":
-            return degree_decision, degree_reason, []
+        try:
+            degree_decision, degree_reason = (
+                ValidationHelper._check_degree_requirements_strict(soup)
+            )
+            if degree_decision == "REJECT":
+                return degree_decision, degree_reason, []
 
-        page_text = soup.get_text()[:15000].lower()
+            page_text = soup.get_text()[:15000].lower()
 
-        citizenship_patterns = [
-            r"u\.?s\.?\s+citizenship\s+(?:is\s+)?required",
-            r"must be a u\.?s\.?\s+citizen",
-            r"only u\.?s\.?\s+citizens\s+(?:are\s+)?eligible",
-        ]
+            patterns = {
+                r"u\.?s\.?\s+citizenship\s+(?:is\s+)?required": "US citizenship required",
+                r"us work authorization required": "US work authorization required",
+                r"(?:clearance.*required)": "Security clearance required",
+            }
 
-        for pattern in citizenship_patterns:
-            if re.search(pattern, page_text, re.I):
-                return "REJECT", "US citizenship required", []
-
-        if re.search(r"us work authorization required", page_text, re.I):
-            return "REJECT", "US work authorization required", []
-
-        if re.search(
-            r"(?:must be able to obtain|clearance.*required)", page_text, re.I
-        ):
-            return "REJECT", "Security clearance required", []
+            for pattern, reason in patterns.items():
+                if re.search(pattern, page_text, re.I):
+                    return "REJECT", reason, []
+        except Exception as e:
+            logging.debug(f"Page restrictions check failed: {e}")
 
         return None, None, []
 
@@ -711,30 +941,31 @@ class ValidationHelper:
         if not soup:
             return None, None
 
-        page_text = soup.get_text()[:15000].lower()
+        try:
+            page_text = soup.get_text()[:15000].lower()
 
-        bs_patterns = [
-            r"bachelor'?s?\s+(?:students?|degree|candidates?)\s+only",
-            r"undergraduate\s+(?:students?|only)",
-            r"currently\s+pursuing\s+a?\s+bachelor",
-        ]
-
-        for pattern in bs_patterns:
-            match = re.search(pattern, page_text, re.I)
-            if match:
-                start = max(0, match.start() - 300)
-                end = min(len(page_text), match.end() + 300)
-                context = page_text[start:end]
-
-                if not any(
-                    kw in context for kw in ["master", "ms/phd", "graduate student"]
-                ):
-                    return "REJECT", "Bachelor's students only"
+            for pattern in [
+                r"bachelor'?s?\s+(?:students?|degree|candidates?)\s+only",
+                r"undergraduate\s+(?:students?|only)",
+                r"currently\s+pursuing\s+a?\s+bachelor",
+            ]:
+                match = re.search(pattern, page_text, re.I)
+                if match:
+                    context = page_text[
+                        max(0, match.start() - 300) : min(
+                            len(page_text), match.end() + 300
+                        )
+                    ]
+                    if not any(
+                        kw in context for kw in ["master", "ms/phd", "graduate"]
+                    ):
+                        return "REJECT", "Bachelor's students only"
+        except Exception as e:
+            logging.debug(f"Degree requirements check failed: {e}")
 
         return None, None
 
     @staticmethod
-    @lru_cache(maxsize=256)
     def validate_company_field(company, title, url):
         if not company or company == "Unknown" or not company.strip():
             return True, ValidationHelper.extract_company_from_domain(url), None
@@ -747,8 +978,14 @@ class ValidationHelper:
         if len(company) > 100:
             return False, company, "Company name too long"
 
-        job_keywords = {"intern", "software", "engineer", "developer"}
-        if sum(1 for kw in job_keywords if kw in company.lower()) >= 2:
+        if (
+            sum(
+                1
+                for kw in ["intern", "software", "engineer", "developer"]
+                if kw in company.lower()
+            )
+            >= 2
+        ):
             return False, company, "Company field contains job title"
 
         return True, company, None
@@ -757,14 +994,10 @@ class ValidationHelper:
     def clean_legal_entity(company):
         if not company:
             return company
-
-        company = re.sub(r"^\d+\s+", "", company)
-        company = re.sub(r"^[A-Z]{2,4}[-\s]", "", company)
-        company = re.sub(
-            r",?\s+(Inc\.?|LLC\.?|Corp\.?|Ltd\.?|Corporation)$", "", company, flags=re.I
-        )
-
-        return company.strip()
+        company = re.sub(r"^\d+\s+|^[A-Z]{2,4}[-\s]", "", company)
+        return re.sub(
+            r",?\s+(Inc\.?|LLC\.?|Corp\.?|Ltd\.?)$", "", company, flags=re.I
+        ).strip()
 
     @staticmethod
     @lru_cache(maxsize=256)
@@ -772,52 +1005,41 @@ class ValidationHelper:
         if not url:
             return "Unknown"
 
-        if TLDEXTRACT_AVAILABLE:
+        try:
             subdomain, domain = extract_domain_and_subdomain(url)
             if domain:
                 domain_name = domain.split(".")[0]
                 if domain_name in COMPANY_SLUG_MAPPING:
                     return COMPANY_SLUG_MAPPING[domain_name]
                 return domain_name.replace("-", " ").title()
+        except Exception as e:
+            logging.debug(f"Domain extraction failed for {url}: {e}")
 
-        match = re.search(r"https?://(?:www\.)?([^/]+)", url, re.I)
-        if not match:
-            return "Unknown"
-
-        domain = match.group(1).lower()
-        domain = re.sub(r"\.(com|org|net|io|ai|co|jobs|careers)$", "", domain)
-
-        parts = domain.split(".")
-        company = parts[-1] if len(parts) > 1 else parts[0]
-
-        if company in COMPANY_SLUG_MAPPING:
-            return COMPANY_SLUG_MAPPING[company]
-
-        return company.replace("-", " ").replace("_", " ").title()
+        return "Unknown"
 
     @staticmethod
     def check_sponsorship_status(soup):
         if not soup:
             return "Unknown"
 
-        page_text = soup.get_text()[:3000]
+        try:
+            page_text = soup.get_text()[:3000]
 
-        if re.search(
-            r"(?:will|does|provides?)\s+sponsor|h-?1b.*sponsor", page_text, re.I
-        ):
-            return "Yes"
-
-        if re.search(r"(?:no|not|doesn't)\s+sponsor|no h-?1b", page_text, re.I):
-            return "No"
-
-        if re.search(
-            r"(?:must have|requires?)\s+(?:us|u\.s\.)\s+work authorization",
-            page_text,
-            re.I,
-        ):
-            return "No"
+            if re.search(
+                r"(?:will|does|provides?)\s+sponsor|h-?1b.*sponsor", page_text, re.I
+            ):
+                return "Yes"
+            if re.search(r"(?:no|not|doesn't)\s+sponsor", page_text, re.I):
+                return "No"
+        except Exception as e:
+            logging.debug(f"Sponsorship check failed: {e}")
 
         return "Unknown"
+
+
+# ============================================================================
+# Company Extraction
+# ============================================================================
 
 
 class CompanyExtractor:
@@ -826,9 +1048,12 @@ class CompanyExtractor:
         if not url:
             return ExtractionResult(None, 0.0, "url_mapping")
 
-        for pattern, company_name in _COMPILED_URL_COMPANY_PATTERNS:
-            if pattern.search(url):
-                return ExtractionResult(company_name, 0.95, "url_mapping")
+        try:
+            for pattern, company_name in _COMPILED_URL_COMPANY_PATTERNS:
+                if pattern.search(url):
+                    return ExtractionResult(company_name, 0.95, "url_mapping")
+        except Exception as e:
+            logging.debug(f"URL company mapping failed: {e}")
 
         return ExtractionResult(None, 0.0, "url_mapping")
 
@@ -837,21 +1062,22 @@ class CompanyExtractor:
         if not soup:
             return ExtractionResult(None, 0.0, "json_ld")
 
-        json_ld = soup.find("script", {"type": "application/ld+json"})
-        if json_ld:
-            try:
+        try:
+            json_ld = soup.find("script", {"type": "application/ld+json"})
+            if json_ld:
                 data = json.loads(json_ld.string)
-                if isinstance(data, dict):
-                    org = data.get("hiringOrganization", {})
-                    if isinstance(org, dict):
-                        name = org.get("name", "")
-                        if name and len(name) < 100:
-                            cleaned = ValidationHelper.clean_legal_entity(name)
-                            normalized = CompanyNormalizer.normalize(cleaned, "")
-                            if normalized and CompanyValidator.is_valid(normalized):
-                                return ExtractionResult(normalized, 0.93, "json_ld")
-            except:
-                pass
+                org = (
+                    data.get("hiringOrganization", {}) if isinstance(data, dict) else {}
+                )
+                if isinstance(org, dict) and org.get("name"):
+                    name = org["name"]
+                    if len(name) < 100:
+                        cleaned = ValidationHelper.clean_legal_entity(name)
+                        normalized = CompanyNormalizer.normalize(cleaned, "")
+                        if normalized and CompanyValidator.is_valid(normalized):
+                            return ExtractionResult(normalized, 0.93, "json_ld")
+        except Exception as e:
+            logging.debug(f"JSON-LD company extraction failed: {e}")
 
         return ExtractionResult(None, 0.0, "json_ld")
 
@@ -860,14 +1086,21 @@ class CompanyExtractor:
         if not soup:
             return ExtractionResult(None, 0.0, "meta_tags")
 
-        meta = soup.find("meta", {"property": "og:site_name"})
-        if meta and meta.get("content"):
-            company = meta.get("content").strip()
-            company = re.sub(r"\s*[-|]\s*(careers|jobs).*$", "", company, flags=re.I)
-            if company and len(company) < 50:
-                normalized = CompanyNormalizer.normalize(company, "")
-                if normalized and CompanyValidator.is_valid(normalized):
-                    return ExtractionResult(normalized, 0.90, "meta_tags")
+        try:
+            meta = soup.find("meta", {"property": "og:site_name"})
+            if meta and meta.get("content"):
+                company = re.sub(
+                    r"\s*[-|]\s*(careers|jobs).*$",
+                    "",
+                    meta["content"].strip(),
+                    flags=re.I,
+                )
+                if company and len(company) < 50:
+                    normalized = CompanyNormalizer.normalize(company, "")
+                    if normalized and CompanyValidator.is_valid(normalized):
+                        return ExtractionResult(normalized, 0.90, "meta_tags")
+        except Exception as e:
+            logging.debug(f"Meta tag company extraction failed: {e}")
 
         return ExtractionResult(None, 0.0, "meta_tags")
 
@@ -876,41 +1109,40 @@ class CompanyExtractor:
         if not soup:
             return ExtractionResult(None, 0.0, "visible_elements")
 
-        url_lower = url.lower() if url else ""
+        try:
+            url_lower = url.lower() if url else ""
 
-        if "icims.com" in url_lower:
-            mobile_header = soup.find("div", id="mobile-header-container")
-            if mobile_header:
-                h1 = mobile_header.find("h1")
+            if "icims.com" in url_lower:
+                mobile_header = soup.find("div", id="mobile-header-container")
+                if mobile_header:
+                    h1 = mobile_header.find("h1")
+                    if h1:
+                        normalized = CompanyNormalizer.normalize(
+                            h1.get_text().strip(), url
+                        )
+                        if normalized and CompanyValidator.is_valid(normalized):
+                            return ExtractionResult(normalized, 0.88, "visible_icims")
+
+            if "smartrecruiters" in url_lower:
+                logo = soup.find("img", alt=re.compile(r"logo", re.I))
+                if logo:
+                    alt = logo.get("alt", "").replace(" logo", "").strip()
+                    if len(alt) > 2:
+                        normalized = CompanyNormalizer.normalize(alt, url)
+                        if normalized and CompanyValidator.is_valid(normalized):
+                            return ExtractionResult(normalized, 0.88, "visible_logo")
+
+            header = soup.find(["header", "nav"])
+            if header:
+                h1 = header.find("h1")
                 if h1:
                     text = h1.get_text().strip()
-                    normalized = CompanyNormalizer.normalize(text, url)
-                    if normalized and CompanyValidator.is_valid(normalized):
-                        return ExtractionResult(normalized, 0.88, "visible_icims")
-
-        if "smartrecruiters" in url_lower:
-            logo = soup.find("img", alt=re.compile(r"logo", re.I))
-            if logo:
-                alt = (
-                    logo.get("alt", "")
-                    .replace(" logo", "")
-                    .replace(" Logo", "")
-                    .strip()
-                )
-                if alt and len(alt) > 2:
-                    normalized = CompanyNormalizer.normalize(alt, url)
-                    if normalized and CompanyValidator.is_valid(normalized):
-                        return ExtractionResult(normalized, 0.88, "visible_logo")
-
-        header = soup.find(["header", "nav"])
-        if header:
-            h1 = header.find("h1")
-            if h1:
-                text = h1.get_text().strip()
-                if text and not CompanyExtractor._looks_like_title(text):
-                    normalized = CompanyNormalizer.normalize(text, url)
-                    if normalized and CompanyValidator.is_valid(normalized):
-                        return ExtractionResult(normalized, 0.82, "visible_header")
+                    if text and not CompanyExtractor._looks_like_title(text):
+                        normalized = CompanyNormalizer.normalize(text, url)
+                        if normalized and CompanyValidator.is_valid(normalized):
+                            return ExtractionResult(normalized, 0.82, "visible_header")
+        except Exception as e:
+            logging.debug(f"Visible elements extraction failed: {e}")
 
         return ExtractionResult(None, 0.0, "visible_elements")
 
@@ -919,10 +1151,13 @@ class CompanyExtractor:
         if not url:
             return ExtractionResult(None, 0.0, "url_path")
 
-        path_company = CompanyNormalizer.extract_from_url_path(url, platform)
-        if path_company and CompanyValidator.is_valid(path_company):
-            if not CompanyValidator.is_junk_subdomain(path_company.lower()):
-                return ExtractionResult(path_company, 0.70, "url_path")
+        try:
+            path_company = CompanyNormalizer.extract_from_url_path(url, platform)
+            if path_company and CompanyValidator.is_valid(path_company):
+                if not CompanyValidator.is_junk_subdomain(path_company.lower()):
+                    return ExtractionResult(path_company, 0.70, "url_path")
+        except Exception as e:
+            logging.debug(f"URL path company extraction failed: {e}")
 
         return ExtractionResult(None, 0.0, "url_path")
 
@@ -931,12 +1166,15 @@ class CompanyExtractor:
         if not url:
             return ExtractionResult(None, 0.0, "subdomain")
 
-        subdomain, _ = extract_domain_and_subdomain(url)
+        try:
+            subdomain, _ = extract_domain_and_subdomain(url)
 
-        if subdomain and not CompanyValidator.is_junk_subdomain(subdomain):
-            normalized = CompanyNormalizer.normalize(subdomain, url)
-            if normalized and CompanyValidator.is_valid(normalized):
-                return ExtractionResult(normalized, 0.40, "subdomain")
+            if subdomain and not CompanyValidator.is_junk_subdomain(subdomain):
+                normalized = CompanyNormalizer.normalize(subdomain, url)
+                if normalized and CompanyValidator.is_valid(normalized):
+                    return ExtractionResult(normalized, 0.40, "subdomain")
+        except Exception as e:
+            logging.debug(f"Subdomain extraction failed: {e}")
 
         return ExtractionResult(None, 0.0, "subdomain")
 
@@ -948,8 +1186,14 @@ class CompanyExtractor:
         text_lower = text.lower()
         if any(p in text_lower for p in ["submit your", "sign in", "apply now"]):
             return True
-        title_kw = {"intern", "co-op", "engineer", "developer", "software"}
-        return sum(1 for kw in title_kw if kw in text_lower) >= 2
+        return (
+            sum(
+                1
+                for kw in ["intern", "co-op", "engineer", "developer", "software"]
+                if kw in text_lower
+            )
+            >= 2
+        )
 
     @staticmethod
     def extract_all_methods(url, soup):
@@ -967,11 +1211,16 @@ class CompanyExtractor:
         best_result = ExtractionVoter.vote(
             results, min_confidence=MIN_CONFIDENCE_COMPANY
         )
+        return (
+            best_result.value
+            if best_result
+            else ValidationHelper.extract_company_from_domain(url)
+        )
 
-        if best_result:
-            return best_result.value
 
-        return ValidationHelper.extract_company_from_domain(url)
+# ============================================================================
+# Quality Scoring
+# ============================================================================
 
 
 class QualityScorer:
@@ -979,20 +1228,21 @@ class QualityScorer:
     def calculate_score(job_data):
         score = 0
 
-        company = job_data.get("company", "Unknown")
-        if company and company not in ["Unknown", "N/A"] and len(company) > 2:
+        if (
+            job_data.get("company") not in [None, "Unknown", "N/A"]
+            and len(job_data.get("company", "")) > 2
+        ):
             score += 3
 
-        location = job_data.get("location", "Unknown")
-        if location and location != "Unknown":
+        if job_data.get("location") not in [None, "Unknown"]:
             score += 2
 
         job_id = job_data.get("job_id", "N/A")
-        if job_id and job_id != "N/A" and not job_id.startswith("HASH_"):
+        if job_id not in ["N/A", None] and not job_id.startswith("HASH_"):
             score += 1
 
-        title = job_data.get("title", "")
-        if 15 < len(title) < 120:
+        title_len = len(job_data.get("title", ""))
+        if 15 < title_len < 120:
             score += 1
 
         return score
