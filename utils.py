@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 
 import re
+import logging
 from dataclasses import dataclass
 from functools import lru_cache
 from collections import Counter
@@ -49,10 +50,15 @@ class PlatformDetector:
     def detect(url):
         if not url:
             return "generic"
-        url_lower = url.lower()
-        for platform, pattern in _COMPILED_PLATFORM_PATTERNS.items():
-            if pattern.search(url_lower):
-                return platform
+
+        try:
+            url_lower = url.lower()
+            for platform, pattern in _COMPILED_PLATFORM_PATTERNS.items():
+                if pattern.search(url_lower):
+                    return platform
+        except Exception as e:
+            logging.debug(f"Platform detection failed for {url}: {e}")
+
         return "generic"
 
 
@@ -96,72 +102,81 @@ class CompanyNormalizer:
         if not company_name or not company_name.strip():
             return None
 
-        name = company_name.strip()
-        name_lower = name.lower()
+        try:
+            name = company_name.strip()
+            name_lower = name.lower()
 
-        for prefix in COMPANY_NAME_PREFIXES:
-            if name_lower.startswith(prefix):
-                name = name[len(prefix) :]
-                name_lower = name.lower()
-                break
+            for prefix in COMPANY_NAME_PREFIXES:
+                if name_lower.startswith(prefix):
+                    name = name[len(prefix) :]
+                    name_lower = name.lower()
+                    break
 
-        for stopword in COMPANY_NAME_STOPWORDS:
-            name = name.replace(stopword, "")
+            for stopword in COMPANY_NAME_STOPWORDS:
+                name = name.replace(stopword, "")
 
-        name = name.strip()
-        name_lower = name.lower()
+            name = name.strip()
+            name_lower = name.lower()
 
-        if name_lower in COMPANY_SLUG_MAPPING:
-            return COMPANY_SLUG_MAPPING[name_lower]
+            if name_lower in COMPANY_SLUG_MAPPING:
+                return COMPANY_SLUG_MAPPING[name_lower]
 
-        if name_lower in cls._COMPOUND_WORDS:
-            return cls._COMPOUND_WORDS[name_lower]
+            if name_lower in cls._COMPOUND_WORDS:
+                return cls._COMPOUND_WORDS[name_lower]
 
-        if len(name_lower) > 8 and " " not in name_lower:
-            for compound, expanded in cls._COMPOUND_WORDS.items():
-                if compound in name_lower:
-                    return expanded
+            if len(name_lower) > 8 and " " not in name_lower:
+                for compound, expanded in cls._COMPOUND_WORDS.items():
+                    if compound in name_lower:
+                        return expanded
 
-        name = re.sub(r"^[A-Z]{2,4}[-\s]", "", name)
-        name = re.sub(
-            r",?\s+(Inc\.?|LLC\.?|Corp\.?|Ltd\.?|Corporation|Corp\s+Svcs\.?)$",
-            "",
-            name,
-            flags=re.I,
-        )
-        name = name.strip()
+            name = re.sub(r"^[A-Z]{2,4}[-\s]", "", name)
+            name = re.sub(
+                r",?\s+(Inc\.?|LLC\.?|Corp\.?|Ltd\.?|Corporation|Corp\s+Svcs\.?)$",
+                "",
+                name,
+                flags=re.I,
+            )
+            name = name.strip()
 
-        if not name or len(name) < 2:
+            if not name or len(name) < 2:
+                return None
+
+            if name in COMPANY_PLACEHOLDERS or name.lower() in [
+                p.lower() for p in COMPANY_PLACEHOLDERS
+            ]:
+                return None
+
+            return cls._apply_smart_capitalization(name)
+
+        except Exception as e:
+            logging.debug(f"Company normalization failed for '{company_name}': {e}")
             return None
-
-        if name in COMPANY_PLACEHOLDERS or name.lower() in [
-            p.lower() for p in COMPANY_PLACEHOLDERS
-        ]:
-            return None
-
-        return cls._apply_smart_capitalization(name)
 
     @classmethod
     def _apply_smart_capitalization(cls, name):
-        name_lower = name.lower()
+        try:
+            name_lower = name.lower()
 
-        if name_lower in cls._ACRONYMS:
-            return name.upper()
+            if name_lower in cls._ACRONYMS:
+                return name.upper()
 
-        if name_lower in cls._SPECIAL_CAPS:
-            return cls._SPECIAL_CAPS[name_lower]
+            if name_lower in cls._SPECIAL_CAPS:
+                return cls._SPECIAL_CAPS[name_lower]
 
-        if name.isupper() or name.islower():
-            words = name_lower.split()
-            result = []
-            for word in words:
-                if word in ["ai", "ml", "api", "aws", "gcp", "iot"]:
-                    result.append(word.upper())
-                else:
-                    result.append(word.title())
-            return " ".join(result)
+            if name.isupper() or name.islower():
+                words = name_lower.split()
+                result = []
+                for word in words:
+                    if word in ["ai", "ml", "api", "aws", "gcp", "iot"]:
+                        result.append(word.upper())
+                    else:
+                        result.append(word.title())
+                return " ".join(result)
 
-        return name
+            return name
+        except Exception as e:
+            logging.debug(f"Capitalization failed for '{name}': {e}")
+            return name
 
     @classmethod
     def extract_from_url_path(cls, url, platform):
@@ -172,11 +187,15 @@ class CompanyNormalizer:
             "workable": r"workable\.com/([^/]+)/",
         }
 
-        if platform in patterns:
-            match = re.search(patterns[platform], url, re.I)
-            if match:
-                slug = match.group(1)
-                return cls.normalize(slug, url)
+        try:
+            if platform in patterns:
+                match = re.search(patterns[platform], url, re.I)
+                if match:
+                    slug = match.group(1)
+                    return cls.normalize(slug, url)
+        except Exception as e:
+            logging.debug(f"URL path extraction failed for {url}: {e}")
+
         return None
 
 
@@ -198,41 +217,50 @@ class CompanyValidator:
         if not name or not name.strip():
             return False
 
-        if name in COMPANY_PLACEHOLDERS or name.lower() in {
-            p.lower() for p in COMPANY_PLACEHOLDERS
-        }:
-            return False
+        try:
+            if name in COMPANY_PLACEHOLDERS or name.lower() in {
+                p.lower() for p in COMPANY_PLACEHOLDERS
+            }:
+                return False
 
-        if name.lower() in CompanyValidator._INVALID_KEYWORDS:
-            return False
+            if name.lower() in CompanyValidator._INVALID_KEYWORDS:
+                return False
 
-        if re.match(r"^[A-Z]{2,4}[-\s]", name):
-            return False
+            if re.match(r"^[A-Z]{2,4}[-\s]", name):
+                return False
 
-        if len(name) > 60 or len(name) < 2:
-            return False
+            if len(name) > 60 or len(name) < 2:
+                return False
 
-        if name.isupper() and len(name) < 10 and not any(c.isdigit() for c in name):
-            return False
+            if name.isupper() and len(name) < 10 and not any(c.isdigit() for c in name):
+                return False
 
-        title_count = sum(
-            1 for kw in CompanyValidator._TITLE_INDICATORS if kw in name.lower()
-        )
-        if title_count >= 3:
-            return False
+            title_count = sum(
+                1 for kw in CompanyValidator._TITLE_INDICATORS if kw in name.lower()
+            )
+            if title_count >= 3:
+                return False
 
-        return True
+            return True
+        except Exception as e:
+            logging.debug(f"Company validation failed for '{name}': {e}")
+            return False
 
     @staticmethod
     @lru_cache(maxsize=256)
     def is_junk_subdomain(subdomain):
         if not subdomain:
             return True
-        for pattern in _COMPILED_JUNK_PATTERNS:
-            if pattern.search(subdomain):
+
+        try:
+            for pattern in _COMPILED_JUNK_PATTERNS:
+                if pattern.search(subdomain):
+                    return True
+            if subdomain.islower() and len(subdomain) > 20 and " " not in subdomain:
                 return True
-        if subdomain.islower() and len(subdomain) > 20 and " " not in subdomain:
-            return True
+        except Exception as e:
+            logging.debug(f"Junk subdomain check failed for '{subdomain}': {e}")
+
         return False
 
 
@@ -243,18 +271,22 @@ class RoleCategorizer:
         if not title:
             return "Unknown", "ACCEPT", ""
 
-        title_lower = title.lower()
+        try:
+            title_lower = title.lower()
 
-        for category_name, config in ROLE_CATEGORIES.items():
-            keyword_match = any(kw in title_lower for kw in config["keywords"])
-            exclude_match = any(ex in title_lower for ex in config["exclude"])
+            for category_name, config in ROLE_CATEGORIES.items():
+                keyword_match = any(kw in title_lower for kw in config["keywords"])
+                exclude_match = any(ex in title_lower for ex in config["exclude"])
 
-            if keyword_match and not exclude_match:
-                return category_name, config["action"], config["alert"]
+                if keyword_match and not exclude_match:
+                    return category_name, config["action"], config["alert"]
 
-        generic_sw = {"engineer", "developer", "programmer", "software"}
-        if any(kw in title_lower for kw in generic_sw):
-            return "Pure Software", "ACCEPT", "✅ SOFTWARE"
+            generic_sw = {"engineer", "developer", "programmer", "software"}
+            if any(kw in title_lower for kw in generic_sw):
+                return "Pure Software", "ACCEPT", "✅ SOFTWARE"
+
+        except Exception as e:
+            logging.debug(f"Role categorization failed for '{title}': {e}")
 
         return "Unknown", "ACCEPT", ""
 
@@ -273,19 +305,27 @@ class URLCleaner:
         if not url:
             return ""
 
-        if "jobright.ai/jobs/info/" in url.lower():
-            match = re.search(r"(jobright\.ai/jobs/info/[a-f0-9]+)", url, re.I)
-            if match:
-                return match.group(1).lower()
+        try:
+            if "jobright.ai/jobs/info/" in url.lower():
+                match = re.search(r"(jobright\.ai/jobs/info/[a-f0-9]+)", url, re.I)
+                if match:
+                    return match.group(1).lower()
 
-        return cls._CLEAN_PATTERN.sub("", url).lower().rstrip("/")
+            return cls._CLEAN_PATTERN.sub("", url).lower().rstrip("/")
+        except Exception as e:
+            logging.debug(f"URL cleaning failed for '{url}': {e}")
+            return url.lower()
 
     @staticmethod
     @lru_cache(maxsize=2048)
     def normalize_text(text):
         if not text:
             return ""
-        return re.sub(r"[^a-z0-9]", "", text.lower())
+        try:
+            return re.sub(r"[^a-z0-9]", "", text.lower())
+        except Exception as e:
+            logging.debug(f"Text normalization failed: {e}")
+            return text.lower()
 
 
 class ExtractionVoter:
@@ -294,30 +334,35 @@ class ExtractionVoter:
         if not results:
             return None
 
-        valid_results = [
-            r for r in results if r.is_valid() and r.confidence >= min_confidence
-        ]
+        try:
+            valid_results = [
+                r for r in results if r.is_valid() and r.confidence >= min_confidence
+            ]
 
-        if not valid_results:
+            if not valid_results:
+                return None
+
+            if len(valid_results) == 1:
+                return valid_results[0]
+
+            value_groups = {}
+            for result in valid_results:
+                key = result.value.lower().strip()
+                if key not in value_groups:
+                    value_groups[key] = []
+                value_groups[key].append(result)
+
+            best_group = max(
+                value_groups.items(),
+                key=lambda x: (len(x[1]) * 1.2)
+                * (sum(r.confidence for r in x[1]) / len(x[1])),
+            )
+
+            return max(best_group[1], key=attrgetter("confidence"))
+
+        except Exception as e:
+            logging.debug(f"Extraction voting failed: {e}")
             return None
-
-        if len(valid_results) == 1:
-            return valid_results[0]
-
-        value_groups = {}
-        for result in valid_results:
-            key = result.value.lower().strip()
-            if key not in value_groups:
-                value_groups[key] = []
-            value_groups[key].append(result)
-
-        best_group = max(
-            value_groups.items(),
-            key=lambda x: (len(x[1]) * 1.2)
-            * (sum(r.confidence for r in x[1]) / len(x[1])),
-        )
-
-        return max(best_group[1], key=attrgetter("confidence"))
 
 
 class DateParser:
@@ -331,31 +376,56 @@ class DateParser:
         if not text:
             return None
 
-        text_lower = text.lower()
+        try:
+            text_lower = text.lower()
 
-        if cls._TODAY_PATTERN.search(text_lower):
-            return 0
+            if cls._TODAY_PATTERN.search(text_lower):
+                return 0
 
-        if cls._YESTERDAY_PATTERN.search(text_lower):
-            return 1
+            if cls._YESTERDAY_PATTERN.search(text_lower):
+                return 1
 
-        match = cls._HOURS_PATTERN.search(text_lower)
-        if match:
-            return 0
+            match = cls._HOURS_PATTERN.search(text_lower)
+            if match:
+                return 0
 
-        match = cls._RELATIVE_PATTERN.search(text_lower)
-        if match:
-            return int(match.group(1))
+            match = cls._RELATIVE_PATTERN.search(text_lower)
+            if match:
+                return int(match.group(1))
 
-        if DATEUTIL_AVAILABLE:
-            try:
-                parsed_date = parse_date_flexible(text)
-                if parsed_date:
-                    from datetime import datetime
+            if DATEUTIL_AVAILABLE:
+                try:
+                    parsed_date = parse_date_flexible(text)
+                    if parsed_date:
+                        from datetime import datetime
 
-                    return (datetime.now() - parsed_date).days
-            except:
-                pass
+                        now = datetime.now()
+                        days_diff = (now - parsed_date).days
+
+                        if days_diff < -60:
+                            try:
+                                adjusted_date = parsed_date.replace(
+                                    year=parsed_date.year - 1
+                                )
+                                days_diff = (now - adjusted_date).days
+
+                                if days_diff < 0:
+                                    return None
+
+                            except (ValueError, OverflowError):
+                                return None
+
+                        if days_diff < 0:
+                            return None
+
+                        return days_diff
+
+                except Exception as e:
+                    logging.debug(f"Flexible date parsing failed for '{text}': {e}")
+                    pass
+
+        except Exception as e:
+            logging.debug(f"Date parsing failed for '{text}': {e}")
 
         return None
 
@@ -365,21 +435,25 @@ class QualityScorer:
     def calculate_score(job_data):
         score = 0
 
-        company = job_data.get("company", "Unknown")
-        if company and company not in ["Unknown", "N/A"] and len(company) > 2:
-            score += 3
+        try:
+            company = job_data.get("company", "Unknown")
+            if company and company not in ["Unknown", "N/A"] and len(company) > 2:
+                score += 3
 
-        location = job_data.get("location", "Unknown")
-        if location and location != "Unknown":
-            score += 2
+            location = job_data.get("location", "Unknown")
+            if location and location != "Unknown":
+                score += 2
 
-        job_id = job_data.get("job_id", "N/A")
-        if job_id and job_id != "N/A" and not job_id.startswith("HASH_"):
-            score += 1
+            job_id = job_data.get("job_id", "N/A")
+            if job_id and job_id != "N/A" and not job_id.startswith("HASH_"):
+                score += 1
 
-        title = job_data.get("title", "")
-        if 15 < len(title) < 120:
-            score += 1
+            title = job_data.get("title", "")
+            if 15 < len(title) < 120:
+                score += 1
+
+        except Exception as e:
+            logging.debug(f"Quality scoring failed: {e}")
 
         return score
 
