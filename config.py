@@ -1,23 +1,15 @@
 #!/usr/bin/env python3
 
-# ============================================================================
-# ENHANCED: Suppress All Warnings for Clean Output
-# ============================================================================
 import warnings
 import os
 
 warnings.filterwarnings("ignore")
 os.environ["TF_CPP_MIN_LOG_LEVEL"] = "3"
 
-# Suppress library-specific warnings
 import logging
 
 logging.getLogger("urllib3").setLevel(logging.ERROR)
 logging.getLogger("selenium").setLevel(logging.ERROR)
-
-# ============================================================================
-# Library Availability Detection
-# ============================================================================
 
 try:
     import lxml.etree
@@ -109,10 +101,6 @@ try:
 except:
     UNIDECODE_AVAILABLE = False
 
-# ============================================================================
-# Google Sheets Configuration
-# ============================================================================
-
 SHEET_NAME = "H1B visa"
 WORKSHEET_NAME = "Valid Entries"
 DISCARDED_WORKSHEET = "Discarded Entries"
@@ -123,21 +111,13 @@ GMAIL_CREDS_FILE = "gmail_credentials.json"
 GMAIL_TOKEN_FILE = "gmail_token.pickle"
 JOBRIGHT_COOKIES_FILE = "jobright_cookies.json"
 
-# ============================================================================
-# Data Source URLs
-# ============================================================================
-
 SIMPLIFY_URL = "https://raw.githubusercontent.com/SimplifyJobs/Summer2026-Internships/master/README.md"
 VANSHB03_URL = (
     "https://raw.githubusercontent.com/vanshb03/Summer2026-Internships/main/README.md"
 )
 
-# ============================================================================
-# Filtering & Quality Configuration
-# ============================================================================
-
 MAX_JOB_AGE_DAYS = 3
-MAX_REASONABLE_AGE_DAYS = 365  # NEW: Sanity cap for date validation
+MAX_REASONABLE_AGE_DAYS = 365
 MIN_QUALITY_SCORE = 4
 MIN_CONFIDENCE_JOB_ID = 0.70
 MIN_CONFIDENCE_LOCATION = 0.70
@@ -148,15 +128,7 @@ MAX_RETRIES = 3
 RETRY_DELAY_SECONDS = 2
 BACKOFF_MULTIPLIER = 2
 
-# ============================================================================
-# NEW: Blacklisted Domains
-# ============================================================================
-
 BLACKLIST_DOMAINS = ["workatastartup.com"]
-
-# ============================================================================
-# US States & Cities - ORIGINAL + EXPANDED
-# ============================================================================
 
 US_STATES_FALLBACK = {
     "AL",
@@ -212,7 +184,6 @@ US_STATES_FALLBACK = {
     "DC",
 }
 
-# EXPANDED: Complete full state name mapping
 FULL_STATE_NAMES = {
     "alabama": "AL",
     "alaska": "AK",
@@ -267,7 +238,6 @@ FULL_STATE_NAMES = {
 }
 
 CITY_TO_STATE_FALLBACK = {
-    # California
     "san francisco": "CA",
     "san jose": "CA",
     "palo alto": "CA",
@@ -289,21 +259,17 @@ CITY_TO_STATE_FALLBACK = {
     "redwood city": "CA",
     "menlo park": "CA",
     "berkeley": "CA",
-    # New York
     "new york": "NY",
     "brooklyn": "NY",
     "buffalo": "NY",
-    # Washington
     "seattle": "WA",
     "bellevue": "WA",
     "redmond": "WA",
-    # Massachusetts
     "boston": "MA",
     "cambridge": "MA",
     "worcester": "MA",
     "westford": "MA",
     "braintree": "MA",
-    # Other major cities
     "chicago": "IL",
     "atlanta": "GA",
     "philadelphia": "PA",
@@ -346,7 +312,6 @@ CITY_TO_STATE_FALLBACK = {
     "santa fe": "NM",
 }
 
-# NEW: City abbreviations
 CITY_ABBREVIATIONS = {
     "sf": "San Francisco, CA",
     "nyc": "New York, NY",
@@ -356,7 +321,6 @@ CITY_ABBREVIATIONS = {
     "chi": "Chicago, IL",
 }
 
-# NEW: Location suffixes to strip
 LOCATION_SUFFIXES = [
     " Office",
     " office",
@@ -375,10 +339,6 @@ LOCATION_SUFFIXES = [
     " area",
 ]
 
-# ============================================================================
-# Canada Detection - ORIGINAL + EXPANDED
-# ============================================================================
-
 CANADA_PROVINCES = {"ON", "QC", "BC", "AB", "MB", "SK", "NS", "NB", "NL", "PE"}
 
 CANADA_PROVINCE_NAMES = {
@@ -395,9 +355,7 @@ CANADA_PROVINCE_NAMES = {
     "prince edward island": "PE",
 }
 
-# EXPANDED: From 5 to 50+ Canadian cities
 MAJOR_CANADIAN_CITIES = {
-    # Major cities (original)
     "toronto": "ON",
     "ottawa": "ON",
     "montreal": "QC",
@@ -406,7 +364,6 @@ MAJOR_CANADIAN_CITIES = {
     "edmonton": "AB",
     "winnipeg": "MB",
     "quebec city": "QC",
-    # EXPANDED: Medium cities + tech hubs
     "mississauga": "ON",
     "brampton": "ON",
     "hamilton": "ON",
@@ -418,7 +375,7 @@ MAJOR_CANADIAN_CITIES = {
     "laval": "QC",
     "waterloo": "ON",
     "guelph": "ON",
-    "kanata": "ON",  # CRITICAL: Ottawa suburb
+    "kanata": "ON",
     "burlington": "ON",
     "oakville": "ON",
     "richmond hill": "ON",
@@ -448,7 +405,6 @@ MAJOR_CANADIAN_CITIES = {
     "st. johns": "NL",
 }
 
-# NEW: Ambiguous cities
 AMBIGUOUS_CITIES = {
     "vancouver": {"US": "WA", "Canada": "BC"},
     "ontario": {"US": "CA", "Canada": "ON"},
@@ -459,7 +415,6 @@ AMBIGUOUS_CITIES = {
     "richmond": {"US": "VA", "Canada": "BC"},
 }
 
-# NEW: Canadian companies (HQ check)
 CANADIAN_COMPANIES = {
     "bmo",
     "bank of montreal",
@@ -475,10 +430,6 @@ CANADIAN_COMPANIES = {
 US_CONTEXT_KEYWORDS = ["usa", "united states", "u.s.", "bay area", "silicon valley"]
 CANADA_CONTEXT_KEYWORDS = ["canada", "canadian", "gta", "greater toronto area"]
 
-# ============================================================================
-# Platform Detection & Configuration - ORIGINAL + ENHANCED
-# ============================================================================
-
 PLATFORM_DETECTION_PATTERNS = {
     "workday": r"\.wd\d+\.myworkdayjobs\.com",
     "greenhouse": r"(boards\.|job-boards\.)?greenhouse\.io",
@@ -489,24 +440,24 @@ PLATFORM_DETECTION_PATTERNS = {
     "smartrecruiters": r"(jobs\.)?smartrecruiters\.com",
     "oracle": r"(\.fa\.|oraclecloud\.com)",
     "eightfold": r"\.eightfold\.ai",
-    "ea": r"jobs\.ea\.com",  # NEW
-    "glassdoor": r"glassdoor\.com",  # NEW
-    "boomi": r"boomi\.com",  # NEW
+    "ea": r"jobs\.ea\.com",
+    "glassdoor": r"glassdoor\.com",
+    "boomi": r"boomi\.com",
 }
 
 PLATFORM_CONFIGS = {
     "workday": {
         "requires_selenium": True,
-        "wait_time": 15,  # INCREASED from 8 to 15
+        "wait_time": 15,
         "location_selectors": [
             ('dd[data-automation-id="locations"]', 0.95),
-            ('dd[data-automation-id="location"]', 0.93),  # NEW: singular
+            ('dd[data-automation-id="location"]', 0.93),
             ('span[data-automation-id="jobLocation"]', 0.92),
-            ('[data-automation-id*="location"]', 0.85),  # NEW: wildcard
+            ('[data-automation-id*="location"]', 0.85),
             ('div[data-automation-id="jobProperties"] dd', 0.75),
             (".jobProperty .jobPropertyValue", 0.70),
             ("div.css-1ij27gp", 0.80),
-            ('[aria-label*="location"]', 0.80),  # NEW
+            ('[aria-label*="location"]', 0.80),
         ],
         "company_selector": 'meta[property="og:site_name"]',
         "title_selector": 'h1[data-automation-id="jobTitle"]',
@@ -518,12 +469,12 @@ PLATFORM_CONFIGS = {
         "location_selectors": [
             (".location", 0.92),
             (".job-location", 0.88),
-            ("div.location", 0.90),  # NEW
-            ("[data-qa='job-location']", 0.88),  # NEW
+            ("div.location", 0.90),
+            ("[data-qa='job-location']", 0.88),
             (".app-title + div", 0.75),
-            ("h1 + div", 0.70),  # NEW
+            ("h1 + div", 0.70),
             (".posting-headline + div", 0.72),
-            ("[class*='location']", 0.80),  # NEW
+            ("[class*='location']", 0.80),
         ],
         "company_selector": 'meta[property="og:site_name"]',
         "title_selector": ".app-title",
@@ -549,7 +500,7 @@ PLATFORM_CONFIGS = {
         ],
         "company_selector": 'meta[property="og:site_name"]',
         "title_selector": ".posting-headline h2",
-        "job_id_pattern": r"(?:jobs\.)?lever\.co/[^/]+/([a-f0-9-]{36})",  # FIXED: optional jobs.
+        "job_id_pattern": r"(?:jobs\.)?lever\.co/[^/]+/([a-f0-9-]{36})",
     },
     "smartrecruiters": {
         "requires_selenium": False,
@@ -563,7 +514,7 @@ PLATFORM_CONFIGS = {
         "job_id_pattern": r"/(\d{15})",
     },
     "ashby": {
-        "requires_selenium": True,  # NEW: Marked as JS-heavy
+        "requires_selenium": True,
         "wait_time": 6,
         "location_selectors": [
             ('[class*="JobLocation"]', 0.92),
@@ -571,15 +522,15 @@ PLATFORM_CONFIGS = {
         ],
         "company_selector": 'meta[property="og:site_name"]',
         "title_selector": "h1",
-        "job_id_pattern": r"(?:jobs\.)?ashbyhq\.com/[^/]+/([a-f0-9-]{36})",  # FIXED: optional jobs.
+        "job_id_pattern": r"(?:jobs\.)?ashbyhq\.com/[^/]+/([a-f0-9-]{36})",
     },
     "ea": {
         "requires_selenium": False,
         "wait_time": 3,
-        "location_selectors": [],  # Use text extraction
+        "location_selectors": [],
         "company_selector": 'meta[property="og:site_name"]',
         "title_selector": "h2",
-        "job_id_pattern": r"/(\d{6,})",  # FIXED: 6+ instead of 7+
+        "job_id_pattern": r"/(\d{6,})",
     },
     "glassdoor": {
         "requires_selenium": False,
@@ -590,7 +541,7 @@ PLATFORM_CONFIGS = {
         ],
         "company_selector": 'meta[property="og:site_name"]',
         "title_selector": "h1",
-        "job_id_pattern": None,  # NEW: Don't extract from Glassdoor
+        "job_id_pattern": None,
     },
 }
 
@@ -603,10 +554,6 @@ WORKDAY_HQ_CODES = {
     "USCALA": ("Los Angeles", "CA"),
     "USCASJO": ("San Jose", "CA"),
 }
-
-# ============================================================================
-# Company Name Mappings - ORIGINAL + EXPANDED
-# ============================================================================
 
 URL_TO_COMPANY_MAPPING = {
     r"quickenloans\.wd\d+\.myworkdayjobs\.com": "Rocket Companies",
@@ -647,7 +594,7 @@ URL_TO_COMPANY_MAPPING = {
     r"kbr\.wd\d+\.myworkdayjobs\.com": "KBR",
     r"philips\.wd\d+\.myworkdayjobs\.com": "Philips",
     r"jci\.wd\d+\.myworkdayjobs\.com": "Johnson Controls",
-    r"bmo\.wd\d+\.myworkdayjobs\.com": "Bank of Montreal",  # NEW
+    r"bmo\.wd\d+\.myworkdayjobs\.com": "Bank of Montreal",
     r"job-boards\.greenhouse\.io/asteraearlycareer": "Astera Labs",
     r"job-boards\.greenhouse\.io/samsungresearchamericainternship": "Samsung Research America",
     r"job-boards\.greenhouse\.io/obsidiansecurity": "Obsidian Security",
@@ -662,7 +609,7 @@ URL_TO_COMPANY_MAPPING = {
     r"jobs\.smartrecruiters\.com/BoschGroup": "Robert Bosch Venture Capital",
     r"jobs\.lever\.co/zoox": "Zoox",
     r"jobs\.lever\.co/veeva": "Veeva Systems",
-    r"jobs\.lever\.co/wealthsimple": "Wealthsimple",  # NEW
+    r"jobs\.lever\.co/wealthsimple": "Wealthsimple",
     r"jobs\.ashbyhq\.com/uipath": "UiPath",
     r"jobs\.ashbyhq\.com/Ridealso": "ALSO",
     r"jobs\.ashbyhq\.com/atomicsemi": "Atomic Semi",
@@ -678,7 +625,7 @@ URL_TO_COMPANY_MAPPING = {
     r"ats\.rippling\.com/.*/redaspen": "Red Aspen",
     r"careers\.merzaesthetics\.com": "Merz North America",
     r"jolera\.com": "Jolera",
-    r"boomi\.com": "Boomi",  # NEW
+    r"boomi\.com": "Boomi",
 }
 
 JUNK_SUBDOMAIN_PATTERNS = [
@@ -713,7 +660,7 @@ COMPANY_SLUG_MAPPING = {
     "paypal": "PayPal",
     "verkada": "Verkada",
     "atomicsemi": "Atomic Semi",
-    "boomi": "Boomi",  # NEW
+    "boomi": "Boomi",
 }
 
 COMPANY_PLACEHOLDERS = [
@@ -753,24 +700,20 @@ COMPANY_NAME_STOPWORDS = [
     " Career Site",
 ]
 
-# ============================================================================
-# Extraction Patterns - ORIGINAL + FIXED
-# ============================================================================
-
 JOB_ID_PATTERNS = [
     (r"/jobs?/(\d{10})", 0.96),
     (r"gh_jid=(\d{7,})", 0.96),
-    (r"/jobs?/(\d{6,})", 0.94),  # FIXED: 6+ instead of 7+
+    (r"/jobs?/(\d{6,})", 0.94),
     (r"_([A-Z]R?-?\d{5,})(?:-\d+)?(?:\?|$)", 0.93),
     (r"/([A-Z]{2,3}\d{5,})(?:-\d+)?(?:\?|$)", 0.91),
-    (r"(?:jobs\.)?lever\.co/[^/]+/([a-f0-9-]{36})", 0.96),  # FIXED: optional jobs.
-    (r"(?:jobs\.)?ashbyhq\.com/[^/]+/([a-f0-9-]{36})", 0.96),  # FIXED: optional jobs.
+    (r"(?:jobs\.)?lever\.co/[^/]+/([a-f0-9-]{36})", 0.96),
+    (r"(?:jobs\.)?ashbyhq\.com/[^/]+/([a-f0-9-]{36})", 0.96),
     (r"smartrecruiters\.com/[^/]+/(\d{15})", 0.96),
     (r"REQ[_-]?(\d{6,})", 0.92),
     (r"job[/_]([A-Z0-9_-]{6,15})(?:\?|$|/)", 0.86),
     (r"[?&]reqId=([A-Z0-9_-]{4,15})(?:&|$)", 0.88),
-    (r"/(\d{6,})(?:/|\?|$)", 0.76),  # FIXED: 6+ instead of 7+
-    (r"SALES(\d{6})", 0.85),  # NEW: Merz format
+    (r"/(\d{6,})(?:/|\?|$)", 0.76),
+    (r"SALES(\d{6})", 0.85),
 ]
 
 LOCATION_SELECTORS = [
@@ -819,10 +762,6 @@ DEPARTMENT_KEYWORDS = [
     "oracle analytics",
 ]
 
-# ============================================================================
-# Role Categories - ORIGINAL
-# ============================================================================
-
 ROLE_CATEGORIES = {
     "Pure Software": {
         "keywords": ["backend", "frontend", "full stack", "web developer"],
@@ -838,9 +777,7 @@ ROLE_CATEGORIES = {
     },
 }
 
-# NEW: Expanded technical role keywords
 TECHNICAL_ROLE_KEYWORDS = {
-    # Core CS (original)
     "software",
     "engineer",
     "developer",
@@ -864,7 +801,6 @@ TECHNICAL_ROLE_KEYWORDS = {
     "qa",
     "test",
     "automation",
-    # EXPANDED
     "technology",
     "technical",
     "it ",
@@ -878,7 +814,6 @@ TECHNICAL_ROLE_KEYWORDS = {
     "cybersecurity",
 }
 
-# NEW: Non-technical indicators (for context filtering)
 NON_TECHNICAL_PURE = {
     "marketing analyst",
     "sales",
@@ -889,10 +824,6 @@ NON_TECHNICAL_PURE = {
     "legal",
 }
 
-# ============================================================================
-# NEW: Enhanced Sponsorship Patterns
-# ============================================================================
-
 SPONSORSHIP_REJECT_PATTERNS = [
     r"(?:no|not|without).{0,100}(?:current|future).{0,50}sponsor(?:ship)?",
     r"(?:no|not).{0,50}sponsor(?:ship)?\s+(?:available|offered|provided)",
@@ -902,10 +833,6 @@ SPONSORSHIP_REJECT_PATTERNS = [
     r"us work authorization required",
     r"(?:clearance.*required)",
 ]
-
-# ============================================================================
-# Email & Network Configuration
-# ============================================================================
 
 GMAIL_SCOPES = ["https://www.googleapis.com/auth/gmail.readonly"]
 
@@ -924,6 +851,7 @@ JOB_BOARD_DOMAINS = [
     "myworkdayjobs",
     "simplify.jobs",
     "linkedin.com/jobs",
+    "jobright.ai",
 ]
 
 STATUS_COLORS = {
@@ -932,10 +860,6 @@ STATUS_COLORS = {
     "Interview Scheduled": {"red": 1.0, "green": 0.8, "blue": 0.4},
     "Offer Received": {"red": 0.6, "green": 0.9, "blue": 0.6},
 }
-
-# ============================================================================
-# Helper Functions - ORIGINAL
-# ============================================================================
 
 
 def get_state_for_city(city_name):
