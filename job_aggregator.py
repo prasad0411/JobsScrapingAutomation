@@ -5,12 +5,14 @@ import datetime
 import random
 import re
 import logging
+from functools import lru_cache
 from collections import defaultdict
 
 from config import (
     SIMPLIFY_URL,
     VANSHB03_URL,
     MAX_JOB_AGE_DAYS,
+    CANADA_PROVINCES,
 )
 
 from processors import (
@@ -30,16 +32,12 @@ from extractors import (
     SourceParsers,
     JobrightAuthenticator,
     SimplifyGitHubScraper,
-    SimplifyRedirectResolver,
+    SimplifyRedirectResolver,  # NEW
     safe_parse_html,
 )
 
 from sheets_manager import SheetsManager
 from utils import RoleCategorizer, URLCleaner, DateParser, PlatformDetector
-
-# ============================================================================
-# Logging Configuration
-# ============================================================================
 
 logging.basicConfig(
     filename="skipped_jobs.log",
@@ -54,11 +52,6 @@ with open("skipped_jobs.log", "w") as f:
         f"JOB PROCESSING LOG - {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n"
     )
     f.write("=" * 100 + "\n\n")
-
-
-# ============================================================================
-# Main Job Aggregator
-# ============================================================================
 
 
 class UnifiedJobAggregator:
@@ -82,12 +75,12 @@ class UnifiedJobAggregator:
 
         self.outcomes = defaultdict(int)
 
-        # Single print - no duplicates
-        print(f"Loaded {len(self.existing_jobs)} existing jobs from sheets")
-        logging.info(f"Loaded {len(self.existing_jobs)} existing jobs")
+        # CLEANED: Single print statement only
+        print(f"Loaded {len(self.existing_jobs)} jobs from sheets")
+        logging.info(f"Loaded {len(self.existing_jobs)} existing jobs from sheets")
 
     def run(self):
-        """Main execution flow"""
+        """ORIGINAL: Main execution flow"""
         if not self.jobright_auth.cookies:
             self.jobright_auth.login_interactive()
 
@@ -103,12 +96,13 @@ class UnifiedJobAggregator:
                 self._process_email_jobs(email_data)
             else:
                 print("No email jobs found")
+                logging.warning("No email data received from Gmail")
 
         except Exception as e:
-            print(f"✗ Email processing error: {e}")
-            logging.error(f"Email error: {e}", exc_info=True)
+            print(f"Email processing error: {e}")
+            logging.error(f"Email processing error: {e}", exc_info=True)
 
-        self._ensure_mutual_exclusion()
+        self._ensure_mutual_exclusion()  # ORIGINAL: Kept
 
         rows = self.sheets.get_next_row_numbers()
         added_valid = self.sheets.add_valid_jobs(
@@ -118,7 +112,7 @@ class UnifiedJobAggregator:
             self.discarded_jobs, rows["discarded"], rows["discarded_sr_no"]
         )
 
-        # Clean summary only
+        # CLEANED: Simple summary only (duplicate section removed)
         self._print_summary()
         print(f"\n✓ DONE: {added_valid} valid, {added_discarded} discarded")
         print("=" * 80 + "\n")
@@ -126,53 +120,87 @@ class UnifiedJobAggregator:
         logging.info(f"SUMMARY: {added_valid} valid, {added_discarded} discarded")
 
     def _scrape_simplify_github(self):
-        """Scrape GitHub repositories"""
+        """ORIGINAL: Scrape GitHub repositories"""
         simplify_jobs = self._safe_scrape(SIMPLIFY_URL, "SimplifyJobs")
         vanshb03_jobs = self._safe_scrape(VANSHB03_URL, "vanshb03")
 
         print(
             f"  Total: {len(simplify_jobs)} SimplifyJobs + {len(vanshb03_jobs)} vanshb03\n"
         )
+        logging.info(
+            f"GitHub: {len(simplify_jobs)} SimplifyJobs + {len(vanshb03_jobs)} vanshb03"
+        )
 
+        simplify_processed = 0
         for i, job in enumerate(simplify_jobs):
             try:
                 age_days = self._parse_github_age(job["age"])
+
                 if age_days is not None and age_days > MAX_JOB_AGE_DAYS:
                     skipped = len(simplify_jobs) - i
                     print(
-                        f"\n  SimplifyJobs: Early exit - skipping {skipped} old jobs\n"
+                        f"\n  SimplifyJobs: Early exit at {i}/{len(simplify_jobs)} - skipping {skipped} old jobs\n"
+                    )
+                    logging.info(
+                        f"SimplifyJobs: Early exit - skipped {skipped} jobs older than {MAX_JOB_AGE_DAYS} days"
                     )
                     self.outcomes["skipped_too_old"] += skipped
                     break
+
                 self._process_single_github_job(job)
+                simplify_processed += 1
             except Exception as e:
-                logging.error(f"GitHub job processing failed: {e}")
+                logging.error(
+                    f"Failed to process SimplifyJobs job {job.get('company')} - {job.get('title')}: {e}",
+                    exc_info=True,
+                )
                 continue
 
+        vanshb03_processed = 0
         for i, job in enumerate(vanshb03_jobs):
             try:
                 age_days = self._parse_github_age(job["age"])
+
                 if age_days is not None and age_days > MAX_JOB_AGE_DAYS:
                     skipped = len(vanshb03_jobs) - i
-                    print(f"\n  vanshb03: Early exit - skipping {skipped} old jobs\n")
+                    print(
+                        f"\n  vanshb03: Early exit at {i}/{len(vanshb03_jobs)} - skipping {skipped} old jobs\n"
+                    )
+                    logging.info(
+                        f"vanshb03: Early exit - skipped {skipped} jobs older than {MAX_JOB_AGE_DAYS} days"
+                    )
                     self.outcomes["skipped_too_old"] += skipped
                     break
+
                 self._process_single_github_job(job)
+                vanshb03_processed += 1
             except Exception as e:
-                logging.error(f"GitHub job processing failed: {e}")
+                logging.error(
+                    f"Failed to process vanshb03 job {job.get('company')} - {job.get('title')}: {e}",
+                    exc_info=True,
+                )
                 continue
 
         github_valid = sum(
             1 for j in self.valid_jobs if j["source"] in ["SimplifyJobs", "vanshb03"]
         )
         print(f"  GitHub summary: {github_valid} valid jobs")
+        logging.info(
+            f"GitHub summary: {github_valid} valid jobs added from {simplify_processed + vanshb03_processed} processed"
+        )
 
     def _process_single_github_job(self, job):
-        """Process individual GitHub job listing"""
+        """ORIGINAL: Process single GitHub job"""
         age_days = self._parse_github_age(job["age"])
 
         if age_days is not None and age_days > MAX_JOB_AGE_DAYS:
-            self.outcomes["skipped_too_old"] += 1
+            self._log_rejection(
+                job["company"],
+                job["title"],
+                job["url"],
+                f"GitHub age: {job['age']} ({age_days}d old)",
+                "skipped_too_old",
+            )
             return
 
         title = TitleProcessor.clean_title_aggressive(job["title"])
@@ -191,6 +219,7 @@ class UnifiedJobAggregator:
 
         is_valid, invalid_reason = TitleProcessor.is_valid_job_title(title)
         if not is_valid:
+            print(f"  {job['company'][:30]}: ✗ Invalid title ({invalid_reason})")
             return
 
         is_intern, intern_reason = TitleProcessor.is_internship_role(title)
@@ -201,6 +230,7 @@ class UnifiedJobAggregator:
             return
 
         if job["is_closed"]:
+            print(f"  {job['company'][:30]}: ✗ Position closed")
             self._add_to_discarded(
                 job["company"],
                 title,
@@ -215,6 +245,7 @@ class UnifiedJobAggregator:
             return
 
         if not TitleProcessor.is_cs_engineering_role(title):
+            print(f"  {job['company'][:30]}: ✗ Non-CS role")
             self._add_to_discarded(
                 job["company"],
                 title,
@@ -237,10 +268,13 @@ class UnifiedJobAggregator:
                 url_intl_check,
                 "skipped_url_international",
             )
+            country = (
+                url_intl_check.split(":")[-1].strip().replace("(from URL)", "").strip()
+            )
             self._add_to_discarded(
                 job["company"],
                 title,
-                "Canada",
+                country,
                 "Unknown",
                 job["url"],
                 "N/A",
@@ -255,7 +289,7 @@ class UnifiedJobAggregator:
         )
 
     def _process_github_job(self, company, title, location, url, source="GitHub"):
-        """Process GitHub job with full extraction"""
+        """ORIGINAL + ENHANCED: Pass page_source to extraction"""
         try:
             is_healthy, status_code = self.page_fetcher.check_url_health(url)
             if not is_healthy:
@@ -265,7 +299,8 @@ class UnifiedJobAggregator:
                 self._log_rejection(company, title, url, reason, "skipped_dead_url")
                 return
 
-            response, final_url = self.page_fetcher.fetch_page(url)
+            # ENHANCED: Capture page_source
+            response, final_url, page_source = self.page_fetcher.fetch_page(url)
             if not response:
                 self._log_rejection(company, title, url, "HTTP failed", "failed_http")
                 return
@@ -287,6 +322,7 @@ class UnifiedJobAggregator:
 
             soup, parser = safe_parse_html(response.text)
             if not soup:
+                logging.error(f"Failed to parse HTML for {final_url}")
                 self.outcomes["failed_parse"] += 1
                 return
 
@@ -351,14 +387,19 @@ class UnifiedJobAggregator:
                 )
                 return
 
+            if page_flags:
+                review_flags.extend(page_flags)
+
             if job_age is None:
                 review_flags.append("⚠️ Age unknown")
 
             platform = PlatformDetector.detect(final_url)
             extracted_company = CompanyExtractor.extract_all_methods(final_url, soup)
             job_id = JobIDExtractor.extract_all_methods(final_url, soup, platform)
+
+            # ENHANCED: Pass page_source for text extraction
             location_extracted = LocationExtractor.extract_all_methods(
-                final_url, soup, title, platform
+                final_url, soup, title, platform, page_source
             )
             location_formatted = LocationProcessor.format_location_clean(
                 location_extracted
@@ -368,9 +409,9 @@ class UnifiedJobAggregator:
             )
             sponsorship = ValidationHelper.check_sponsorship_status(soup)
 
-            # CRITICAL: Canadian detection ALWAYS runs (even if location = "Unknown")
+            # ENHANCED: Canadian detection with title parameter
             intl_check = LocationProcessor.check_if_international(
-                location_formatted, soup, final_url
+                location_formatted, soup, final_url, title
             )
             if intl_check and "Canada" in str(intl_check):
                 self._log_rejection(company, title, final_url, intl_check, "discarded")
@@ -411,8 +452,14 @@ class UnifiedJobAggregator:
             if review_flags:
                 flags_str = ", ".join(review_flags)
                 print(f"  {company[:30]}: ✓ Valid [{flags_str}] {role_alert}")
+                logging.info(
+                    f"ACCEPTED (FLAGGED) | {company} | {title} | Flags: {flags_str} | {final_url}"
+                )
             else:
                 print(f"  {company[:30]}: ✓ Valid {role_alert}")
+                logging.info(
+                    f"ACCEPTED | {company} | {title} | Location: {location_formatted} | {final_url}"
+                )
 
             self._add_to_valid(
                 extracted_company,
@@ -426,50 +473,59 @@ class UnifiedJobAggregator:
             )
 
         except Exception as e:
-            logging.error(f"GitHub job processing error: {e}", exc_info=True)
+            logging.error(
+                f"ERROR processing GitHub job | {company} | {title} | {e}",
+                exc_info=True,
+            )
 
     def _process_email_jobs(self, email_data_list):
         """
-        ENHANCED: Process email jobs with Simplify redirect resolution
+        ENHANCED: Simplify redirect resolution added
+        ORIGINAL: Full processing logic preserved
         """
         simplify_resolved = 0
         simplify_failed = 0
 
         for email_data in email_data_list:
             try:
-                # NEW: Resolve Simplify redirects
+                # NEW: Resolve Simplify redirects with Selenium
                 if "simplify.jobs/p/" in email_data["url"].lower():
                     actual_url, resolved = SimplifyRedirectResolver.resolve(
                         email_data["url"]
                     )
                     if resolved:
                         simplify_resolved += 1
+                        logging.info(f"Resolved Simplify URL to {actual_url[:60]}...")
+                        # Update email_data with actual URL
                         email_data["url"] = actual_url
-                        self._process_resolved_email_job(email_data)
+                        self._process_single_email(email_data, simplify_skipped=[])
                     else:
                         simplify_failed += 1
+                        logging.warning(
+                            f"Failed to resolve Simplify URL: {email_data['url']}"
+                        )
                 else:
-                    self._process_resolved_email_job(email_data)
-
+                    self._process_single_email(email_data, simplify_skipped=[])
             except Exception as e:
-                logging.error(f"Email job processing failed: {e}")
+                logging.error(
+                    f"Failed to process email from {email_data.get('sender')}: {e}",
+                    exc_info=True,
+                )
                 continue
 
-        # Report Simplify redirect stats (only if non-zero)
+        # NEW: Report Simplify stats (only if non-zero)
         if simplify_resolved > 0:
-            print(f"\n  ✓ Simplify redirects resolved: {simplify_resolved}")
+            print(f"\n  ✓ Simplify redirects: {simplify_resolved} resolved")
         if simplify_failed > 0:
-            print(f"  ⊘ Simplify redirects failed: {simplify_failed}")
-        if simplify_resolved > 0 or simplify_failed > 0:
-            print()
+            print(f"  ⊘ Simplify redirects: {simplify_failed} failed to resolve\n")
 
-    def _process_resolved_email_job(self, email_data):
-        """Process email job after Simplify redirect resolution"""
+    def _process_single_email(self, email_data, simplify_skipped):
+        """ORIGINAL: Full email processing logic"""
         url = email_data["url"]
         email_html = email_data["email_html"]
         sender = email_data["sender"]
 
-        # LinkedIn jobs (Jobright specific)
+        # ORIGINAL: LinkedIn handling
         if "linkedin.com/jobs" in url.lower():
             if sender.lower() == "jobright":
                 soup, _ = safe_parse_html(email_html)
@@ -481,24 +537,27 @@ class UnifiedJobAggregator:
                         result = self._validate_parsed_job(job_data, sender)
                         if result:
                             self._handle_validation_result(result, sender)
-                return
+                        return
             else:
                 self.outcomes["skipped_linkedin"] += 1
                 return
 
-        # Validate URL
+        # ORIGINAL: URL validation
         is_valid_url, url_reason = ValidationHelper.is_valid_job_url(url)
         if not is_valid_url:
             self.outcomes["skipped_invalid_url"] += 1
+            logging.info(
+                f"REJECTED | Unknown | Unknown | Invalid URL: {url_reason} | {url}"
+            )
             return
 
-        # Check URL for international markers
+        # ORIGINAL: International URL check
         url_intl_check = ValidationHelper.check_url_for_international(url)
         if url_intl_check:
             self.outcomes["skipped_url_international"] += 1
             return
 
-        # Jobright resolution
+        # ORIGINAL: Jobright resolution
         if "jobright.ai/jobs/info/" in url.lower():
             original_url = url
             url, is_company_site = self.jobright_auth.resolve_jobright_url(url)
@@ -516,9 +575,9 @@ class UnifiedJobAggregator:
                             result = self._validate_parsed_job(job_data, sender)
                             if result:
                                 self._handle_validation_result(result, sender)
-                        return
+                            return
 
-        # Check for duplicates
+        # ORIGINAL: Duplicate check
         clean_url = URLCleaner.clean_url(url)
         if clean_url in self.processing_lock or clean_url in self.existing_urls:
             self.duplicate_jobs.append(
@@ -527,7 +586,7 @@ class UnifiedJobAggregator:
             self.outcomes["skipped_duplicate_url"] += 1
             return
 
-        # Check URL health
+        # ORIGINAL: Health check
         is_healthy, status_code = self.page_fetcher.check_url_health(url)
         if not is_healthy:
             self.outcomes["skipped_dead_url"] += 1
@@ -535,23 +594,24 @@ class UnifiedJobAggregator:
 
         self.processing_lock.add(clean_url)
 
-        # Process the job page
+        # ORIGINAL: Process email job
         result = self._process_single_email_job(url, email_html, sender)
         if result:
             self._handle_validation_result(result, sender)
 
     def _process_single_email_job(self, url, email_html, sender):
-        """Process single email job with full extraction"""
+        """ORIGINAL: Full email job processing with all parsers"""
         try:
             time.sleep(random.uniform(1.5, 2.5))
 
             soup, _ = safe_parse_html(email_html)
             if not soup:
+                logging.warning(f"Failed to parse email HTML from {sender}")
                 return None
 
             job_data = None
 
-            # Try platform-specific parsers
+            # ORIGINAL: Platform-specific parsers
             parser_map = {
                 "ziprecruiter": SourceParsers.parse_ziprecruiter_email,
                 "jobright": SourceParsers.parse_jobright_email,
@@ -567,7 +627,7 @@ class UnifiedJobAggregator:
                     )
                     break
 
-            # If email parser worked, validate and return
+            # ORIGINAL: If email parser worked, validate
             if job_data:
                 email_age = job_data.get("email_age_days")
                 if email_age is not None and email_age > MAX_JOB_AGE_DAYS:
@@ -576,7 +636,7 @@ class UnifiedJobAggregator:
                         job_data, f"Posted {email_age} days ago", sender
                     )
 
-                # Jobright: fetch actual page if it's a company site
+                # ORIGINAL: Jobright company site enhancement
                 if sender.lower() == "jobright" and job_data.get("is_company_site"):
                     actual_url = job_data["url"]
 
@@ -584,15 +644,16 @@ class UnifiedJobAggregator:
                     if not is_healthy:
                         return self._validate_parsed_job(job_data, sender)
 
-                    response, final_url = self.page_fetcher.fetch_page(actual_url)
+                    # ENHANCED: Capture page_source
+                    response, final_url, page_source = self.page_fetcher.fetch_page(
+                        actual_url
+                    )
                     if response:
                         soup, _ = safe_parse_html(response.text)
                         if soup:
-                            from utils import PlatformDetector
-
                             platform = PlatformDetector.detect(final_url)
                             self._enhance_job_data_from_page(
-                                job_data, soup, final_url, platform
+                                job_data, soup, final_url, platform, page_source
                             )
 
                             page_age = PageParser.extract_job_age_days(soup)
@@ -621,9 +682,20 @@ class UnifiedJobAggregator:
                                     job_data, restriction, sender
                                 )
 
-                            # CRITICAL: Canadian detection with all methods
+                            if review_flags:
+                                job_data["review_flags"] = review_flags
+
+                            if page_age is None:
+                                if "review_flags" not in job_data:
+                                    job_data["review_flags"] = []
+                                job_data["review_flags"].append("⚠️ Age unknown")
+
+                            # ENHANCED: Canadian check with title
                             intl_check = LocationProcessor.check_if_international(
-                                job_data["location"], soup, final_url
+                                job_data["location"],
+                                soup,
+                                final_url,
+                                job_data.get("title", ""),
                             )
                             if intl_check and "Canada" in str(intl_check):
                                 return self._create_discard_result(
@@ -632,8 +704,8 @@ class UnifiedJobAggregator:
 
                 return self._validate_parsed_job(job_data, sender)
 
-            # Email parser didn't work - fetch actual page
-            response, final_url = self.page_fetcher.fetch_page(url)
+            # ORIGINAL: Fetch actual page if email parser didn't work
+            response, final_url, page_source = self.page_fetcher.fetch_page(url)
             if not response:
                 self.outcomes["failed_http"] += 1
                 return None
@@ -655,6 +727,7 @@ class UnifiedJobAggregator:
 
             soup, _ = safe_parse_html(response.text)
             if not soup:
+                logging.error(f"Failed to parse HTML from {final_url}")
                 self.outcomes["failed_parse"] += 1
                 return None
 
@@ -670,14 +743,16 @@ class UnifiedJobAggregator:
                 self.outcomes["skipped_wrong_season"] += 1
                 return None
 
-            return self._process_scraped_page(soup, final_url, url, sender)
+            return self._process_scraped_page(soup, final_url, url, sender, page_source)
 
         except Exception as e:
-            logging.error(f"Email job processing error: {e}")
+            logging.error(
+                f"ERROR processing email job | {sender} | {url} | {e}", exc_info=True
+            )
             return None
 
     def _validate_parsed_job(self, job_data, sender):
-        """Validate parsed job data"""
+        """ORIGINAL: Full validation logic"""
         title = TitleProcessor.clean_title_aggressive(job_data["title"])
 
         is_intern, intern_reason = TitleProcessor.is_internship_role(title)
@@ -709,9 +784,12 @@ class UnifiedJobAggregator:
             self.outcomes["skipped_duplicate_company_title"] += 1
             return None
 
-        # CRITICAL: Canadian detection with URL
+        # ENHANCED: Canadian check with URL and title
         intl_check = LocationProcessor.check_if_international(
-            job_data.get("location", "Unknown"), None, job_data.get("url")
+            job_data.get("location", "Unknown"),
+            None,
+            job_data.get("url"),
+            job_data.get("title", ""),
         )
         if intl_check and "Canada" in str(intl_check):
             return self._create_discard_result(job_data, intl_check, sender)
@@ -763,8 +841,10 @@ class UnifiedJobAggregator:
             "review_flags": ", ".join(review_flags) if review_flags else "",
         }
 
-    def _process_scraped_page(self, soup, final_url, original_url, sender):
-        """Process scraped job page"""
+    def _process_scraped_page(
+        self, soup, final_url, original_url, sender, page_source=""
+    ):
+        """ORIGINAL + ENHANCED: page_source parameter added"""
         if "jobright.ai/jobs/info/" in final_url.lower():
             jobright_data = PageParser.extract_jobright_data(
                 soup, final_url, self.jobright_auth
@@ -772,8 +852,6 @@ class UnifiedJobAggregator:
             if jobright_data:
                 return self._validate_parsed_job(jobright_data, sender)
             return None
-
-        from utils import PlatformDetector
 
         platform = PlatformDetector.detect(final_url)
         company = CompanyExtractor.extract_all_methods(final_url, soup)
@@ -819,8 +897,10 @@ class UnifiedJobAggregator:
             )
 
         job_id = JobIDExtractor.extract_all_methods(final_url, soup, platform)
+
+        # ENHANCED: Pass page_source and title
         location_extracted = LocationExtractor.extract_all_methods(
-            final_url, soup, title, platform
+            final_url, soup, title, platform, page_source
         )
         location_formatted = LocationProcessor.format_location_clean(location_extracted)
         remote = LocationProcessor.extract_remote_status_enhanced(
@@ -830,9 +910,9 @@ class UnifiedJobAggregator:
 
         review_flags = []
 
-        # CRITICAL: Canadian detection with all methods
+        # ENHANCED: Canadian check with title
         intl_check = LocationProcessor.check_if_international(
-            location_formatted, soup, final_url
+            location_formatted, soup, final_url, title
         )
         if intl_check and "Canada" in str(intl_check):
             return self._create_discard_result(
@@ -893,10 +973,12 @@ class UnifiedJobAggregator:
             "review_flags": ", ".join(review_flags) if review_flags else "",
         }
 
-    def _enhance_job_data_from_page(self, job_data, soup, final_url, platform):
-        """Enhance job data by extracting from actual page"""
+    def _enhance_job_data_from_page(
+        self, job_data, soup, final_url, platform, page_source=""
+    ):
+        """ORIGINAL + ENHANCED: page_source parameter"""
         page_location = LocationExtractor.extract_all_methods(
-            final_url, soup, job_data.get("title", ""), platform
+            final_url, soup, job_data.get("title", ""), platform, page_source
         )
         page_location_formatted = LocationProcessor.format_location_clean(page_location)
         page_remote = LocationProcessor.extract_remote_status_enhanced(
@@ -914,11 +996,15 @@ class UnifiedJobAggregator:
         if page_job_id != "N/A":
             job_data["job_id"] = page_job_id
 
-        if page_company and page_company != "Unknown":
+        if (
+            page_company
+            and page_company != "Unknown"
+            and not self._looks_like_title(page_company)
+        ):
             job_data["company"] = page_company
 
     def _create_discard_result(self, job_data, reason, sender):
-        """Create discard result object"""
+        """ORIGINAL"""
         return {
             "decision": "discard",
             "company": job_data.get("company", "Unknown"),
@@ -933,7 +1019,7 @@ class UnifiedJobAggregator:
         }
 
     def _handle_validation_result(self, result, sender):
-        """Handle validation result (valid or discard)"""
+        """ORIGINAL: Full result handling"""
         if not result:
             return
 
@@ -999,9 +1085,10 @@ class UnifiedJobAggregator:
             self.outcomes["discarded"] += 1
 
     def _log_rejection(self, company, title, url, reason, outcome_key):
-        """Log rejection with clean formatting"""
+        """ORIGINAL"""
         company_display = (company[:30] if company else "Unknown").ljust(30)
         reason_display = self._truncate(reason, 60)
+
         print(f"  {company_display}: ✗ {reason_display}")
         logging.info(f"REJECTED | {company} | {title} | {reason} | {url}")
         self.outcomes[outcome_key] += 1
@@ -1009,7 +1096,7 @@ class UnifiedJobAggregator:
     def _add_to_valid(
         self, company, title, location, remote, url, job_id, sponsorship, source
     ):
-        """Add job to valid list"""
+        """ORIGINAL"""
         self.valid_jobs.append(
             {
                 "company": company,
@@ -1030,7 +1117,7 @@ class UnifiedJobAggregator:
     def _add_to_discarded(
         self, company, title, location, remote, url, job_id, reason, source, sponsorship
     ):
-        """Add job to discarded list"""
+        """ORIGINAL"""
         self.discarded_jobs.append(
             {
                 "company": company,
@@ -1050,7 +1137,7 @@ class UnifiedJobAggregator:
         self.outcomes["discarded"] += 1
 
     def _update_tracking(self, company, title, url, job_id):
-        """Update tracking sets"""
+        """ORIGINAL"""
         key = URLCleaner.normalize_text(f"{company}_{title}")
         self.existing_jobs.add(key)
         self.existing_urls.add(URLCleaner.clean_url(url))
@@ -1058,7 +1145,7 @@ class UnifiedJobAggregator:
             self.existing_job_ids.add(job_id.lower())
 
     def _is_duplicate(self, company, title, url, job_id="N/A"):
-        """Check if job is duplicate"""
+        """ORIGINAL"""
         key = URLCleaner.normalize_text(f"{company}_{title}")
         return (
             key in self.existing_jobs
@@ -1071,7 +1158,7 @@ class UnifiedJobAggregator:
         )
 
     def _ensure_mutual_exclusion(self):
-        """Ensure no job appears in both valid and discarded"""
+        """ORIGINAL: Kept - important for data integrity"""
         if not self.valid_jobs or not self.discarded_jobs:
             return
 
@@ -1103,8 +1190,31 @@ class UnifiedJobAggregator:
             ]
             self.outcomes["valid"] = len(self.valid_jobs)
 
+    @staticmethod
+    def _detect_country_simple(location):
+        """ORIGINAL"""
+        if not location or location == "Unknown":
+            return "Unknown"
+
+        location_lower = location.lower()
+        country_map = {
+            "canada": "Canada",
+            "uk": "UK",
+            "india": "India",
+            "china": "China",
+        }
+
+        for key, value in country_map.items():
+            if key in location_lower:
+                return value
+
+        if any(f", {p}" in location for p in CANADA_PROVINCES):
+            return "Canada"
+
+        return location
+
     def _print_summary(self):
-        """CLEANED: Simple summary only - no duplicate section"""
+        """CLEANED: Removed duplicate section, removed unwanted counts"""
         print("\n" + "=" * 80)
         print("SUMMARY:")
         print("=" * 80)
@@ -1116,8 +1226,7 @@ class UnifiedJobAggregator:
             ("⊘ Duplicate job", self.outcomes["skipped_duplicate_company_title"]),
             ("⊘ Wrong season", self.outcomes["skipped_wrong_season"]),
             ("⊘ Senior role", self.outcomes["skipped_senior_role"]),
-            ("⊘ Dead URL", self.outcomes["skipped_dead_url"]),
-            ("⊘ Too old", self.outcomes["skipped_too_old"]),
+            # REMOVED: Dead URL, Too old (as requested)
         ]
 
         for label, count in summary_items:
@@ -1128,7 +1237,7 @@ class UnifiedJobAggregator:
 
     @staticmethod
     def _parse_github_age(age_str):
-        """Parse GitHub age string to days"""
+        """ORIGINAL"""
         if not age_str:
             return None
 
@@ -1145,25 +1254,33 @@ class UnifiedJobAggregator:
 
     @staticmethod
     def _truncate(text, max_length=50):
-        """Truncate text to max length"""
+        """ORIGINAL"""
         return text if len(text) <= max_length else text[: max_length - 3] + "..."
 
     @staticmethod
     def _format_date():
-        """Format current date/time"""
+        """ORIGINAL"""
         return datetime.datetime.now().strftime("%d %B, %I:%M %p")
 
     @staticmethod
+    def _looks_like_title(text):
+        """ORIGINAL"""
+        if not text:
+            return False
+        title_kw = {"intern", "co-op", "engineer", "developer", "software"}
+        return sum(1 for kw in title_kw if kw in text.lower()) >= 2
+
+    @staticmethod
     def _safe_scrape(url, source_name):
-        """Safe scraping with error handling"""
+        """ORIGINAL"""
         try:
             return SimplifyGitHubScraper.scrape(url, source_name=source_name)
         except Exception as e:
             print(f"  ✗ {source_name} error: {e}")
-            logging.error(f"{source_name} scraping failed: {e}")
+            logging.error(f"{source_name} scraping failed: {e}", exc_info=True)
             return []
 
 
 if __name__ == "__main__":
     aggregator = UnifiedJobAggregator()
-    aggregator.run()  
+    aggregator.run()

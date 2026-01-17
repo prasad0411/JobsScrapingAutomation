@@ -39,13 +39,34 @@ from config import (
     GMAIL_SCOPES,
     JOB_BOARD_DOMAINS,
     JOBRIGHT_COOKIES_FILE,
+    COMPANY_SLUG_MAPPING,
+    URL_TO_COMPANY_MAPPING,
+    PLATFORM_CONFIGS,
+    get_state_for_city,
+    validate_us_state_code,
+    parse_date_flexible,
+    DATEUTIL_AVAILABLE,
     PARSER_CHAIN,
+    DEFAULT_PARSER,
     MAX_RETRIES,
     RETRY_DELAY_SECONDS,
     BACKOFF_MULTIPLIER,
+    MAX_REASONABLE_AGE_DAYS,
 )
 
-from utils import DateParser
+from utils import (
+    PlatformDetector,
+    CompanyNormalizer,
+    CompanyValidator,
+    DateParser,
+)
+
+from processors import (
+    JobIDExtractor,
+    LocationExtractor,
+    CompanyExtractor,
+    ValidationHelper,
+)
 
 # ============================================================================
 # Session & Pattern Setup
@@ -66,13 +87,14 @@ _HTML_LINK_PATTERN = re.compile(r'<a\s+href="(https?://[^"]+)"')
 _MD_LINK_PATTERN = re.compile(r"\[.*?\]\((https?://[^\)]+)\)")
 
 # ============================================================================
-# Safe HTML Parsing with Fallback Chain
+# Core Helper: Safe HTML Parsing with Fallback Chain - ORIGINAL
 # ============================================================================
 
 
 def safe_parse_html(html_content, preferred_parser=None):
-    """Try multiple parsers with fallback"""
+    """ORIGINAL: Try to parse HTML with multiple parsers"""
     parsers_to_try = PARSER_CHAIN.copy()
+
     if preferred_parser and preferred_parser in parsers_to_try:
         parsers_to_try.remove(preferred_parser)
         parsers_to_try.insert(0, preferred_parser)
@@ -81,20 +103,21 @@ def safe_parse_html(html_content, preferred_parser=None):
         try:
             soup = BeautifulSoup(html_content, parser)
             return soup, parser
-        except:
+        except Exception as e:
+            logging.debug(f"Parser {parser} failed: {e}")
             continue
 
-    logging.error("All parsers failed")
+    logging.error(f"All parsers failed for HTML content")
     return None, None
 
 
 # ============================================================================
-# Network Request with Retry Logic
+# Core Helper: Network Request with Retry Logic - ORIGINAL
 # ============================================================================
 
 
 def retry_request(url, method="GET", max_retries=MAX_RETRIES, **kwargs):
-    """HTTP request with exponential backoff"""
+    """ORIGINAL: Make HTTP request with exponential backoff retry"""
     for attempt in range(max_retries):
         try:
             if method.upper() == "GET":
@@ -108,61 +131,103 @@ def retry_request(url, method="GET", max_retries=MAX_RETRIES, **kwargs):
                 return response
             elif response.status_code in [403, 429]:
                 wait_time = RETRY_DELAY_SECONDS * (BACKOFF_MULTIPLIER**attempt)
+                logging.warning(
+                    f"Rate limited on {url}, waiting {wait_time}s (attempt {attempt+1}/{max_retries})"
+                )
                 time.sleep(wait_time)
             else:
+                logging.warning(f"HTTP {response.status_code} for {url}")
                 return response
 
         except requests.exceptions.Timeout:
             wait_time = RETRY_DELAY_SECONDS * (BACKOFF_MULTIPLIER**attempt)
+            logging.warning(
+                f"Timeout on {url}, retrying in {wait_time}s (attempt {attempt+1}/{max_retries})"
+            )
             time.sleep(wait_time)
-        except requests.exceptions.RequestException:
+        except requests.exceptions.RequestException as e:
             wait_time = RETRY_DELAY_SECONDS * (BACKOFF_MULTIPLIER**attempt)
+            logging.warning(
+                f"Request error for {url}: {e}, retrying in {wait_time}s (attempt {attempt+1}/{max_retries})"
+            )
             time.sleep(wait_time)
 
+    logging.error(f"All {max_retries} retries failed for {url}")
     return None
 
 
 # ============================================================================
-# Simplify Redirect Resolver - NEW
+# NEW: Simplify Redirect Resolver with Selenium
 # ============================================================================
 
 
 class SimplifyRedirectResolver:
-    """Resolves Simplify.jobs redirect URLs to actual job URLs"""
+    """ENHANCED: Selenium-based resolution for JavaScript redirects"""
 
     @staticmethod
     @lru_cache(maxsize=500)
     def resolve(simplify_url):
         """
-        Follow Simplify redirect to actual job URL
+        Use Selenium to resolve JavaScript redirects (critical fix)
         Returns: (actual_url, success)
         """
         if "simplify.jobs/p/" not in simplify_url.lower():
             return simplify_url, False
 
+        if not SELENIUM_AVAILABLE:
+            logging.warning("Selenium not available for Simplify resolution")
+            return simplify_url, False
+
+        driver = None
         try:
-            response = retry_request(
-                simplify_url,
-                allow_redirects=True,
-                headers={"User-Agent": USER_AGENTS[0]},
-                max_retries=2,
+            chrome_options = Options()
+            chrome_options.add_argument("--headless")
+            chrome_options.add_argument("--disable-blink-features=AutomationControlled")
+            chrome_options.add_argument("--no-sandbox")
+            chrome_options.add_argument("--disable-dev-shm-usage")
+            chrome_options.add_argument(f"user-agent={USER_AGENTS[0]}")
+            chrome_options.add_experimental_option(
+                "excludeSwitches", ["enable-logging"]
             )
 
-            if response and response.url and response.url != simplify_url:
-                logging.info(
-                    f"Resolved Simplify: {simplify_url[:50]}... -> {response.url[:50]}..."
-                )
-                return response.url, True
+            service = Service(ChromeDriverManager().install())
+            driver = webdriver.Chrome(service=service, options=chrome_options)
+            driver.set_page_load_timeout(15)
+
+            # Visit Simplify URL
+            driver.get(simplify_url)
+
+            # Wait for JavaScript redirect (critical for success)
+            time.sleep(6)
+
+            # Capture final URL after redirect
+            actual_url = driver.current_url
+
+            # Validate redirect worked
+            if (
+                actual_url != simplify_url
+                and "simplify.jobs/p/" not in actual_url.lower()
+            ):
+                logging.info(f"Simplify resolved successfully")
+                return actual_url, True
             else:
+                logging.warning(f"Simplify resolution failed - URL unchanged")
                 return simplify_url, False
 
         except Exception as e:
-            logging.error(f"Simplify resolution failed: {e}")
+            logging.error(f"Simplify resolution error: {e}")
             return simplify_url, False
+
+        finally:
+            if driver:
+                try:
+                    driver.quit()
+                except:
+                    pass
 
 
 # ============================================================================
-# Jobright Authentication
+# Jobright Authentication - ORIGINAL (FULL)
 # ============================================================================
 
 
@@ -173,6 +238,7 @@ class JobrightAuthenticator:
         self.load_cookies()
 
     def load_cookies(self):
+        """ORIGINAL"""
         if os.path.exists(JOBRIGHT_COOKIES_FILE):
             try:
                 with open(JOBRIGHT_COOKIES_FILE, "r") as f:
@@ -180,11 +246,13 @@ class JobrightAuthenticator:
                     for cookie in self.cookies:
                         self.session.cookies.set(cookie["name"], cookie["value"])
                 logging.info(f"Loaded {len(self.cookies)} Jobright cookies")
-            except:
-                pass
+            except Exception as e:
+                logging.error(f"Failed to load Jobright cookies: {e}")
 
     def login_interactive(self):
+        """ORIGINAL: Full interactive login"""
         if not SELENIUM_AVAILABLE:
+            logging.warning("Selenium not available - skipping Jobright authentication")
             return False
 
         print("\n" + "=" * 60)
@@ -213,10 +281,13 @@ class JobrightAuthenticator:
 
                 print(f"✓ Authentication successful ({len(cookies)} cookies saved)\n")
                 return True
-            except:
+            except Exception as e:
+                logging.error(f"Authentication failed: {e}")
+                print(f"✗ Authentication failed: {e}")
                 return False
 
     def resolve_jobright_url(self, jobright_url):
+        """ORIGINAL: Full Jobright URL resolution"""
         if "jobright.ai/jobs/info/" not in jobright_url.lower():
             return jobright_url, False
 
@@ -253,11 +324,13 @@ class JobrightAuthenticator:
                 return actual_url, is_company_site
 
             return jobright_url, False
-        except:
+        except Exception as e:
+            logging.error(f"Failed to resolve Jobright URL {jobright_url}: {e}")
             return jobright_url, False
 
     @contextmanager
     def _get_driver(self):
+        """ORIGINAL"""
         driver = None
         try:
             chrome_options = Options()
@@ -277,7 +350,7 @@ class JobrightAuthenticator:
 
 
 # ============================================================================
-# Email Extraction with Smart Token Handling
+# Email Extraction - ORIGINAL + ENHANCED Auto Token Handling
 # ============================================================================
 
 
@@ -288,7 +361,7 @@ class EmailExtractor:
     def authenticate(self):
         """
         ENHANCED: Automatic token validation and refresh
-        Auto-deletes expired/revoked tokens
+        Auto-deletes expired/revoked tokens (critical fix)
         """
         creds = None
 
@@ -298,7 +371,7 @@ class EmailExtractor:
                 with open(GMAIL_TOKEN_FILE, "rb") as token:
                     creds = pickle.load(token)
             except Exception as e:
-                # Corrupted token file - delete it
+                # Corrupted token file - auto-delete
                 logging.warning(f"Corrupted token file, deleting: {e}")
                 try:
                     os.remove(GMAIL_TOKEN_FILE)
@@ -312,7 +385,7 @@ class EmailExtractor:
                 try:
                     creds.refresh(Request())
                 except Exception as e:
-                    # Token revoked or refresh failed - delete and re-auth
+                    # NEW: Token revoked - auto-delete and re-auth
                     logging.warning(f"Token refresh failed: {e}")
                     print("⚠️  Gmail token expired - re-authenticating...")
                     try:
@@ -343,10 +416,16 @@ class EmailExtractor:
         return True
 
     def fetch_job_emails(self, max_results=50):
-        """Fetch job emails with robust error handling"""
+        """ORIGINAL: Fetch job emails with robust error handling"""
         if not self.service:
+            print("[Gmail] Authenticating...")
             if not self.authenticate():
                 return []
+
+        if not self.service:
+            print("✗ Gmail authentication failed")
+            logging.error("Gmail service not initialized after authentication attempt")
+            return []
 
         try:
             results = (
@@ -362,6 +441,7 @@ class EmailExtractor:
 
             messages = results.get("messages", [])
             if not messages:
+                logging.info("No labeled emails found")
                 print("No emails with 'Job Hunt' label found")
                 return []
 
@@ -394,7 +474,8 @@ class EmailExtractor:
                                 "urls": urls,
                             }
                         )
-                except:
+                except Exception as e:
+                    logging.error(f"Failed to process email {message['id']}: {e}")
                     continue
 
             emails_with_time.sort(key=lambda x: x["timestamp"], reverse=True)
@@ -412,15 +493,16 @@ class EmailExtractor:
                     ]
                 )
 
-            print(f"Total: {len(email_data)} job URLs from emails\n")
+            print(f"Total: {len(email_data)} job URLs from all emails\n")
             return email_data
-
         except Exception as e:
-            logging.error(f"Gmail fetch error: {e}")
+            logging.error(f"Gmail fetch error: {e}", exc_info=True)
+            print(f"✗ Gmail error: {e}")
             return []
 
     @staticmethod
     def _detect_sender(from_field):
+        """ORIGINAL"""
         from_lower = from_field.lower()
         senders = {
             "ziprecruiter": "ZipRecruiter",
@@ -436,6 +518,7 @@ class EmailExtractor:
 
     @staticmethod
     def _extract_html(payload):
+        """ORIGINAL"""
         if "parts" in payload:
             for part in payload["parts"]:
                 if part["mimeType"] == "text/html":
@@ -443,19 +526,21 @@ class EmailExtractor:
                         return base64.urlsafe_b64decode(
                             part["body"].get("data", "")
                         ).decode("utf-8")
-                    except:
+                    except Exception as e:
+                        logging.error(f"Failed to decode email part: {e}")
                         continue
         elif "body" in payload:
             html_data = payload["body"].get("data", "")
             if html_data:
                 try:
                     return base64.urlsafe_b64decode(html_data).decode("utf-8")
-                except:
-                    pass
+                except Exception as e:
+                    logging.error(f"Failed to decode email body: {e}")
         return None
 
     @staticmethod
     def _extract_job_urls(email_html):
+        """ORIGINAL"""
         soup, _ = safe_parse_html(email_html)
         if not soup:
             return []
@@ -475,12 +560,21 @@ class EmailExtractor:
 
     @staticmethod
     def _is_non_job_url(url):
-        non_job = ["/unsubscribe", "/my-alerts", "/blog", "/privacy", "/terms"]
+        """ORIGINAL"""
+        non_job = [
+            "/unsubscribe",
+            "/my-alerts",
+            "/blog",
+            "/privacy",
+            "/terms",
+            "twitter.com",
+            "facebook.com",
+        ]
         return any(p in url.lower() for p in non_job)
 
 
 # ============================================================================
-# Page Fetcher with Smart Retry
+# Page Fetcher - ORIGINAL + ENHANCED
 # ============================================================================
 
 
@@ -489,6 +583,7 @@ class PageFetcher:
         self.session = _SESSION
 
     def check_url_health(self, url):
+        """ORIGINAL"""
         if url in _URL_HEALTH_CACHE:
             return _URL_HEALTH_CACHE[url]
 
@@ -502,28 +597,46 @@ class PageFetcher:
         return False, 0
 
     def fetch_page(self, url):
+        """
+        ENHANCED: Returns (response, final_url, page_source)
+        page_source added for text extraction
+        """
         is_healthy, status = self.check_url_health(url)
         if not is_healthy and status in [404, 403, 405]:
-            return None, None
+            logging.info(f"Skipping unhealthy URL: {url} (status {status})")
+            return None, None, None
 
         # Try JS-heavy platforms with Selenium first
         if self._is_js_heavy_platform(url):
-            html, final_url = self._try_selenium(url)
+            html, final_url, page_source = self._try_selenium(url)
             if html:
-                return self._create_mock_response(html, final_url), final_url
+                return (
+                    self._create_mock_response(html, final_url),
+                    final_url,
+                    page_source,
+                )
 
-        # Standard request
+        # Standard request with retry
         response = retry_request(url)
         if response and response.status_code == 200:
-            return response, response.url
+            return (
+                response,
+                response.url,
+                response.text,
+            )  # ENHANCED: return text as page_source
 
-        # Fallback to Selenium
+        # Fallback to Selenium if standard request failed
         if SELENIUM_AVAILABLE:
-            html, final_url = self._try_selenium(url)
+            logging.info(f"Standard request failed, trying Selenium for {url}")
+            html, final_url, page_source = self._try_selenium(url)
             if html:
-                return self._create_mock_response(html, final_url), final_url
+                return (
+                    self._create_mock_response(html, final_url),
+                    final_url,
+                    page_source,
+                )
 
-        return None, None
+        return None, None, None
 
     @staticmethod
     def _is_js_heavy_platform(url):
@@ -533,6 +646,7 @@ class PageFetcher:
         js_platforms = [
             "workday",
             "myworkdayjobs",
+            "greenhouse.io",
             "oracle",
             "oraclecloud",
             "ashbyhq",  # NEW
@@ -541,9 +655,12 @@ class PageFetcher:
 
     @staticmethod
     def _try_selenium(url):
-        """Enhanced Selenium with platform-specific wait times"""
+        """
+        ENHANCED: Returns (html, current_url, page_source)
+        page_source returned for text extraction
+        """
         if not SELENIUM_AVAILABLE:
-            return None, None
+            return None, None, None
 
         driver = None
         try:
@@ -562,24 +679,35 @@ class PageFetcher:
             driver.set_page_load_timeout(30)
             driver.get(url)
 
-            # Platform-specific wait times
             url_lower = url.lower()
             if "oracle" in url_lower or "oraclecloud" in url_lower:
-                time.sleep(18)
+                time.sleep(15)
+                try:
+                    WebDriverWait(driver, 10).until(
+                        EC.presence_of_element_located((By.TAG_NAME, "h1"))
+                    )
+                except:
+                    pass
             elif "workday" in url_lower:
-                time.sleep(15)  # Increased for reliability
+                time.sleep(15)  # INCREASED from 8 to 15
+            elif "greenhouse" in url_lower:
+                time.sleep(10)
             elif "ashby" in url_lower:
                 time.sleep(6)
             else:
                 time.sleep(3)
 
-            # Scroll to trigger lazy loading
             driver.execute_script("window.scrollTo(0, document.body.scrollHeight);")
             time.sleep(2)
 
-            return driver.page_source, driver.current_url
-        except:
-            return None, None
+            page_source = driver.page_source
+            current_url = driver.current_url
+
+            return page_source, current_url, page_source  # Return page_source
+
+        except Exception as e:
+            logging.error(f"Selenium failed for {url}: {e}")
+            return None, None, None
         finally:
             if driver:
                 try:
@@ -589,60 +717,82 @@ class PageFetcher:
 
     @staticmethod
     def _create_mock_response(html, url):
+        """ORIGINAL"""
         return type("obj", (object,), {"text": html, "status_code": 200, "url": url})()
 
 
 # ============================================================================
-# Page Parser
+# Page Parser - ORIGINAL + ENHANCED
 # ============================================================================
 
 
 class PageParser:
     @staticmethod
+    def extract_company(soup, url):
+        """ORIGINAL"""
+        platform = PlatformDetector.detect(url)
+        return CompanyExtractor.extract_all_methods(url, soup)
+
+    @staticmethod
     def extract_title(soup):
+        """ORIGINAL"""
         if not soup:
             return "Unknown"
 
-        # Try JSON-LD
-        try:
-            json_ld = soup.find("script", type="application/ld+json")
-            if json_ld:
+        json_ld = soup.find("script", type="application/ld+json")
+        if json_ld:
+            try:
                 data = json.loads(json_ld.string)
                 if isinstance(data, dict) and data.get("title"):
                     title = data["title"]
                     if 5 < len(title) < 200:
                         return title
-        except:
-            pass
+            except:
+                pass
 
-        # Try meta tag
         meta_title = soup.find("meta", {"property": "og:title"})
         if meta_title and meta_title.get("content"):
             title = meta_title.get("content").strip()
             if 5 < len(title) < 200 and "careers" not in title.lower():
                 return title
 
-        # Try h1
         h1 = soup.find("h1")
         if h1:
             title = h1.get_text().strip()
-            if 5 < len(title) < 200:
+            if 5 < len(title) < 200 and len(title.split()) > 1:
                 return title
 
         return "Unknown"
 
     @staticmethod
+    def extract_job_id(soup, url):
+        """ORIGINAL"""
+        return JobIDExtractor.extract_all_methods(url, soup)
+
+    @staticmethod
     def extract_job_age_days(soup):
+        """ENHANCED: Added sanity capping"""
         if not soup:
             return None
+
         try:
             page_text = soup.get_text()[:3000]
-            return DateParser.extract_days_ago(page_text)
+            days = DateParser.extract_days_ago(page_text)
+
+            # NEW: Sanity validation
+            if days is not None:
+                if days > MAX_REASONABLE_AGE_DAYS:
+                    return None
+                if days < 0:
+                    return None
+
+            return days
         except:
             return None
 
     @staticmethod
     def extract_jobright_data(soup, url, jobright_auth):
+        """ORIGINAL: Full Jobright data extraction"""
         try:
             script_tag = soup.find("script", {"id": "__NEXT_DATA__"})
             if not script_tag:
@@ -663,12 +813,17 @@ class PageParser:
             title = job_result.get("jobTitle", "Unknown")
             location = job_result.get("jobLocation", "Unknown")
 
+            is_remote = job_result.get("isRemote", False)
             work_model = job_result.get("workModel", "").lower()
-            remote = (
-                "Remote"
-                if work_model == "remote"
-                else "Hybrid" if work_model == "hybrid" else "Unknown"
-            )
+
+            if is_remote or work_model == "remote":
+                remote = "Remote"
+            elif work_model == "hybrid":
+                remote = "Hybrid"
+            elif work_model == "onsite":
+                remote = "On Site"
+            else:
+                remote = "Unknown"
 
             recommendation_tags = job_result.get("recommendationTags", [])
             sponsorship = (
@@ -689,18 +844,20 @@ class PageParser:
                 "url": actual_url,
                 "is_company_site": is_company_site,
             }
-        except:
+        except Exception as e:
+            logging.error(f"Failed to extract Jobright data: {e}")
             return None
 
 
 # ============================================================================
-# Source Parsers
+# Source Parsers - ORIGINAL (FULL)
 # ============================================================================
 
 
 class SourceParsers:
     @staticmethod
     def parse_jobright_email(soup, url, jobright_auth):
+        """ORIGINAL: Full Jobright email parser"""
         try:
             url_base = url.split("?")[0]
             all_links = soup.find_all("a", href=re.compile(re.escape(url_base)))
@@ -801,69 +958,109 @@ class SourceParsers:
                 "location": location,
                 "remote": remote,
                 "url": actual_url,
-                "sponsorship": "Unknown",
+                "sponsorship": "Unknown (Email)",
                 "is_company_site": is_company_site,
                 "email_age_days": age_days,
             }
-        except:
+        except Exception as e:
+            logging.error(f"Failed to parse Jobright email: {e}")
             return None
 
     @staticmethod
     def parse_ziprecruiter_email(soup, url):
+        """ORIGINAL: Placeholder for ZipRecruiter parser"""
         return None
 
     @staticmethod
     def parse_adzuna_email(soup, url):
+        """ORIGINAL: Placeholder for Adzuna parser"""
         return None
 
 
 # ============================================================================
-# GitHub Scraper
+# GitHub Scraper - ORIGINAL (FULL)
 # ============================================================================
 
 
 class SimplifyGitHubScraper:
     @staticmethod
     def scrape(url, source_name="GitHub"):
+        """ORIGINAL: Full scraper with HTML and Markdown support"""
         try:
+            logging.info(f"Fetching {source_name} from {url}")
             response = retry_request(url)
-            if not response or response.status_code != 200:
+
+            if not response:
+                logging.error(f"{source_name}: Failed to fetch URL after retries")
                 return []
 
-            # Try HTML tables first
+            if response.status_code != 200:
+                logging.error(f"{source_name}: HTTP {response.status_code}")
+                return []
+
+            logging.info(
+                f"{source_name}: Successfully fetched, response length: {len(response.text)}"
+            )
+
+            # Try HTML parsing first
             soup, parser = safe_parse_html(response.text)
             if soup:
+                logging.info(
+                    f"{source_name}: Parsed with {parser}, trying HTML table parsing"
+                )
                 tables = soup.find_all("table")
                 if tables:
                     jobs = SimplifyGitHubScraper._parse_html_tables(soup, source_name)
                     if jobs:
+                        logging.info(
+                            f"{source_name}: Found {len(jobs)} jobs via HTML tables"
+                        )
                         return jobs
 
-            # Fallback to markdown
+            # Fallback to markdown text parsing
+            logging.info(
+                f"{source_name}: No HTML tables found, trying Markdown parsing"
+            )
             jobs = SimplifyGitHubScraper._parse_markdown_text(
                 response.text, source_name
             )
+
+            if jobs:
+                logging.info(f"{source_name}: Found {len(jobs)} jobs via Markdown")
+            else:
+                logging.warning(f"{source_name}: Markdown parsing returned 0 jobs")
+
             return jobs
 
-        except:
+        except Exception as e:
+            logging.error(f"{source_name}: Unexpected error: {e}", exc_info=True)
             return []
 
     @staticmethod
     def _parse_markdown_text(text, source_name):
+        """ORIGINAL"""
         lines = text.split("\n")
         jobs = []
 
         header_idx = next(
             (i for i, line in enumerate(lines) if _HEADER_PATTERN.search(line)), -1
         )
+
         if header_idx == -1:
+            logging.warning(f"{source_name}: Could not find header pattern in Markdown")
             return []
 
+        logging.info(f"{source_name}: Found header at line {header_idx}")
         header = lines[header_idx]
         delimiter = "\t" if "\t" in header else "|"
         start = header_idx + 1 if delimiter == "\t" else header_idx + 2
 
-        for line in lines[start:]:
+        logging.info(
+            f"{source_name}: Using delimiter '{delimiter}', starting at line {start}"
+        )
+
+        parsed_count = 0
+        for line_num, line in enumerate(lines[start:], start=start):
             if not line.strip():
                 continue
 
@@ -900,12 +1097,16 @@ class SimplifyGitHubScraper:
                     "source": source_name,
                 }
             )
+            parsed_count += 1
 
+        logging.info(f"{source_name}: Parsed {parsed_count} job entries from Markdown")
         return jobs
 
     @staticmethod
     def _parse_html_tables(soup, source_name):
+        """ORIGINAL"""
         jobs = []
+
         for table in soup.find_all("table"):
             for row in table.find_all("tr")[1:]:
                 cells = row.find_all("td")
