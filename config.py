@@ -1,14 +1,18 @@
 #!/usr/bin/env python3
 
+# ============================================================================
+# Suppress All Warnings for Clean Output
+# ============================================================================
 import warnings
+import os
 
-warnings.filterwarnings("ignore")  # Suppress all warnings
+warnings.filterwarnings("ignore")
+os.environ["TF_CPP_MIN_LOG_LEVEL"] = "3"
 
 # ============================================================================
-# CRITICAL: Library Availability Detection
+# Library Availability Detection (Silent)
 # ============================================================================
 
-# LXML Parser Detection
 try:
     import lxml.etree
 
@@ -18,7 +22,6 @@ except ImportError:
     LXML_AVAILABLE = False
     DEFAULT_PARSER = "html.parser"
 
-# HTML5LIB Parser Detection
 try:
     import html5lib
 
@@ -26,17 +29,12 @@ try:
 except ImportError:
     HTML5LIB_AVAILABLE = False
 
-# Parser Priority Chain
 PARSER_CHAIN = []
 if LXML_AVAILABLE:
     PARSER_CHAIN.append("lxml")
 if HTML5LIB_AVAILABLE:
     PARSER_CHAIN.append("html5lib")
 PARSER_CHAIN.append("html.parser")
-
-# ============================================================================
-# Other Library Detection
-# ============================================================================
 
 try:
     from uszipcode import SearchEngine
@@ -137,15 +135,13 @@ MIN_QUALITY_SCORE = 4
 MIN_CONFIDENCE_JOB_ID = 0.70
 MIN_CONFIDENCE_LOCATION = 0.70
 MIN_CONFIDENCE_COMPANY = 0.70
-REQUIRE_MULTIPLE_CONFIRMATIONS = True
 
-# Retry Configuration
 MAX_RETRIES = 3
 RETRY_DELAY_SECONDS = 2
 BACKOFF_MULTIPLIER = 2
 
 # ============================================================================
-# US States & Cities - EXPANDED
+# US States - Complete Mapping
 # ============================================================================
 
 US_STATES_FALLBACK = {
@@ -202,79 +198,7 @@ US_STATES_FALLBACK = {
     "DC",
 }
 
-CITY_TO_STATE_FALLBACK = {
-    # California
-    "san francisco": "CA",
-    "san jose": "CA",
-    "palo alto": "CA",
-    "mountain view": "CA",
-    "sunnyvale": "CA",
-    "santa clara": "CA",
-    "cupertino": "CA",
-    "santa monica": "CA",
-    "south san francisco": "CA",
-    "foster city": "CA",
-    "fremont": "CA",
-    "milpitas": "CA",
-    "los angeles": "CA",
-    "san diego": "CA",
-    "sacramento": "CA",
-    "oakland": "CA",
-    "irvine": "CA",
-    "anaheim": "CA",
-    # New York
-    "new york": "NY",
-    "brooklyn": "NY",
-    "buffalo": "NY",
-    # Washington
-    "seattle": "WA",
-    "bellevue": "WA",
-    "redmond": "WA",
-    # Massachusetts
-    "boston": "MA",
-    "cambridge": "MA",
-    "worcester": "MA",
-    # Illinois
-    "chicago": "IL",
-    # Georgia
-    "atlanta": "GA",
-    # Pennsylvania
-    "philadelphia": "PA",
-    "pittsburgh": "PA",
-    # Colorado
-    "denver": "CO",
-    "golden": "CO",
-    "boulder": "CO",
-    # Arizona
-    "phoenix": "AZ",
-    "tempe": "AZ",
-    "scottsdale": "AZ",
-    # Florida
-    "orlando": "FL",
-    "miami": "FL",
-    "tampa": "FL",
-    # Texas
-    "dallas": "TX",
-    "austin": "TX",
-    "plano": "TX",
-    "houston": "TX",
-    # North Carolina
-    "charlotte": "NC",
-    "raleigh": "NC",
-    # Maryland
-    "rockville": "MD",
-    "baltimore": "MD",
-    # Minnesota
-    "bloomington": "MN",
-    "minneapolis": "MN",
-    # Utah
-    "draper": "UT",
-    "salt lake city": "UT",
-}
-
-# EXPANDED: Full state name to code mapping
 FULL_STATE_NAMES = {
-    # US States
     "alabama": "AL",
     "alaska": "AK",
     "arizona": "AZ",
@@ -327,17 +251,75 @@ FULL_STATE_NAMES = {
     "wyoming": "WY",
 }
 
-# NEW: City abbreviation to full name
+CITY_TO_STATE_FALLBACK = {
+    "san francisco": "CA",
+    "san jose": "CA",
+    "palo alto": "CA",
+    "mountain view": "CA",
+    "sunnyvale": "CA",
+    "santa clara": "CA",
+    "cupertino": "CA",
+    "santa monica": "CA",
+    "south san francisco": "CA",
+    "foster city": "CA",
+    "fremont": "CA",
+    "milpitas": "CA",
+    "los angeles": "CA",
+    "san diego": "CA",
+    "sacramento": "CA",
+    "oakland": "CA",
+    "irvine": "CA",
+    "anaheim": "CA",
+    "redwood city": "CA",
+    "menlo park": "CA",
+    "berkeley": "CA",
+    "new york": "NY",
+    "brooklyn": "NY",
+    "buffalo": "NY",
+    "seattle": "WA",
+    "bellevue": "WA",
+    "redmond": "WA",
+    "boston": "MA",
+    "cambridge": "MA",
+    "worcester": "MA",
+    "chicago": "IL",
+    "atlanta": "GA",
+    "philadelphia": "PA",
+    "pittsburgh": "PA",
+    "denver": "CO",
+    "golden": "CO",
+    "boulder": "CO",
+    "phoenix": "AZ",
+    "tempe": "AZ",
+    "scottsdale": "AZ",
+    "orlando": "FL",
+    "miami": "FL",
+    "tampa": "FL",
+    "dallas": "TX",
+    "austin": "TX",
+    "plano": "TX",
+    "houston": "TX",
+    "charlotte": "NC",
+    "raleigh": "NC",
+    "rockville": "MD",
+    "baltimore": "MD",
+    "bloomington": "MN",
+    "draper": "UT",
+    "salt lake city": "UT",
+    "sioux falls": "SD",
+    "towson": "MD",
+    "pleasant prairie": "WI",
+    "milwaukee": "WI",
+}
+
 CITY_ABBREVIATIONS = {
     "sf": "San Francisco, CA",
     "nyc": "New York, NY",
     "la": "Los Angeles, CA",
     "dc": "Washington, DC",
     "philly": "Philadelphia, PA",
-    "chi": "Chicago, IL",
 }
 
-# NEW: Location suffixes to strip
 LOCATION_SUFFIXES = [
     " Office",
     " office",
@@ -351,12 +333,10 @@ LOCATION_SUFFIXES = [
     " bay area",
     " Metro Area",
     " metro area",
-    " Area",
-    " area",
 ]
 
 # ============================================================================
-# Canadian Detection - EXPANDED
+# Canadian Detection - Comprehensive
 # ============================================================================
 
 CANADA_PROVINCES = {"ON", "QC", "BC", "AB", "MB", "SK", "NS", "NB", "NL", "PE"}
@@ -370,45 +350,49 @@ CANADA_PROVINCE_NAMES = {
     "saskatchewan": "SK",
     "nova scotia": "NS",
     "new brunswick": "NB",
+    "newfoundland and labrador": "NL",
     "newfoundland": "NL",
     "prince edward island": "PE",
 }
 
-# EXPANDED: Major + Medium Canadian cities
 MAJOR_CANADIAN_CITIES = {
-    # Major cities
     "toronto": "ON",
     "ottawa": "ON",
-    "montreal": "QC",
-    "vancouver": "BC",
-    "calgary": "AB",
-    "edmonton": "AB",
-    "winnipeg": "MB",
-    "quebec city": "QC",
-    # Medium cities (100k+)
     "mississauga": "ON",
     "brampton": "ON",
     "hamilton": "ON",
-    "kitchener": "ON",
     "london": "ON",
     "markham": "ON",
     "vaughan": "ON",
-    "gatineau": "QC",
-    "laval": "QC",
-    "waterloo": "ON",
+    "kitchener": "ON",
+    "windsor": "ON",
     "guelph": "ON",
-    "kanata": "ON",  # Ottawa suburb
-    "richmond": "BC",
-    "burnaby": "BC",
+    "kanata": "ON",
+    "waterloo": "ON",
+    "burlington": "ON",
+    "oakville": "ON",
+    "montreal": "QC",
+    "quebec city": "QC",
+    "laval": "QC",
+    "gatineau": "QC",
+    "vancouver": "BC",
     "surrey": "BC",
+    "burnaby": "BC",
+    "richmond": "BC",
+    "victoria": "BC",
+    "calgary": "AB",
+    "edmonton": "AB",
+    "winnipeg": "MB",
+    "saskatoon": "SK",
+    "regina": "SK",
+    "halifax": "NS",
 }
 
-# NEW: Ambiguous cities that exist in both US and Canada
 AMBIGUOUS_CITIES = {
     "vancouver": {"US": "WA", "Canada": "BC"},
     "ontario": {"US": "CA", "Canada": "ON"},
-    "cambridge": {"US": "MA", "Canada": "ON", "UK": "England"},
-    "london": {"US": "OH", "Canada": "ON", "UK": "England"},
+    "cambridge": {"US": "MA", "Canada": "ON"},
+    "london": {"US": "OH", "Canada": "ON"},
     "waterloo": {"US": "IA", "Canada": "ON"},
     "windsor": {"US": "CT", "Canada": "ON"},
     "richmond": {"US": "VA", "Canada": "BC"},
@@ -418,13 +402,13 @@ US_CONTEXT_KEYWORDS = ["usa", "united states", "u.s.", "bay area", "silicon vall
 CANADA_CONTEXT_KEYWORDS = ["canada", "canadian", "gta", "greater toronto"]
 
 # ============================================================================
-# Platform Detection & Configuration - ENHANCED
+# Platform Detection & Configuration
 # ============================================================================
 
 PLATFORM_DETECTION_PATTERNS = {
     "workday": r"\.wd\d+\.myworkdayjobs\.com",
     "greenhouse": r"(boards\.|job-boards\.)?greenhouse\.io",
-    "lever": r"jobs\.lever\.co",
+    "lever": r"(?:jobs\.)?lever\.co",
     "ashby": r"(?:jobs\.)?ashbyhq\.com",
     "linkedin": r"linkedin\.com/jobs",
     "icims": r"\.icims\.com",
@@ -432,20 +416,21 @@ PLATFORM_DETECTION_PATTERNS = {
     "oracle": r"(\.fa\.|oraclecloud\.com)",
     "eightfold": r"\.eightfold\.ai",
     "ea": r"jobs\.ea\.com",
+    "glassdoor": r"glassdoor\.com",
+    "workatastartup": r"workatastartup\.com",
 }
 
 PLATFORM_CONFIGS = {
     "workday": {
         "requires_selenium": True,
-        "wait_time": 12,  # Increased from 8
+        "wait_time": 15,
         "location_selectors": [
             ('dd[data-automation-id="locations"]', 0.95),
             ('dd[data-automation-id="location"]', 0.93),
-            ('[data-automation-id*="location"]', 0.85),
             ('span[data-automation-id="jobLocation"]', 0.92),
-            ('div[data-automation-id="jobProperties"] dd', 0.75),
-            (".jobProperty .jobPropertyValue", 0.70),
-            ("div.css-1ij27gp", 0.80),
+            ('[data-automation-id*="location"]', 0.85),
+            ('div[data-automation-id="jobProperties"] dd', 0.78),
+            ('[aria-label*="location"]', 0.80),
         ],
         "company_selector": 'meta[property="og:site_name"]',
         "title_selector": 'h1[data-automation-id="jobTitle"]',
@@ -456,28 +441,15 @@ PLATFORM_CONFIGS = {
         "wait_time": 3,
         "location_selectors": [
             (".location", 0.92),
-            (".job-location", 0.88),
             ("div.location", 0.90),
+            (".job-location", 0.88),
             ("[data-qa='job-location']", 0.88),
             (".app-title + div", 0.75),
-            ("h1 + div", 0.70),
-            (".posting-headline + div", 0.72),
-            ("[class*='location' i]", 0.80),
+            ("h1 + div", 0.72),
         ],
         "company_selector": 'meta[property="og:site_name"]',
         "title_selector": ".app-title",
         "job_id_pattern": r"/jobs?/(\d{7,})",
-    },
-    "oracle": {
-        "requires_selenium": True,
-        "wait_time": 15,
-        "location_selectors": [
-            ('[data-automation="jobLocation"]', 0.95),
-            (".jobProperty", 0.80),
-        ],
-        "company_selector": 'meta[property="og:site_name"]',
-        "title_selector": 'h1[data-automation="jobTitle"]',
-        "job_id_pattern": r"/job/(\d{6,})",
     },
     "lever": {
         "requires_selenium": False,
@@ -499,14 +471,14 @@ PLATFORM_CONFIGS = {
         ],
         "company_selector": 'img[alt*="logo"]',
         "title_selector": 'h1[itemprop="title"]',
-        "job_id_pattern": r"/(\d{15})",
+        "job_id_pattern": r"/(\d{12,})",
     },
     "ashby": {
-        "requires_selenium": True,  # NEW: Mark as JS-heavy
-        "wait_time": 5,
+        "requires_selenium": True,
+        "wait_time": 6,
         "location_selectors": [
             ('[class*="JobLocation"]', 0.92),
-            ('div[class*="location" i]', 0.88),
+            ('div[class*="location"]', 0.88),
         ],
         "company_selector": 'meta[property="og:site_name"]',
         "title_selector": "h1",
@@ -515,10 +487,21 @@ PLATFORM_CONFIGS = {
     "ea": {
         "requires_selenium": False,
         "wait_time": 3,
-        "location_selectors": [],  # Use regex on page text
+        "location_selectors": [],
         "company_selector": 'meta[property="og:site_name"]',
         "title_selector": "h2",
         "job_id_pattern": r"/(\d{6,})",
+    },
+    "glassdoor": {
+        "requires_selenium": False,
+        "wait_time": 3,
+        "location_selectors": [
+            ('[data-test="location"]', 0.92),
+            (".location", 0.85),
+        ],
+        "company_selector": 'meta[property="og:site_name"]',
+        "title_selector": "h1",
+        "job_id_pattern": None,
     },
 }
 
@@ -533,7 +516,7 @@ WORKDAY_HQ_CODES = {
 }
 
 # ============================================================================
-# Company Name Mappings
+# Company Mappings
 # ============================================================================
 
 URL_TO_COMPANY_MAPPING = {
@@ -541,8 +524,6 @@ URL_TO_COMPANY_MAPPING = {
     r"geico\.wd\d+\.myworkdayjobs\.com": "GEICO",
     r"cox\.wd\d+\.myworkdayjobs\.com": "Cox Automotive",
     r"roche\.wd\d+\.myworkdayjobs\.com": "Roche",
-    r"cranecompany\.wd\d+\.myworkdayjobs\.com": "Crane Co.",
-    r"motorola.*\.wd\d+\.myworkdayjobs\.com": "Motorola Solutions",
     r"nvidia\.wd\d+\.myworkdayjobs\.com": "NVIDIA",
     r"tmobile\.wd\d+\.myworkdayjobs\.com": "T-Mobile",
     r"att\.wd\d+\.myworkdayjobs\.com": "AT&T Services",
@@ -550,191 +531,71 @@ URL_TO_COMPANY_MAPPING = {
     r"pru\.wd\d+\.myworkdayjobs\.com": "Prudential Financial",
     r"coke\.wd\d+\.myworkdayjobs\.com": "The Coca-Cola Company",
     r"lilly\.wd\d+\.myworkdayjobs\.com": "Eli Lilly and Company",
-    r"donaldson\.wd\d+\.myworkdayjobs\.com": "Donaldson Company",
-    r"intapp\.wd\d+\.myworkdayjobs\.com": "Intapp",
-    r"assetmark\.wd\d+\.myworkdayjobs\.com": "AssetMark",
-    r"axos\.wd\d+\.myworkdayjobs\.com": "Axos Bank",
-    r"nrel\.wd\d+\.myworkdayjobs\.com": "National Renewable Energy Laboratory",
-    r"hhmi\.wd\d+\.myworkdayjobs\.com": "Howard Hughes Medical Institute",
-    r"nasdaq\.wd\d+\.myworkdayjobs\.com": "Nasdaq",
-    r"comcast\.wd\d+\.myworkdayjobs\.com": "Comcast",
     r"sbdinc\.wd\d+\.myworkdayjobs\.com": "Stanley Black & Decker",
     r"abb\.wd\d+\.myworkdayjobs\.com": "ABB",
-    r"selinc\.wd\d+\.myworkdayjobs\.com": "Schweitzer Engineering Laboratories",
     r"asml\.wd\d+\.myworkdayjobs\.com": "ASML",
-    r"ciena\.wd\d+\.myworkdayjobs\.com": "Ciena",
-    r"globalfoundries\.wd\d+\.myworkdayjobs\.com": "GlobalFoundries",
-    r"spgi\.wd\d+\.myworkdayjobs\.com": "S&P Global",
-    r"cadence\.wd\d+\.myworkdayjobs\.com": "Cadence Design Systems",
-    r"finra\.wd\d+\.myworkdayjobs\.com": "Finra",
-    r"rb\.wd\d+\.myworkdayjobs\.com": "The Federal Reserve System",
-    r"group1001wd\.wd\d+\.myworkdayjobs\.com": "Group 1001",
     r"uline\.wd\d+\.myworkdayjobs\.com": "Uline",
-    r"wnc\.wd\d+\.myworkdayjobs\.com": "WNC",
     r"warnerbros\.wd\d+\.myworkdayjobs\.com": "Warner Bros.",
-    r"kbr\.wd\d+\.myworkdayjobs\.com": "Wyle Services",
-    r"philips\.wd\d+\.myworkdayjobs\.com": "Myworkdayjobs",
-    r"job-boards\.greenhouse\.io/asteraearlycareer": "Astera Labs",
+    r"kbr\.wd\d+\.myworkdayjobs\.com": "KBR",
+    r"philips\.wd\d+\.myworkdayjobs\.com": "Philips",
+    r"jci\.wd\d+\.myworkdayjobs\.com": "Johnson Controls",
+    r"job-boards\.greenhouse\.io/verkada": "Verkada",
     r"job-boards\.greenhouse\.io/samsungresearchamericainternship": "Samsung Research America",
     r"job-boards\.greenhouse\.io/obsidiansecurity": "Obsidian Security",
-    r"job-boards\.greenhouse\.io/commvault": "Commvault",
-    r"job-boards\.greenhouse\.io/audaxgroup": "Audax Group",
-    r"job-boards\.greenhouse\.io/verkada": "Verkada",
     r"job-boards\.greenhouse\.io/auctane": "Auctane",
-    r"generatebiomedicines\.com": "Generate Biomedicines",
-    r"jobs\.smartrecruiters\.com/Visa": "Visa",
-    r"jobs\.smartrecruiters\.com/Intuitive": "Intuitive Surgical",
-    r"jobs\.smartrecruiters\.com/Experian": "Experian",
-    r"jobs\.smartrecruiters\.com/BoschGroup": "Robert Bosch Venture Capital",
-    r"jobs\.lever\.co/zoox": "Zoox",
-    r"jobs\.lever\.co/veeva": "Veeva Systems",
-    r"jobs\.ashbyhq\.com/uipath": "UiPath",
-    r"jobs\.ashbyhq\.com/Ridealso": "ALSO",
-    r"jobs\.ashbyhq\.com/atomicsemi": "Atomic Semi",
+    r"(?:jobs\.)?lever\.co/zoox": "Zoox",
+    r"(?:jobs\.)?ashbyhq\.com/atomicsemi": "Atomic Semi",
     r"jobs\.ea\.com": "Electronic Arts",
-    r"eeho\.fa\.us2\.oraclecloud\.com": "Oracle",
-    r"fa-evmr.*\.oraclecloud\.com": "Nokia",
-    r"jobs-legrand\.icims\.com": "Legrand",
-    r"jobs\.paccar\.com": "Paccar",
-    r"apply\.careers\.microsoft\.com": "Microsoft",
-    r"3ds\.com/careers": "Dassault Systèmes",
+    r"jobs\.smartrecruiters\.com/Visa": "Visa",
+    r"careers\.adobe\.com": "Adobe",
+    r"jobs\.siemens\.com": "Siemens",
+    r"ats\.rippling\.com/.*/redaspen": "Red Aspen",
+    r"careers\.merzaesthetics\.com": "Merz North America",
+    r"jolera\.com": "Jolera",
+    r"workatastartup\.com": "Y Combinator Startup",
 }
-
-JUNK_SUBDOMAIN_PATTERNS = [
-    r".*\d{4,}.*",
-    r".*earlycareer.*",
-    r".*internship.*",
-    r".*careers?$",
-    r".*jobs?$",
-    r".*wd\d+$",
-]
 
 COMPANY_SLUG_MAPPING = {
-    "sig": "Susquehanna International Group",
-    "spgi": "S&P Global",
-    "hhmi": "Howard Hughes Medical Institute",
-    "nrel": "National Renewable Energy Laboratory",
     "sbdinc": "Stanley Black & Decker",
-    "selinc": "Schweitzer Engineering Laboratories",
-    "asml": "ASML",
-    "abb": "ABB",
-    "geico": "GEICO",
-    "asteraearlycareer2026": "Astera Labs",
-    "asteraearlycareer": "Astera Labs",
-    "samsungresearchamericainternship": "Samsung Research America",
-    "obsidiansecurity": "Obsidian Security",
-    "group1001wd": "Group 1001",
-    "audaxgroup": "Audax Group",
-    "ridealso": "ALSO",
-    "openai": "OpenAI",
-    "tiktok": "TikTok",
-    "linkedin": "LinkedIn",
-    "paypal": "PayPal",
     "verkada": "Verkada",
     "atomicsemi": "Atomic Semi",
+    "geico": "GEICO",
 }
 
-COMPANY_PLACEHOLDERS = [
-    "Unknown",
-    "N/A",
-    "Company",
-    "Employer",
-    "Careers",
-    "Jobs",
-    "External",
-    "Portal",
-    "Applicant",
-    "Apply",
-]
+COMPANY_PLACEHOLDERS = ["Unknown", "N/A", "Company", "Employer", "Careers", "Jobs"]
+COMPANY_NAME_PREFIXES = ["lifeat", "joinat", "careersat", "workat"]
+COMPANY_NAME_STOPWORDS = ["Careers at ", "Work at ", " Careers", " Jobs"]
 
-COMPANY_NAME_PREFIXES = [
-    "lifeat",
-    "joinat",
-    "join",
-    "careersat",
-    "careers",
-    "workfor",
-    "workat",
-    "work",
-    "hiringat",
-    "hiring",
-]
-
-COMPANY_NAME_STOPWORDS = [
-    "Careers at ",
-    "Careers | ",
-    "Work at ",
-    "Join ",
-    " Careers",
-    " Jobs",
-    " - Careers",
-    " Career Site",
-]
+JUNK_SUBDOMAIN_PATTERNS = [r".*\d{4,}.*", r".*careers?$", r".*jobs?$"]
 
 # ============================================================================
-# Extraction Patterns - FIXED
+# Extraction Patterns
 # ============================================================================
 
 JOB_ID_PATTERNS = [
     (r"/jobs?/(\d{10})", 0.96),
-    (r"gh_jid=(\d{7,})", 0.96),
-    (r"/jobs?/(\d{6,})", 0.94),  # CHANGED: 6+ instead of 7+
+    (r"(?:jobs\.)?lever\.co/[^/]+/([a-f0-9-]{36})", 0.96),
+    (r"(?:jobs\.)?ashbyhq\.com/[^/]+/([a-f0-9-]{36})", 0.96),
+    (r"/jobs?/(\d{6,})", 0.94),
     (r"_([A-Z]R?-?\d{5,})(?:-\d+)?(?:\?|$)", 0.93),
-    (r"/([A-Z]{2,3}\d{5,})(?:-\d+)?(?:\?|$)", 0.91),
-    (r"(?:jobs\.)?lever\.co/[^/]+/([a-f0-9-]{36})", 0.96),  # FIXED: Added jobs.
-    (r"(?:jobs\.)?ashbyhq\.com/[^/]+/([a-f0-9-]{36})", 0.96),  # FIXED: Added jobs.
-    (r"smartrecruiters\.com/[^/]+/(\d{15})", 0.96),
-    (r"REQ[_-]?(\d{6,})", 0.92),
-    (r"job[/_]([A-Z0-9_-]{6,15})(?:\?|$|/)", 0.86),
-    (r"[?&]reqId=([A-Z0-9_-]{4,15})(?:&|$)", 0.88),
-    (r"/(\d{6,})(?:/|\?|$)", 0.76),  # CHANGED: 6+ instead of 7+
+    (r"/(\d{6,})(?:/|\?|$)", 0.76),
+    (r"SALES(\d{6})", 0.85),
 ]
 
 LOCATION_SELECTORS = [
-    ('[data-qa="location"]', 0.92),
     ('[data-automation-id="locations"]', 0.95),
-    ('[data-automation="jobLocation"]', 0.95),
-    ('[itemprop="jobLocation"]', 0.92),
     (".location", 0.86),
     (".job-location", 0.86),
-    (".posting-categories .location", 0.88),
 ]
 
 LOCATION_METADATA_PATTERNS = [
     r"time\s+type.*$",
     r"Full\s+time.*$",
-    r"Part\s+time.*$",
-    r"posted\s+on.*$",
     r"Employment\s+Type.*$",
-    r"Details.*$",
-    r"Program.*$",
 ]
-
-HTML_ARTIFACT_PATTERNS = [
-    r"^s(?=[A-Z])",
-    r"^p(?=[A-Z])",
-]
-
-INVALID_LOCATION_KEYWORDS = [
-    "time",
-    "type",
-    "full",
-    "part",
-    "posted",
-    "employment",
-]
-
-DEPARTMENT_KEYWORDS = [
-    "quantum",
-    "performance",
-    "analytics",
-    "maintenance",
-    "wearables",
-    "search",
-    "external",
-    "product",
-    "oracle analytics",
-]
+HTML_ARTIFACT_PATTERNS = [r"^s(?=[A-Z])", r"^p(?=[A-Z])"]
+INVALID_LOCATION_KEYWORDS = ["time", "type", "full", "posted", "employment"]
+DEPARTMENT_KEYWORDS = ["quantum", "analytics", "external", "product"]
 
 # ============================================================================
 # Role Categories
@@ -742,13 +603,13 @@ DEPARTMENT_KEYWORDS = [
 
 ROLE_CATEGORIES = {
     "Pure Software": {
-        "keywords": ["backend", "frontend", "full stack", "web developer"],
-        "exclude": ["embedded", "firmware", "hardware"],
+        "keywords": ["backend", "frontend", "full stack"],
+        "exclude": ["embedded", "firmware"],
         "action": "ACCEPT",
         "alert": "✅ SOFTWARE",
     },
     "Data & AI": {
-        "keywords": ["data scien", "machine learning", "ai engineer", "analytics"],
+        "keywords": ["data scien", "machine learning", "ai engineer"],
         "exclude": [],
         "action": "ACCEPT",
         "alert": "✅ DATA/AI",
@@ -756,34 +617,13 @@ ROLE_CATEGORIES = {
 }
 
 # ============================================================================
-# Email & Network Configuration
+# Network Configuration
 # ============================================================================
 
 GMAIL_SCOPES = ["https://www.googleapis.com/auth/gmail.readonly"]
-
-USER_AGENTS = [
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-]
-
-JOB_BOARD_DOMAINS = [
-    "greenhouse",
-    "lever.co",
-    "workday",
-    "ashbyhq",
-    "smartrecruiters",
-    "icims.com",
-    "myworkdayjobs",
-    "simplify.jobs",
-    "linkedin.com/jobs",
-]
-
-STATUS_COLORS = {
-    "Not Applied": {"red": 1.0, "green": 1.0, "blue": 1.0},
-    "Applied": {"red": 1.0, "green": 0.9, "blue": 0.6},
-    "Interview Scheduled": {"red": 1.0, "green": 0.8, "blue": 0.4},
-    "Offer Received": {"red": 0.6, "green": 0.9, "blue": 0.6},
-}
+USER_AGENTS = ["Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36"]
+JOB_BOARD_DOMAINS = ["greenhouse", "lever.co", "workday", "ashbyhq", "simplify.jobs"]
+STATUS_COLORS = {"Not Applied": {"red": 1.0, "green": 1.0, "blue": 1.0}}
 
 # ============================================================================
 # Helper Functions
@@ -795,10 +635,10 @@ def get_state_for_city(city_name):
         try:
             results = _search_engine.by_city(city_name.strip().title())
             if results:
+                from collections import Counter
+
                 states = [r.state for r in results if r.state]
                 if states:
-                    from collections import Counter
-
                     return Counter(states).most_common(1)[0][0]
         except:
             pass
@@ -806,6 +646,8 @@ def get_state_for_city(city_name):
 
 
 def validate_us_state_code(state_code):
+    if not state_code or len(state_code) != 2:
+        return False
     if US_LIBRARY_AVAILABLE:
         try:
             return us_library.states.lookup(state_code) is not None
@@ -815,14 +657,6 @@ def validate_us_state_code(state_code):
 
 
 def get_canadian_province(text):
-    if PYCOUNTRY_AVAILABLE:
-        try:
-            for subdivision in pycountry.subdivisions.get(country_code="CA"):
-                code = subdivision.code.split("-")[1]
-                if code in text.upper() or subdivision.name.lower() in text.lower():
-                    return code
-        except:
-            pass
     for province_name, code in CANADA_PROVINCE_NAMES.items():
         if province_name in text.lower():
             return code
@@ -865,11 +699,6 @@ def parse_date_flexible(date_string):
 
 
 def is_valid_url(url):
-    if VALIDATORS_AVAILABLE:
-        try:
-            return validators.url(url) == True
-        except:
-            pass
     import re
 
     return bool(re.match(r"https?://.+\..+", url))
@@ -881,7 +710,10 @@ def normalize_unicode(text):
             return unidecode_func(text)
         except:
             pass
-    return text.replace("é", "e").replace("è", "e").replace("à", "a").replace("ô", "o")
+    replacements = {"é": "e", "è": "e", "à": "a", "ô": "o", "ü": "u"}
+    for char, replacement in replacements.items():
+        text = text.replace(char, replacement)
+    return text
 
 
 def get_city_state_from_zipcode(zipcode):

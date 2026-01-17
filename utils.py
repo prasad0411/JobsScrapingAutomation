@@ -4,7 +4,6 @@ import re
 import logging
 from dataclasses import dataclass
 from functools import lru_cache
-from collections import Counter
 from operator import attrgetter
 
 from config import (
@@ -31,7 +30,9 @@ _COMPILED_JUNK_PATTERNS = [
     re.compile(pattern, re.I) for pattern in JUNK_SUBDOMAIN_PATTERNS
 ]
 
-_STOPWORD_TRANS = str.maketrans("", "", "".join(set("".join(COMPANY_NAME_STOPWORDS))))
+# ============================================================================
+# Extraction Result Data Structure
+# ============================================================================
 
 
 @dataclass
@@ -41,13 +42,76 @@ class ExtractionResult:
     method: str
 
     def is_valid(self):
+        """
+        CRITICAL FIX: "Unknown" is NOT a valid result
+        Only actual extracted values are valid
+        """
         return self.value not in [None, "", "N/A", "Unknown"]
+
+
+# ============================================================================
+# Extraction Voter - CRITICAL FIX
+# ============================================================================
+
+
+class ExtractionVoter:
+    @staticmethod
+    def vote(results, min_confidence=0.6):
+        """
+        CRITICAL FIX: Filter out None, "Unknown", and empty strings BEFORE voting
+        This ensures URL fallback methods always execute
+        """
+        if not results:
+            return None
+
+        try:
+            # CRITICAL: Filter out invalid results (None, "Unknown", "")
+            valid_results = [
+                r
+                for r in results
+                if r.value not in [None, "", "Unknown", "N/A"]
+                and r.confidence >= min_confidence
+            ]
+
+            if not valid_results:
+                return None
+
+            if len(valid_results) == 1:
+                return valid_results[0]
+
+            # Group by value (case-insensitive)
+            value_groups = {}
+            for result in valid_results:
+                key = result.value.lower().strip()
+                if key not in value_groups:
+                    value_groups[key] = []
+                value_groups[key].append(result)
+
+            # Pick best group (by count * confidence)
+            best_group = max(
+                value_groups.items(),
+                key=lambda x: (len(x[1]) * 1.2)
+                * (sum(r.confidence for r in x[1]) / len(x[1])),
+            )
+
+            # Return highest confidence result from best group
+            return max(best_group[1], key=attrgetter("confidence"))
+
+        except Exception as e:
+            logging.debug(f"Extraction voting failed: {e}")
+            return None
+
+
+# ============================================================================
+# Platform Detector
+# ============================================================================
 
 
 class PlatformDetector:
     @staticmethod
     @lru_cache(maxsize=1024)
     def detect(url):
+        """Detect job platform from URL"""
         if not url:
             return "generic"
 
@@ -62,6 +126,11 @@ class PlatformDetector:
         return "generic"
 
 
+# ============================================================================
+# Company Normalizer
+# ============================================================================
+
+
 class CompanyNormalizer:
     _COMPOUND_WORDS = {
         "motorolasolutions": "Motorola Solutions",
@@ -73,19 +142,7 @@ class CompanyNormalizer:
         "capitalone": "Capital One",
     }
 
-    _ACRONYMS = {
-        "ibm",
-        "att",
-        "sap",
-        "hpe",
-        "aws",
-        "gcp",
-        "api",
-        "ai",
-        "ml",
-        "abb",
-        "asml",
-    }
+    _ACRONYMS = {"ibm", "att", "sap", "hpe", "aws", "gcp", "abb", "asml"}
 
     _SPECIAL_CAPS = {
         "openai": "OpenAI",
@@ -99,6 +156,7 @@ class CompanyNormalizer:
     @classmethod
     @lru_cache(maxsize=512)
     def normalize(cls, company_name, url=""):
+        """Normalize company name"""
         if not company_name or not company_name.strip():
             return None
 
@@ -106,54 +164,46 @@ class CompanyNormalizer:
             name = company_name.strip()
             name_lower = name.lower()
 
+            # Remove prefixes
             for prefix in COMPANY_NAME_PREFIXES:
                 if name_lower.startswith(prefix):
                     name = name[len(prefix) :]
                     name_lower = name.lower()
                     break
 
+            # Remove stopwords
             for stopword in COMPANY_NAME_STOPWORDS:
                 name = name.replace(stopword, "")
 
             name = name.strip()
             name_lower = name.lower()
 
+            # Check mappings
             if name_lower in COMPANY_SLUG_MAPPING:
                 return COMPANY_SLUG_MAPPING[name_lower]
 
             if name_lower in cls._COMPOUND_WORDS:
                 return cls._COMPOUND_WORDS[name_lower]
 
-            if len(name_lower) > 8 and " " not in name_lower:
-                for compound, expanded in cls._COMPOUND_WORDS.items():
-                    if compound in name_lower:
-                        return expanded
-
-            name = re.sub(r"^[A-Z]{2,4}[-\s]", "", name)
-            name = re.sub(
-                r",?\s+(Inc\.?|LLC\.?|Corp\.?|Ltd\.?|Corporation|Corp\s+Svcs\.?)$",
-                "",
-                name,
-                flags=re.I,
-            )
+            # Remove legal entity suffixes
+            name = re.sub(r",?\s+(Inc\.?|LLC\.?|Corp\.?|Ltd\.?)$", "", name, flags=re.I)
             name = name.strip()
 
             if not name or len(name) < 2:
                 return None
 
-            if name in COMPANY_PLACEHOLDERS or name.lower() in [
-                p.lower() for p in COMPANY_PLACEHOLDERS
-            ]:
+            if name in COMPANY_PLACEHOLDERS:
                 return None
 
             return cls._apply_smart_capitalization(name)
 
         except Exception as e:
-            logging.debug(f"Company normalization failed for '{company_name}': {e}")
+            logging.debug(f"Company normalization failed: {e}")
             return None
 
     @classmethod
     def _apply_smart_capitalization(cls, name):
+        """Apply smart capitalization rules"""
         try:
             name_lower = name.lower()
 
@@ -167,24 +217,23 @@ class CompanyNormalizer:
                 words = name_lower.split()
                 result = []
                 for word in words:
-                    if word in ["ai", "ml", "api", "aws", "gcp", "iot"]:
+                    if word in ["ai", "ml", "api", "aws", "gcp"]:
                         result.append(word.upper())
                     else:
                         result.append(word.title())
                 return " ".join(result)
 
             return name
-        except Exception as e:
-            logging.debug(f"Capitalization failed for '{name}': {e}")
+        except:
             return name
 
     @classmethod
     def extract_from_url_path(cls, url, platform):
+        """Extract company name from URL path"""
         patterns = {
             "greenhouse": r"greenhouse\.io/([^/]+)/jobs",
             "ashby": r"ashbyhq\.com/([^/]+)/",
             "lever": r"lever\.co/([^/]+)/",
-            "workable": r"workable\.com/([^/]+)/",
         }
 
         try:
@@ -193,48 +242,39 @@ class CompanyNormalizer:
                 if match:
                     slug = match.group(1)
                     return cls.normalize(slug, url)
-        except Exception as e:
-            logging.debug(f"URL path extraction failed for {url}: {e}")
+        except:
+            pass
 
         return None
 
 
+# ============================================================================
+# Company Validator
+# ============================================================================
+
+
 class CompanyValidator:
-    _INVALID_KEYWORDS = {
-        "careers",
-        "jobs",
-        "external",
-        "applicant",
-        "portal",
-        "apply",
-        "join",
-    }
-    _TITLE_INDICATORS = {"intern", "engineer", "developer", "software", "position"}
+    _INVALID_KEYWORDS = {"careers", "jobs", "external", "applicant", "portal"}
+    _TITLE_INDICATORS = {"intern", "engineer", "developer", "software"}
 
     @staticmethod
     @lru_cache(maxsize=512)
     def is_valid(name):
+        """Validate company name"""
         if not name or not name.strip():
             return False
 
         try:
-            if name in COMPANY_PLACEHOLDERS or name.lower() in {
-                p.lower() for p in COMPANY_PLACEHOLDERS
-            }:
+            if name in COMPANY_PLACEHOLDERS:
                 return False
 
             if name.lower() in CompanyValidator._INVALID_KEYWORDS:
                 return False
 
-            if re.match(r"^[A-Z]{2,4}[-\s]", name):
-                return False
-
             if len(name) > 60 or len(name) < 2:
                 return False
 
-            if name.isupper() and len(name) < 10 and not any(c.isdigit() for c in name):
-                return False
-
+            # Check if it looks like a job title
             title_count = sum(
                 1 for kw in CompanyValidator._TITLE_INDICATORS if kw in name.lower()
             )
@@ -242,13 +282,13 @@ class CompanyValidator:
                 return False
 
             return True
-        except Exception as e:
-            logging.debug(f"Company validation failed for '{name}': {e}")
+        except:
             return False
 
     @staticmethod
     @lru_cache(maxsize=256)
     def is_junk_subdomain(subdomain):
+        """Check if subdomain is junk"""
         if not subdomain:
             return True
 
@@ -256,18 +296,22 @@ class CompanyValidator:
             for pattern in _COMPILED_JUNK_PATTERNS:
                 if pattern.search(subdomain):
                     return True
-            if subdomain.islower() and len(subdomain) > 20 and " " not in subdomain:
-                return True
-        except Exception as e:
-            logging.debug(f"Junk subdomain check failed for '{subdomain}': {e}")
+        except:
+            pass
 
         return False
+
+
+# ============================================================================
+# Role Categorizer
+# ============================================================================
 
 
 class RoleCategorizer:
     @staticmethod
     @lru_cache(maxsize=512)
     def categorize(title):
+        """Categorize job role"""
         if not title:
             return "Unknown", "ACCEPT", ""
 
@@ -281,19 +325,26 @@ class RoleCategorizer:
                 if keyword_match and not exclude_match:
                     return category_name, config["action"], config["alert"]
 
+            # Generic software role
             generic_sw = {"engineer", "developer", "programmer", "software"}
             if any(kw in title_lower for kw in generic_sw):
                 return "Pure Software", "ACCEPT", "✅ SOFTWARE"
 
-        except Exception as e:
-            logging.debug(f"Role categorization failed for '{title}': {e}")
+        except:
+            pass
 
         return "Unknown", "ACCEPT", ""
 
     @staticmethod
     def get_terminal_alert(title):
+        """Get terminal alert string for role"""
         _, _, alert = RoleCategorizer.categorize(title)
         return f"[{alert}]" if alert else ""
+
+
+# ============================================================================
+# URL Cleaner
+# ============================================================================
 
 
 class URLCleaner:
@@ -302,67 +353,37 @@ class URLCleaner:
     @classmethod
     @lru_cache(maxsize=2048)
     def clean_url(cls, url):
+        """Clean URL for comparison"""
         if not url:
             return ""
 
         try:
+            # Special handling for Jobright
             if "jobright.ai/jobs/info/" in url.lower():
                 match = re.search(r"(jobright\.ai/jobs/info/[a-f0-9]+)", url, re.I)
                 if match:
                     return match.group(1).lower()
 
+            # Remove query params and fragments
             return cls._CLEAN_PATTERN.sub("", url).lower().rstrip("/")
-        except Exception as e:
-            logging.debug(f"URL cleaning failed for '{url}': {e}")
+        except:
             return url.lower()
 
     @staticmethod
     @lru_cache(maxsize=2048)
     def normalize_text(text):
+        """Normalize text for comparison"""
         if not text:
             return ""
         try:
             return re.sub(r"[^a-z0-9]", "", text.lower())
-        except Exception as e:
-            logging.debug(f"Text normalization failed: {e}")
+        except:
             return text.lower()
 
 
-class ExtractionVoter:
-    @staticmethod
-    def vote(results, min_confidence=0.6):
-        if not results:
-            return None
-
-        try:
-            valid_results = [
-                r for r in results if r.is_valid() and r.confidence >= min_confidence
-            ]
-
-            if not valid_results:
-                return None
-
-            if len(valid_results) == 1:
-                return valid_results[0]
-
-            value_groups = {}
-            for result in valid_results:
-                key = result.value.lower().strip()
-                if key not in value_groups:
-                    value_groups[key] = []
-                value_groups[key].append(result)
-
-            best_group = max(
-                value_groups.items(),
-                key=lambda x: (len(x[1]) * 1.2)
-                * (sum(r.confidence for r in x[1]) / len(x[1])),
-            )
-
-            return max(best_group[1], key=attrgetter("confidence"))
-
-        except Exception as e:
-            logging.debug(f"Extraction voting failed: {e}")
-            return None
+# ============================================================================
+# Date Parser
+# ============================================================================
 
 
 class DateParser:
@@ -373,26 +394,32 @@ class DateParser:
 
     @classmethod
     def extract_days_ago(cls, text):
+        """Extract days ago from text"""
         if not text:
             return None
 
         try:
             text_lower = text.lower()
 
+            # Today
             if cls._TODAY_PATTERN.search(text_lower):
                 return 0
 
+            # Yesterday
             if cls._YESTERDAY_PATTERN.search(text_lower):
                 return 1
 
+            # Hours ago (treat as today)
             match = cls._HOURS_PATTERN.search(text_lower)
             if match:
                 return 0
 
+            # Days ago
             match = cls._RELATIVE_PATTERN.search(text_lower)
             if match:
                 return int(match.group(1))
 
+            # Try flexible date parsing
             if DATEUTIL_AVAILABLE:
                 try:
                     parsed_date = parse_date_flexible(text)
@@ -402,37 +429,40 @@ class DateParser:
                         now = datetime.now()
                         days_diff = (now - parsed_date).days
 
+                        # Handle year wrap (if date seems too far in future)
                         if days_diff < -60:
                             try:
                                 adjusted_date = parsed_date.replace(
                                     year=parsed_date.year - 1
                                 )
                                 days_diff = (now - adjusted_date).days
-
                                 if days_diff < 0:
                                     return None
-
-                            except (ValueError, OverflowError):
+                            except:
                                 return None
 
                         if days_diff < 0:
                             return None
 
                         return days_diff
-
-                except Exception as e:
-                    logging.debug(f"Flexible date parsing failed for '{text}': {e}")
+                except:
                     pass
 
-        except Exception as e:
-            logging.debug(f"Date parsing failed for '{text}': {e}")
+        except:
+            pass
 
         return None
+
+
+# ============================================================================
+# Quality Scorer
+# ============================================================================
 
 
 class QualityScorer:
     @staticmethod
     def calculate_score(job_data):
+        """Calculate quality score for job data"""
         score = 0
 
         try:
@@ -452,11 +482,12 @@ class QualityScorer:
             if 15 < len(title) < 120:
                 score += 1
 
-        except Exception as e:
-            logging.debug(f"Quality scoring failed: {e}")
+        except:
+            pass
 
         return score
 
     @staticmethod
     def is_acceptable_quality(score, min_score=4):
+        """Check if quality score meets minimum"""
         return score >= min_score
