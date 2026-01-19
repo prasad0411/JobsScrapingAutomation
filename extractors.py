@@ -80,6 +80,7 @@ STRICT_JOB_BOARDS = [
     "wd3.myworkdayjobs",
     "wd5.myworkdayjobs",
     "wd10.myworkdayjobs",
+    "wd12.myworkdayjobs",
     "greenhouse.io",
     "boards.greenhouse.io",
     "job-boards.greenhouse.io",
@@ -147,31 +148,25 @@ class SimplifyRedirectResolver:
             return simplify_url, False
         job_id = job_id_match.group(1)
         click_url = f"https://simplify.jobs/jobs/click/{job_id}"
-
         actual_url = SimplifyRedirectResolver._method_1_http_redirect(click_url)
         if actual_url:
             logging.info(f"Simplify HTTP: {actual_url[:70]}")
             return actual_url, True
-
         actual_url = SimplifyRedirectResolver._method_2_selenium_click(click_url)
         if actual_url:
             logging.info(f"Simplify Selenium: {actual_url[:70]}")
             return actual_url, True
-
         if not SELENIUM_AVAILABLE:
             return simplify_url, False
-
         actual_url = SimplifyRedirectResolver._method_3_parse_page(simplify_url)
         if actual_url:
             logging.info(f"Simplify parse: {actual_url[:70]}")
             return actual_url, True
-
         actual_url = SimplifyRedirectResolver._method_4_click_button(simplify_url)
         if actual_url:
             logging.info(f"Simplify button: {actual_url[:70]}")
             return actual_url, True
-
-        logging.warning(f"All methods failed for {simplify_url[:60]}")
+        logging.warning(f"All methods failed: {simplify_url[:60]}")
         return simplify_url, False
 
     @staticmethod
@@ -314,7 +309,6 @@ class SimplifyRedirectResolver:
                 must_have = (
                     "/job/" in url_lower
                     or "/jobs/" in url_lower
-                    or "/job" in url_lower.rstrip("/")
                     or "/external/" in url_lower
                     or "/embed/" in url_lower
                     or "token=" in url_lower
@@ -832,7 +826,7 @@ class PageParser:
 
 class SourceParsers:
     @staticmethod
-    def parse_jobright_email(soup, url, jobright_auth):
+    def parse_jobright_email(soup, url, jobright_url):
         try:
             url_base = url.split("?")[0]
             all_links = soup.find_all("a", href=re.compile(re.escape(url_base)))
@@ -861,57 +855,13 @@ class SourceParsers:
                         break
             if not job_section:
                 return None
-            company_elem = job_section.find("p", id="job-company-name")
-            company = company_elem.get_text().strip() if company_elem else "Unknown"
-            title_text = title_link.get_text(separator="|||", strip=True)
-            title_parts = title_text.split("|||")
-            internship_kw = {
-                "intern",
-                "engineer",
-                "developer",
-                "software",
-                "data",
-                "ml",
-                "ai",
-            }
-            title = next(
-                (
-                    re.sub(
-                        r"\s*(APPLY NOW|Apply|View).*$", "", part, flags=re.I
-                    ).strip()
-                    for part in title_parts
-                    if any(kw in part.lower() for kw in internship_kw) and len(part) > 5
-                ),
-                "Unknown",
+            company = SourceParsers._extract_company_multi_method(job_section, soup)
+            title = SourceParsers._extract_title_multi_method(title_link, job_section)
+            location, remote = SourceParsers._extract_location_multi_method(
+                job_section, soup
             )
-            location = "Unknown"
-            remote = "Unknown"
-            job_tags = job_section.find_all("p", id="job-tag")
-            for tag in job_tags:
-                text = tag.get_text(separator="|||", strip=True).split("|||")[0]
-                if "$" in text or "referral" in text.lower():
-                    continue
-                text = re.sub(
-                    r"(Team|Department|Division).*$", "", text, flags=re.I
-                ).strip()
-                if "," in text:
-                    parts = text.split(",")
-                    if len(parts) == 2:
-                        city, state = parts[0].strip(), parts[1].strip()
-                        if validate_us_state_code(state):
-                            location = f"{city}, {state.upper()}"
-                            remote = "On Site"
-                            break
-                if text.lower() == "remote":
-                    location = "Remote"
-                    remote = "Remote"
-                    break
-                elif text.lower() == "hybrid":
-                    location = "Hybrid"
-                    remote = "Hybrid"
-                    break
             age_days = DateParser.extract_days_ago(job_section.get_text())
-            actual_url, is_company_site = jobright_auth.resolve_jobright_url(url)
+            actual_url, is_company_site = jobright_url.resolve_jobright_url(url)
             return {
                 "company": company,
                 "title": title,
@@ -925,6 +875,125 @@ class SourceParsers:
         except Exception as e:
             logging.error(f"Failed to parse Jobright email: {e}")
             return None
+
+    @staticmethod
+    def _extract_company_multi_method(job_section, soup):
+        company_elem = job_section.find("p", id="job-company-name")
+        if company_elem:
+            company = company_elem.get_text().strip()
+            if company and company != "Unknown":
+                return company
+        for header in job_section.find_all(["h2", "h3", "h4"]):
+            text = header.get_text().strip()
+            if (
+                len(text) > 3
+                and len(text) < 50
+                and not any(
+                    kw in text.lower() for kw in ["intern", "engineer", "software"]
+                )
+            ):
+                return text
+        all_text = job_section.get_text()
+        lines = [line.strip() for line in all_text.split("\n") if line.strip()]
+        for line in lines[:10]:
+            if len(line) > 3 and len(line) < 50:
+                if not any(
+                    kw in line.lower()
+                    for kw in ["match", "apply", "referral", "ago", "hour"]
+                ):
+                    if line[0].isupper() and not line.isupper():
+                        return line
+        company_links = soup.find_all("a", href=re.compile(r"(company|employer)"))
+        if company_links:
+            return company_links[0].get_text().strip()
+        return "Unknown"
+
+    @staticmethod
+    def _extract_title_multi_method(title_link, job_section):
+        title_text = title_link.get_text(separator="|||", strip=True)
+        title_parts = title_text.split("|||")
+        internship_kw = {
+            "intern",
+            "engineer",
+            "developer",
+            "software",
+            "data",
+            "ml",
+            "ai",
+            "analyst",
+        }
+        title = next(
+            (
+                re.sub(r"\s*(APPLY NOW|Apply|View).*$", "", part, flags=re.I).strip()
+                for part in title_parts
+                if any(kw in part.lower() for kw in internship_kw) and len(part) > 5
+            ),
+            None,
+        )
+        if title:
+            return title
+        for elem in job_section.find_all(["h1", "h2", "h3"]):
+            text = elem.get_text().strip()
+            if any(kw in text.lower() for kw in internship_kw) and len(text) > 10:
+                return re.sub(
+                    r"\s*(APPLY NOW|Apply|View).*$", "", text, flags=re.I
+                ).strip()
+        return "Unknown"
+
+    @staticmethod
+    def _extract_location_multi_method(job_section, soup):
+        location = "Unknown"
+        remote = "Unknown"
+        job_tags = job_section.find_all("p", id="job-tag")
+        for tag in job_tags:
+            text = tag.get_text(separator="|||", strip=True).split("|||")[0]
+            if "$" in text or "referral" in text.lower():
+                continue
+            text = re.sub(
+                r"(Team|Department|Division).*$", "", text, flags=re.I
+            ).strip()
+            if "," in text:
+                parts = text.split(",")
+                if len(parts) == 2:
+                    city, state = parts[0].strip(), parts[1].strip()
+                    if validate_us_state_code(state):
+                        location = f"{city}, {state.upper()}"
+                        remote = "On Site"
+                        return location, remote
+            if "remote" in text.lower():
+                location = "Remote"
+                remote = "Remote"
+                return location, remote
+            elif "hybrid" in text.lower():
+                location = "Hybrid"
+                remote = "Hybrid"
+                return location, remote
+        all_text = job_section.get_text()
+        city_state_pattern = r"\b([A-Z][a-z]+(?: [A-Z][a-z]+)*),\s*([A-Z]{2})\b"
+        matches = re.findall(city_state_pattern, all_text)
+        for city, state in matches:
+            if validate_us_state_code(state):
+                location = f"{city}, {state}"
+                remote = "On Site"
+                return location, remote
+        if "remote" in all_text.lower():
+            for line in all_text.split("\n"):
+                if "remote" in line.lower() and len(line) < 50:
+                    location = "Remote"
+                    remote = "Remote"
+                    return location, remote
+        if "hybrid" in all_text.lower():
+            location = "Hybrid"
+            remote = "Hybrid"
+            return location, remote
+        all_soup_text = soup.get_text()
+        matches = re.findall(city_state_pattern, all_soup_text)
+        for city, state in matches[:3]:
+            if validate_us_state_code(state):
+                location = f"{city}, {state}"
+                remote = "On Site"
+                return location, remote
+        return location, remote
 
     @staticmethod
     def parse_ziprecruiter_email(soup, url):
@@ -968,10 +1037,10 @@ class SimplifyGitHubScraper:
             if jobs:
                 logging.info(f"{source_name}: Found {len(jobs)} jobs via Markdown")
             else:
-                logging.warning(f"{source_name}: Markdown parsing returned 0 jobs")
+                logging.warning(f"{source_name}: Markdown returned 0 jobs")
             return jobs
         except Exception as e:
-            logging.error(f"{source_name}: Unexpected error: {e}", exc_info=True)
+            logging.error(f"{source_name}: Error: {e}", exc_info=True)
             return []
 
     @staticmethod
@@ -982,15 +1051,13 @@ class SimplifyGitHubScraper:
             (i for i, line in enumerate(lines) if _HEADER_PATTERN.search(line)), -1
         )
         if header_idx == -1:
-            logging.warning(f"{source_name}: Could not find header pattern in Markdown")
+            logging.warning(f"{source_name}: No header found")
             return []
         logging.info(f"{source_name}: Found header at line {header_idx}")
         header = lines[header_idx]
         delimiter = "\t" if "\t" in header else "|"
         start = header_idx + 1 if delimiter == "\t" else header_idx + 2
-        logging.info(
-            f"{source_name}: Using delimiter '{delimiter}', starting at line {start}"
-        )
+        logging.info(f"{source_name}: Delimiter '{delimiter}', start line {start}")
         parsed_count = 0
         for line_num, line in enumerate(lines[start:], start=start):
             if not line.strip():
@@ -1025,7 +1092,7 @@ class SimplifyGitHubScraper:
                 }
             )
             parsed_count += 1
-        logging.info(f"{source_name}: Parsed {parsed_count} job entries from Markdown")
+        logging.info(f"{source_name}: Parsed {parsed_count} entries")
         return jobs
 
     @staticmethod
