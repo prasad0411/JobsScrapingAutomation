@@ -51,6 +51,7 @@ from config import (
     RETRY_DELAY_SECONDS,
     BACKOFF_MULTIPLIER,
     MAX_REASONABLE_AGE_DAYS,
+    FAILED_SIMPLIFY_CACHE,
 )
 
 from utils import PlatformDetector, CompanyNormalizer, CompanyValidator, DateParser
@@ -139,6 +140,24 @@ def retry_request(url, method="GET", max_retries=MAX_RETRIES, **kwargs):
 
 class SimplifyRedirectResolver:
     @staticmethod
+    def load_failed_cache():
+        if os.path.exists(FAILED_SIMPLIFY_CACHE):
+            try:
+                with open(FAILED_SIMPLIFY_CACHE, "r") as f:
+                    return json.load(f)
+            except:
+                return {}
+        return {}
+
+    @staticmethod
+    def save_failed_cache(cache):
+        try:
+            with open(FAILED_SIMPLIFY_CACHE, "w") as f:
+                json.dump(cache, f, indent=2)
+        except:
+            pass
+
+    @staticmethod
     @lru_cache(maxsize=500)
     def resolve(simplify_url):
         if "simplify.jobs/p/" not in simplify_url.lower():
@@ -147,6 +166,10 @@ class SimplifyRedirectResolver:
         if not job_id_match:
             return simplify_url, False
         job_id = job_id_match.group(1)
+        failed_cache = SimplifyRedirectResolver.load_failed_cache()
+        today = time.strftime("%Y-%m-%d")
+        if job_id in failed_cache and failed_cache[job_id] == today:
+            return simplify_url, False
         click_url = f"https://simplify.jobs/jobs/click/{job_id}"
         actual_url = SimplifyRedirectResolver._method_1_http_redirect(click_url)
         if actual_url:
@@ -156,16 +179,8 @@ class SimplifyRedirectResolver:
         if actual_url:
             logging.info(f"Simplify Selenium: {actual_url[:70]}")
             return actual_url, True
-        if not SELENIUM_AVAILABLE:
-            return simplify_url, False
-        actual_url = SimplifyRedirectResolver._method_3_parse_page(simplify_url)
-        if actual_url:
-            logging.info(f"Simplify parse: {actual_url[:70]}")
-            return actual_url, True
-        actual_url = SimplifyRedirectResolver._method_4_click_button(simplify_url)
-        if actual_url:
-            logging.info(f"Simplify button: {actual_url[:70]}")
-            return actual_url, True
+        failed_cache[job_id] = today
+        SimplifyRedirectResolver.save_failed_cache(failed_cache)
         logging.warning(f"All methods failed: {simplify_url[:60]}")
         return simplify_url, False
 
@@ -210,83 +225,6 @@ class SimplifyRedirectResolver:
                 current_url
             ):
                 return current_url
-        except:
-            pass
-        finally:
-            if driver:
-                try:
-                    driver.quit()
-                except:
-                    pass
-        return None
-
-    @staticmethod
-    def _method_3_parse_page(simplify_url):
-        driver = None
-        try:
-            chrome_options = Options()
-            chrome_options.add_argument("--headless")
-            chrome_options.add_argument("--no-sandbox")
-            chrome_options.add_argument(f"user-agent={USER_AGENTS[0]}")
-            chrome_options.add_experimental_option(
-                "excludeSwitches", ["enable-logging"]
-            )
-            service = Service(ChromeDriverManager().install())
-            driver = webdriver.Chrome(service=service, options=chrome_options)
-            driver.set_page_load_timeout(15)
-            driver.get(simplify_url)
-            time.sleep(4)
-            page_source = driver.page_source
-            match = re.search(
-                r'<script id="__NEXT_DATA__"[^>]*>(.*?)</script>',
-                page_source,
-                re.DOTALL,
-            )
-            if match:
-                data = json.loads(match.group(1))
-                job_posting = (
-                    data.get("props", {}).get("pageProps", {}).get("jobPosting", {})
-                )
-                url = job_posting.get("url", "")
-                if url and "/jobs/click/" in url:
-                    return SimplifyRedirectResolver._method_1_http_redirect(url)
-        except:
-            pass
-        finally:
-            if driver:
-                try:
-                    driver.quit()
-                except:
-                    pass
-        return None
-
-    @staticmethod
-    def _method_4_click_button(simplify_url):
-        driver = None
-        try:
-            chrome_options = Options()
-            chrome_options.add_argument("--headless")
-            chrome_options.add_argument("--no-sandbox")
-            chrome_options.add_argument(f"user-agent={USER_AGENTS[0]}")
-            chrome_options.add_experimental_option(
-                "excludeSwitches", ["enable-logging"]
-            )
-            service = Service(ChromeDriverManager().install())
-            driver = webdriver.Chrome(service=service, options=chrome_options)
-            driver.set_page_load_timeout(15)
-            driver.get(simplify_url)
-            time.sleep(4)
-            try:
-                button = driver.find_element(
-                    By.XPATH, "//button[contains(text(), 'Apply')]"
-                )
-                button.click()
-                time.sleep(2)
-                current_url = driver.current_url
-                if SimplifyRedirectResolver._is_valid_job_url(current_url):
-                    return current_url
-            except:
-                pass
         except:
             pass
         finally:
@@ -409,6 +347,7 @@ class JobrightAuthenticator:
             actual_url = job_result.get("applyLink") or job_result.get("originalUrl")
             is_company_site = job_result.get("isCompanySiteLink", False)
             if actual_url and "jobright.ai" not in actual_url:
+                logging.info(f"Resolved Jobright URL to {actual_url[:70]}")
                 return actual_url, is_company_site
             return jobright_url, False
         except Exception as e:
@@ -446,7 +385,7 @@ class EmailExtractor:
                 with open(GMAIL_TOKEN_FILE, "rb") as token:
                     creds = pickle.load(token)
             except Exception as e:
-                logging.warning(f"Corrupted token file, deleting: {e}")
+                logging.warning(f"Corrupted token file: {e}")
                 try:
                     os.remove(GMAIL_TOKEN_FILE)
                 except:
@@ -516,6 +455,7 @@ class EmailExtractor:
                         .execute()
                     )
                     internal_date = int(msg.get("internalDate", 0))
+                    email_id = message["id"]
                     headers = {
                         h["name"]: h["value"] for h in msg["payload"].get("headers", [])
                     }
@@ -527,6 +467,7 @@ class EmailExtractor:
                         if urls:
                             emails_with_data.append(
                                 {
+                                    "email_id": email_id,
                                     "timestamp": internal_date,
                                     "sender": sender,
                                     "subject": subject,
@@ -608,6 +549,11 @@ class EmailExtractor:
             "/terms",
             "twitter.com",
             "facebook.com",
+            "/preferences",
+            "/settings",
+            "/explore",
+            "view-more",
+            "install-autofill",
         ]
         return any(p in url.lower() for p in non_job)
 
@@ -826,7 +772,7 @@ class PageParser:
 
 class SourceParsers:
     @staticmethod
-    def parse_jobright_email(soup, url, jobright_url):
+    def parse_jobright_email(soup, url, jobright_auth):
         try:
             url_base = url.split("?")[0]
             all_links = soup.find_all("a", href=re.compile(re.escape(url_base)))
@@ -834,7 +780,8 @@ class SourceParsers:
             for link in all_links:
                 link_text = link.get_text().strip()
                 if len(link_text) > 15 and any(
-                    kw in link_text.lower() for kw in ["intern", "engineer", "software"]
+                    kw in link_text.lower()
+                    for kw in ["intern", "engineer", "software", "data", "analyst"]
                 ):
                     title_link = link
                     break
@@ -861,7 +808,7 @@ class SourceParsers:
                 job_section, soup
             )
             age_days = DateParser.extract_days_ago(job_section.get_text())
-            actual_url, is_company_site = jobright_url.resolve_jobright_url(url)
+            actual_url, is_company_site = jobright_auth.resolve_jobright_url(url)
             return {
                 "company": company,
                 "title": title,
@@ -883,13 +830,19 @@ class SourceParsers:
             company = company_elem.get_text().strip()
             if company and company != "Unknown":
                 return company
+        company_elem = job_section.find("div", class_="company-name")
+        if company_elem:
+            company = company_elem.get_text().strip()
+            if company:
+                return company
         for header in job_section.find_all(["h2", "h3", "h4"]):
             text = header.get_text().strip()
             if (
                 len(text) > 3
                 and len(text) < 50
                 and not any(
-                    kw in text.lower() for kw in ["intern", "engineer", "software"]
+                    kw in text.lower()
+                    for kw in ["intern", "engineer", "software", "match", "referral"]
                 )
             ):
                 return text
@@ -899,13 +852,18 @@ class SourceParsers:
             if len(line) > 3 and len(line) < 50:
                 if not any(
                     kw in line.lower()
-                    for kw in ["match", "apply", "referral", "ago", "hour"]
+                    for kw in [
+                        "match",
+                        "apply",
+                        "referral",
+                        "ago",
+                        "hour",
+                        "minute",
+                        "/hr",
+                    ]
                 ):
                     if line[0].isupper() and not line.isupper():
                         return line
-        company_links = soup.find_all("a", href=re.compile(r"(company|employer)"))
-        if company_links:
-            return company_links[0].get_text().strip()
         return "Unknown"
 
     @staticmethod
@@ -921,6 +879,8 @@ class SourceParsers:
             "ml",
             "ai",
             "analyst",
+            "co-op",
+            "coop",
         }
         title = next(
             (
@@ -947,7 +907,7 @@ class SourceParsers:
         job_tags = job_section.find_all("p", id="job-tag")
         for tag in job_tags:
             text = tag.get_text(separator="|||", strip=True).split("|||")[0]
-            if "$" in text or "referral" in text.lower():
+            if "$" in text or "referral" in text.lower() or "/hr" in text.lower():
                 continue
             text = re.sub(
                 r"(Team|Department|Division).*$", "", text, flags=re.I
@@ -976,19 +936,17 @@ class SourceParsers:
                 location = f"{city}, {state}"
                 remote = "On Site"
                 return location, remote
-        if "remote" in all_text.lower():
-            for line in all_text.split("\n"):
-                if "remote" in line.lower() and len(line) < 50:
-                    location = "Remote"
-                    remote = "Remote"
-                    return location, remote
-        if "hybrid" in all_text.lower():
+        if re.search(r"\b(remote|100%\s*remote|fully\s*remote)\b", all_text, re.I):
+            location = "Remote"
+            remote = "Remote"
+            return location, remote
+        if re.search(r"\bhybrid\b", all_text, re.I):
             location = "Hybrid"
             remote = "Hybrid"
             return location, remote
         all_soup_text = soup.get_text()
         matches = re.findall(city_state_pattern, all_soup_text)
-        for city, state in matches[:3]:
+        for city, state in matches[:5]:
             if validate_us_state_code(state):
                 location = f"{city}, {state}"
                 remote = "On Site"
@@ -1016,9 +974,7 @@ class SimplifyGitHubScraper:
             if response.status_code != 200:
                 logging.error(f"{source_name}: HTTP {response.status_code}")
                 return []
-            logging.info(
-                f"{source_name}: Successfully fetched, length: {len(response.text)}"
-            )
+            logging.info(f"{source_name}: Fetched, length: {len(response.text)}")
             soup, parser = safe_parse_html(response.text)
             if soup:
                 logging.info(f"{source_name}: Parsed with {parser}")
@@ -1026,21 +982,17 @@ class SimplifyGitHubScraper:
                 if tables:
                     jobs = SimplifyGitHubScraper._parse_html_tables(soup, source_name)
                     if jobs:
-                        logging.info(
-                            f"{source_name}: Found {len(jobs)} jobs via HTML tables"
-                        )
+                        logging.info(f"{source_name}: Found {len(jobs)} jobs via HTML")
                         return jobs
-            logging.info(f"{source_name}: No HTML tables, trying Markdown")
+            logging.info(f"{source_name}: Trying Markdown")
             jobs = SimplifyGitHubScraper._parse_markdown_text(
                 response.text, source_name
             )
             if jobs:
                 logging.info(f"{source_name}: Found {len(jobs)} jobs via Markdown")
-            else:
-                logging.warning(f"{source_name}: Markdown returned 0 jobs")
             return jobs
         except Exception as e:
-            logging.error(f"{source_name}: Error: {e}", exc_info=True)
+            logging.error(f"{source_name}: Error: {e}")
             return []
 
     @staticmethod
@@ -1051,15 +1003,11 @@ class SimplifyGitHubScraper:
             (i for i, line in enumerate(lines) if _HEADER_PATTERN.search(line)), -1
         )
         if header_idx == -1:
-            logging.warning(f"{source_name}: No header found")
             return []
-        logging.info(f"{source_name}: Found header at line {header_idx}")
         header = lines[header_idx]
         delimiter = "\t" if "\t" in header else "|"
         start = header_idx + 1 if delimiter == "\t" else header_idx + 2
-        logging.info(f"{source_name}: Delimiter '{delimiter}', start line {start}")
-        parsed_count = 0
-        for line_num, line in enumerate(lines[start:], start=start):
+        for line in lines[start:]:
             if not line.strip():
                 continue
             parts = [p.strip() for p in line.split(delimiter) if p.strip()]
@@ -1091,8 +1039,6 @@ class SimplifyGitHubScraper:
                     "source": source_name,
                 }
             )
-            parsed_count += 1
-        logging.info(f"{source_name}: Parsed {parsed_count} entries")
         return jobs
 
     @staticmethod

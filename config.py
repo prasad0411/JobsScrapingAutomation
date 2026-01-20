@@ -110,6 +110,8 @@ SHEETS_CREDS_FILE = "credentials.json"
 GMAIL_CREDS_FILE = "gmail_credentials.json"
 GMAIL_TOKEN_FILE = "gmail_token.pickle"
 JOBRIGHT_COOKIES_FILE = "jobright_cookies.json"
+PROCESSED_EMAILS_FILE = "processed_emails.json"
+FAILED_SIMPLIFY_CACHE = "failed_simplify_urls.json"
 
 SIMPLIFY_URL = "https://raw.githubusercontent.com/SimplifyJobs/Summer2026-Internships/master/README.md"
 VANSHB03_URL = (
@@ -123,6 +125,7 @@ MIN_CONFIDENCE_JOB_ID = 0.70
 MIN_CONFIDENCE_LOCATION = 0.70
 MIN_CONFIDENCE_COMPANY = 0.70
 REQUIRE_MULTIPLE_CONFIRMATIONS = True
+EMAIL_TRACKING_RETENTION_DAYS = 7
 
 MAX_RETRIES = 3
 RETRY_DELAY_SECONDS = 2
@@ -267,6 +270,7 @@ CITY_TO_STATE_FALLBACK = {
     "seattle": "WA",
     "bellevue": "WA",
     "redmond": "WA",
+    "bothell": "WA",
     "boston": "MA",
     "cambridge": "MA",
     "worcester": "MA",
@@ -310,9 +314,9 @@ CITY_TO_STATE_FALLBACK = {
     "newark": "NJ",
     "berkeley heights": "NJ",
     "middletown": "NJ",
-    "bothell": "WA",
     "middletown": "CT",
     "washington": "DC",
+    "englewood cliffs": "NJ",
 }
 
 CITY_ABBREVIATIONS = {
@@ -585,7 +589,7 @@ URL_TO_COMPANY_MAPPING = {
     r"assetmark\.wd\d+\.myworkdayjobs\.com": "AssetMark",
     r"axos\.wd\d+\.myworkdayjobs\.com": "Axos Bank",
     r"nrel\.wd\d+\.myworkdayjobs\.com": "National Renewable Energy Laboratory",
-    r"hhmi\.wd\d+\.myworkdayjobs\.com": "Howard Hughes Medical Institute (HHMI)",
+    r"hhmi\.wd\d+\.myworkdayjobs\.com": "Howard Hughes Medical Institute",
     r"nasdaq\.wd\d+\.myworkdayjobs\.com": "Nasdaq",
     r"comcast\.wd\d+\.myworkdayjobs\.com": "Comcast",
     r"sbdinc\.wd\d+\.myworkdayjobs\.com": "Stanley Black & Decker",
@@ -615,6 +619,12 @@ URL_TO_COMPANY_MAPPING = {
     r"bloomenergy\.wd\d+\.myworkdayjobs\.com": "Bloom Energy",
     r"premierinc\.wd\d+\.myworkdayjobs\.com": "Premier Inc",
     r"leidos\.wd\d+\.myworkdayjobs\.com": "Leidos",
+    r"usaa\.wd\d+\.myworkdayjobs\.com": "USAA",
+    r"pwc\.wd\d+\.myworkdayjobs\.com": "PwC",
+    r"sec\.wd\d+\.myworkdayjobs\.com": "Samsung Electronics America",
+    r"jj\.wd\d+\.myworkdayjobs\.com": "Johnson & Johnson",
+    r"alcon\.wd\d+\.myworkdayjobs\.com": "Alcon",
+    r"kla\.wd\d+\.myworkdayjobs\.com": "KLA Corporation",
     r"job-boards\.greenhouse\.io/asteraearlycareer": "Astera Labs",
     r"job-boards\.greenhouse\.io/samsungresearchamericainternship": "Samsung Research America",
     r"job-boards\.greenhouse\.io/obsidiansecurity": "Obsidian Security",
@@ -625,6 +635,12 @@ URL_TO_COMPANY_MAPPING = {
     r"job-boards\.greenhouse\.io/faire": "Faire",
     r"job-boards\.greenhouse\.io/internshiplist2000": "Greenhouse",
     r"job-boards\.greenhouse\.io/waterloocoop": "Waterloo",
+    r"job-boards\.greenhouse\.io/clear": "CLEAR",
+    r"job-boards\.greenhouse\.io/mongodb": "MongoDB",
+    r"job-boards\.greenhouse\.io/sift": "Sift",
+    r"job-boards\.greenhouse\.io/ramp": "Ramp",
+    r"job-boards\.greenhouse\.io/zoox": "Zoox",
+    r"job-boards\.greenhouse\.io/twosigma": "Two Sigma",
     r"generatebiomedicines\.com": "Generate Biomedicines",
     r"jobs\.smartrecruiters\.com/Visa": "Visa",
     r"jobs\.smartrecruiters\.com/Intuitive": "Intuitive Surgical",
@@ -634,6 +650,7 @@ URL_TO_COMPANY_MAPPING = {
     r"jobs\.lever\.co/zoox": "Zoox",
     r"jobs\.lever\.co/veeva": "Veeva Systems",
     r"jobs\.lever\.co/wealthsimple": "Wealthsimple",
+    r"jobs\.lever\.co/seatgeek": "SeatGeek",
     r"jobs\.ashbyhq\.com/uipath": "UiPath",
     r"jobs\.ashbyhq\.com/Ridealso": "ALSO",
     r"jobs\.ashbyhq\.com/atomicsemi": "Atomic Semi",
@@ -695,6 +712,18 @@ COMPANY_SLUG_MAPPING = {
     "blueorigin": "Blue Origin",
     "bloomenergy": "Bloom Energy",
     "premierinc": "Premier Inc",
+    "usaa": "USAA",
+    "pwc": "PwC",
+    "sec": "Samsung Electronics America",
+    "jj": "Johnson & Johnson",
+    "alcon": "Alcon",
+    "kla": "KLA Corporation",
+    "clear": "CLEAR",
+    "mongodb": "MongoDB",
+    "sift": "Sift",
+    "ramp": "Ramp",
+    "seatgeek": "SeatGeek",
+    "twosigma": "Two Sigma",
 }
 
 COMPANY_PLACEHOLDERS = [
@@ -864,8 +893,6 @@ SPONSORSHIP_REJECT_PATTERNS = [
     r"(?:no|not).{0,50}sponsor(?:ship)?\s+(?:available|offered|provided)",
     r"sponsor(?:ship)?\s+(?:not available|unavailable|not offered)",
     r"must (?:be|have).{0,50}(?:authorized|authorization).{0,50}(?:without|no).{0,50}sponsor",
-    r"u\.?s\.?\s+citizenship\s+(?:is\s+)?required",
-    r"us work authorization required",
     r"(?:clearance.*required)",
 ]
 
