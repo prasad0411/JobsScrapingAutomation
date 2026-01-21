@@ -1,1075 +1,1548 @@
 #!/usr/bin/env python3
 
-import requests
-import base64
-import pickle
-import os
-import json
-import time
-import random
 import re
+import time
+import json
 import logging
-from functools import lru_cache
-from contextlib import contextmanager
+import pickle
+import hashlib
+from datetime import datetime, timedelta
+from typing import Optional, Dict, List, Any, Tuple
 from bs4 import BeautifulSoup
-
-try:
-    from selenium import webdriver
-    from selenium.webdriver.chrome.service import Service
-    from selenium.webdriver.chrome.options import Options
-    from webdriver_manager.chrome import ChromeDriverManager
-    from selenium.webdriver.common.by import By
-    from selenium.webdriver.support.ui import WebDriverWait
-    from selenium.webdriver.support import expected_conditions as EC
-
-    SELENIUM_AVAILABLE = True
-except ImportError:
-    SELENIUM_AVAILABLE = False
-
-from google.oauth2.credentials import Credentials
-from google_auth_oauthlib.flow import InstalledAppFlow
+import requests
+from selenium import webdriver
+from selenium.webdriver.common.by import By
+from selenium.webdriver.support.ui import WebDriverWait
+from selenium.webdriver.support import expected_conditions as EC
+from selenium.common.exceptions import TimeoutException, WebDriverException
 from google.auth.transport.requests import Request
+from google_auth_oauthlib.flow import InstalledAppFlow
 from googleapiclient.discovery import build
+from lxml import html as lxml_html
 
 from config import (
-    USER_AGENTS,
     GMAIL_CREDS_FILE,
     GMAIL_TOKEN_FILE,
-    GMAIL_SCOPES,
-    JOB_BOARD_DOMAINS,
-    JOBRIGHT_COOKIES_FILE,
-    COMPANY_SLUG_MAPPING,
-    URL_TO_COMPANY_MAPPING,
-    PLATFORM_CONFIGS,
-    get_state_for_city,
-    validate_us_state_code,
-    parse_date_flexible,
-    DATEUTIL_AVAILABLE,
-    PARSER_CHAIN,
-    DEFAULT_PARSER,
-    MAX_RETRIES,
-    RETRY_DELAY_SECONDS,
-    BACKOFF_MULTIPLIER,
-    MAX_REASONABLE_AGE_DAYS,
+    MAX_JOB_AGE_DAYS,
     FAILED_SIMPLIFY_CACHE,
 )
-
-from utils import PlatformDetector, CompanyNormalizer, CompanyValidator, DateParser
-from processors import (
-    JobIDExtractor,
-    LocationExtractor,
-    CompanyExtractor,
-    ValidationHelper,
-)
-
-_SESSION = requests.Session()
-_SESSION.headers.update({"User-Agent": USER_AGENTS[0]})
-_URL_HEALTH_CACHE = {}
-_EMOJI_PATTERN = re.compile(
-    r"[\U0001f600-\U0001f64f\U0001f300-\U0001f5ff\U0001f680-\U0001f6ff\U0001f1e0-\U0001f1ff]+",
-    re.UNICODE,
-)
-_HEADER_PATTERN = re.compile(
-    r"Company.*Role.*Location.*(?:Application|Link).*Date", re.I
-)
-_HTML_LINK_PATTERN = re.compile(r'<a\s+href="(https?://[^"]+)"')
-_MD_LINK_PATTERN = re.compile(r"\[.*?\]\((https?://[^\)]+)\)")
-
-STRICT_JOB_BOARDS = [
-    "myworkdayjobs.com",
-    "wd1.myworkdayjobs",
-    "wd3.myworkdayjobs",
-    "wd5.myworkdayjobs",
-    "wd10.myworkdayjobs",
-    "wd12.myworkdayjobs",
-    "greenhouse.io",
-    "boards.greenhouse.io",
-    "job-boards.greenhouse.io",
-    "lever.co",
-    "jobs.lever.co",
-    "smartrecruiters.com",
-    "jobs.smartrecruiters.com",
-    "ashbyhq.com",
-    "jobs.ashbyhq.com",
-    "icims.com",
-    "workable.com",
-    "apply.workable.com",
-    "amazon.jobs",
-    "jobs.ea.com",
-    "breezy.hr",
-    "applytojob.com",
-]
+from utils import DateParser
 
 
-def safe_parse_html(html_content, preferred_parser=None):
-    parsers_to_try = PARSER_CHAIN.copy()
-    if preferred_parser and preferred_parser in parsers_to_try:
-        parsers_to_try.remove(preferred_parser)
-        parsers_to_try.insert(0, preferred_parser)
-    for parser in parsers_to_try:
-        try:
-            soup = BeautifulSoup(html_content, parser)
-            return soup, parser
-        except Exception as e:
-            logging.debug(f"Parser {parser} failed: {e}")
-            continue
-    logging.error(f"All parsers failed")
-    return None, None
-
-
-def retry_request(url, method="GET", max_retries=MAX_RETRIES, **kwargs):
-    for attempt in range(max_retries):
-        try:
-            if method.upper() == "GET":
-                response = _SESSION.get(url, timeout=20, **kwargs)
-            elif method.upper() == "HEAD":
-                response = _SESSION.head(url, timeout=5, **kwargs)
-            else:
-                response = _SESSION.request(method, url, timeout=20, **kwargs)
-            if response.status_code == 200:
-                return response
-            elif response.status_code in [403, 429]:
-                time.sleep(RETRY_DELAY_SECONDS * (BACKOFF_MULTIPLIER**attempt))
-            else:
-                logging.warning(f"HTTP {response.status_code} for {url}")
-                return response
-        except:
-            time.sleep(RETRY_DELAY_SECONDS * (BACKOFF_MULTIPLIER**attempt))
-    return None
-
-
-class SimplifyRedirectResolver:
-    @staticmethod
-    def load_failed_cache():
-        if os.path.exists(FAILED_SIMPLIFY_CACHE):
-            try:
-                with open(FAILED_SIMPLIFY_CACHE, "r") as f:
-                    return json.load(f)
-            except:
-                return {}
-        return {}
-
-    @staticmethod
-    def save_failed_cache(cache):
-        try:
-            with open(FAILED_SIMPLIFY_CACHE, "w") as f:
-                json.dump(cache, f, indent=2)
-        except:
-            pass
-
-    @staticmethod
-    @lru_cache(maxsize=500)
-    def resolve(simplify_url):
-        if "simplify.jobs/p/" not in simplify_url.lower():
-            return simplify_url, False
-        job_id_match = re.search(r"/p/([a-f0-9-]+)", simplify_url)
-        if not job_id_match:
-            return simplify_url, False
-        job_id = job_id_match.group(1)
-        failed_cache = SimplifyRedirectResolver.load_failed_cache()
-        today = time.strftime("%Y-%m-%d")
-        if job_id in failed_cache and failed_cache[job_id] == today:
-            return simplify_url, False
-        click_url = f"https://simplify.jobs/jobs/click/{job_id}"
-        actual_url = SimplifyRedirectResolver._method_1_http_redirect(click_url)
-        if actual_url:
-            logging.info(f"Simplify HTTP: {actual_url[:70]}")
-            return actual_url, True
-        actual_url = SimplifyRedirectResolver._method_2_selenium_click(click_url)
-        if actual_url:
-            logging.info(f"Simplify Selenium: {actual_url[:70]}")
-            return actual_url, True
-        failed_cache[job_id] = today
-        SimplifyRedirectResolver.save_failed_cache(failed_cache)
-        logging.warning(f"All methods failed: {simplify_url[:60]}")
-        return simplify_url, False
-
-    @staticmethod
-    def _method_1_http_redirect(click_url):
-        try:
-            response = requests.get(
-                click_url,
-                allow_redirects=True,
-                timeout=10,
-                headers={"User-Agent": USER_AGENTS[0]},
-            )
-            if response and response.url != click_url:
-                if SimplifyRedirectResolver._is_valid_job_url(response.url):
-                    return response.url
-        except:
-            pass
-        return None
-
-    @staticmethod
-    def _method_2_selenium_click(click_url):
-        if not SELENIUM_AVAILABLE:
-            return None
-        driver = None
-        try:
-            chrome_options = Options()
-            chrome_options.add_argument("--headless")
-            chrome_options.add_argument("--disable-blink-features=AutomationControlled")
-            chrome_options.add_argument("--no-sandbox")
-            chrome_options.add_argument("--disable-dev-shm-usage")
-            chrome_options.add_argument(f"user-agent={USER_AGENTS[0]}")
-            chrome_options.add_experimental_option(
-                "excludeSwitches", ["enable-logging"]
-            )
-            service = Service(ChromeDriverManager().install())
-            driver = webdriver.Chrome(service=service, options=chrome_options)
-            driver.set_page_load_timeout(15)
-            driver.get(click_url)
-            time.sleep(3)
-            current_url = driver.current_url
-            if current_url != click_url and SimplifyRedirectResolver._is_valid_job_url(
-                current_url
-            ):
-                return current_url
-        except:
-            pass
-        finally:
-            if driver:
-                try:
-                    driver.quit()
-                except:
-                    pass
-        return None
-
-    @staticmethod
-    def _is_valid_job_url(url):
-        if not url or not url.startswith("http"):
-            return False
-        url_lower = url.lower()
-        if "simplify.jobs" in url_lower:
-            return False
-        for board in STRICT_JOB_BOARDS:
-            if board in url_lower:
-                must_have = (
-                    "/job/" in url_lower
-                    or "/jobs/" in url_lower
-                    or "/external/" in url_lower
-                    or "/embed/" in url_lower
-                    or "token=" in url_lower
-                )
-                if must_have:
-                    reject = [
-                        "/news/",
-                        "/blog/",
-                        "/press/",
-                        "/article/",
-                        "/accessibility",
-                        "/privacy",
-                        "/canada",
-                        "/introduceyourself",
-                        "/rewards",
-                        "/wellness",
-                        "/diversity",
-                        "/inclusion",
-                        "/about",
-                        "/contact",
-                    ]
-                    if not any(pattern in url_lower for pattern in reject):
-                        return True
-        return False
-
-
-class JobrightAuthenticator:
-    def __init__(self):
-        self.cookies = None
-        self.session = requests.Session()
-        self.load_cookies()
-
-    def load_cookies(self):
-        if os.path.exists(JOBRIGHT_COOKIES_FILE):
-            try:
-                with open(JOBRIGHT_COOKIES_FILE, "r") as f:
-                    self.cookies = json.load(f)
-                    for cookie in self.cookies:
-                        self.session.cookies.set(cookie["name"], cookie["value"])
-                logging.info(f"Loaded {len(self.cookies)} Jobright cookies")
-            except Exception as e:
-                logging.error(f"Failed to load Jobright cookies: {e}")
-
-    def login_interactive(self):
-        if not SELENIUM_AVAILABLE:
-            logging.warning("Selenium not available")
-            return False
-        print("\n" + "=" * 60)
-        print("JOBRIGHT AUTHENTICATION")
-        print("=" * 60)
-        with self._get_driver() as driver:
-            try:
-                driver.get("https://jobright.ai")
-                time.sleep(3)
-                print("[AUTH] Please log in through the browser window")
-                print("       Press ENTER after completing login...")
-                input()
-                cookies = driver.get_cookies()
-                if not cookies:
-                    print("✗ No cookies captured")
-                    return False
-                self.cookies = cookies
-                with open(JOBRIGHT_COOKIES_FILE, "w") as f:
-                    json.dump(cookies, f, indent=2)
-                for cookie in cookies:
-                    self.session.cookies.set(cookie["name"], cookie["value"])
-                print(f"✓ Authentication successful ({len(cookies)} cookies saved)\n")
-                return True
-            except Exception as e:
-                logging.error(f"Authentication failed: {e}")
-                print(f"✗ Authentication failed: {e}")
-                return False
-
-    def resolve_jobright_url(self, jobright_url):
-        if "jobright.ai/jobs/info/" not in jobright_url.lower():
-            return jobright_url, False
-        if not self.cookies:
-            return jobright_url, False
-        try:
-            response = retry_request(
-                jobright_url, headers={"User-Agent": USER_AGENTS[0]}
-            )
-            if not response or response.status_code != 200:
-                return jobright_url, False
-            soup, _ = safe_parse_html(response.content)
-            if not soup:
-                return jobright_url, False
-            script_tag = soup.find("script", {"id": "__NEXT_DATA__"})
-            if not script_tag:
-                return jobright_url, False
-            data = json.loads(script_tag.string)
-            job_result = (
-                data.get("props", {})
-                .get("pageProps", {})
-                .get("dataSource", {})
-                .get("jobResult", {})
-            )
-            actual_url = job_result.get("applyLink") or job_result.get("originalUrl")
-            is_company_site = job_result.get("isCompanySiteLink", False)
-            if actual_url and "jobright.ai" not in actual_url:
-                logging.info(f"Resolved Jobright URL to {actual_url[:70]}")
-                return actual_url, is_company_site
-            return jobright_url, False
-        except Exception as e:
-            logging.error(f"Failed to resolve Jobright URL {jobright_url}: {e}")
-            return jobright_url, False
-
-    @contextmanager
-    def _get_driver(self):
-        driver = None
-        try:
-            chrome_options = Options()
-            chrome_options.add_argument("--disable-blink-features=AutomationControlled")
-            chrome_options.add_experimental_option(
-                "excludeSwitches", ["enable-logging"]
-            )
-            service = Service(ChromeDriverManager().install())
-            driver = webdriver.Chrome(service=service, options=chrome_options)
-            yield driver
-        finally:
-            if driver:
-                try:
-                    driver.quit()
-                except:
-                    pass
-
-
-class EmailExtractor:
-    def __init__(self):
-        self.service = None
-
-    def authenticate(self):
-        creds = None
-        if os.path.exists(GMAIL_TOKEN_FILE):
-            try:
-                with open(GMAIL_TOKEN_FILE, "rb") as token:
-                    creds = pickle.load(token)
-            except Exception as e:
-                logging.warning(f"Corrupted token file: {e}")
-                try:
-                    os.remove(GMAIL_TOKEN_FILE)
-                except:
-                    pass
-                creds = None
-        if creds and not creds.valid:
-            if creds.expired and creds.refresh_token:
-                try:
-                    creds.refresh(Request())
-                except Exception as e:
-                    logging.warning(f"Token refresh failed: {e}")
-                    print("⚠️  Gmail token expired - re-authenticating...")
-                    try:
-                        os.remove(GMAIL_TOKEN_FILE)
-                    except:
-                        pass
-                    creds = None
-        if not creds:
-            try:
-                flow = InstalledAppFlow.from_client_secrets_file(
-                    GMAIL_CREDS_FILE, GMAIL_SCOPES
-                )
-                creds = flow.run_local_server(port=0)
-                with open(GMAIL_TOKEN_FILE, "wb") as token:
-                    pickle.dump(creds, token)
-                print("✓ Gmail authenticated successfully")
-            except Exception as e:
-                logging.error(f"Gmail authentication failed: {e}")
-                print(f"✗ Gmail authentication failed: {e}")
-                return False
-        self.service = build("gmail", "v1", credentials=creds)
-        return True
-
-    def fetch_job_emails(self, max_results=100):
-        if not self.service:
-            print("[Gmail] Authenticating...")
-            if not self.authenticate():
-                return []
-        if not self.service:
-            print("✗ Gmail authentication failed")
-            logging.error("Gmail service not initialized")
-            return []
-        try:
-            results = (
-                self.service.users()
-                .messages()
-                .list(
-                    userId="me",
-                    q='label:"Job Hunt" newer_than:3d',
-                    maxResults=max_results,
-                )
-                .execute()
-            )
-            messages = results.get("messages", [])
-            if not messages:
-                logging.info("No labeled emails found")
-                print("No emails with 'Job Hunt' label found")
-                return []
-            print(f"Found {len(messages)} labeled emails")
-            emails_with_data = []
-            for message in messages:
-                try:
-                    msg = (
-                        self.service.users()
-                        .messages()
-                        .get(userId="me", id=message["id"], format="full")
-                        .execute()
-                    )
-                    internal_date = int(msg.get("internalDate", 0))
-                    email_id = message["id"]
-                    headers = {
-                        h["name"]: h["value"] for h in msg["payload"].get("headers", [])
-                    }
-                    sender = self._detect_sender(headers.get("From", ""))
-                    subject = headers.get("Subject", "Unknown Subject")
-                    html_content = self._extract_html(msg["payload"])
-                    if html_content:
-                        urls = self._extract_job_urls(html_content)
-                        if urls:
-                            emails_with_data.append(
-                                {
-                                    "email_id": email_id,
-                                    "timestamp": internal_date,
-                                    "sender": sender,
-                                    "subject": subject,
-                                    "html": html_content,
-                                    "urls": urls,
-                                }
-                            )
-                except Exception as e:
-                    logging.error(f"Failed to process email: {e}")
-                    continue
-            emails_with_data.sort(key=lambda x: x["timestamp"], reverse=True)
-            total_urls = sum(len(email["urls"]) for email in emails_with_data)
-            print(f"Total: {total_urls} job URLs from {len(emails_with_data)} emails\n")
-            return emails_with_data
-        except Exception as e:
-            logging.error(f"Gmail fetch error: {e}")
-            print(f"✗ Gmail error: {e}")
-            return []
-
-    @staticmethod
-    def _detect_sender(from_field):
-        from_lower = from_field.lower()
-        senders = {
-            "ziprecruiter": "ZipRecruiter",
-            "adzuna": "Adzuna",
-            "swelist": "SWE List",
-            "jobright": "Jobright",
-            "fursah": "Fursah",
-        }
-        for key, value in senders.items():
-            if key in from_lower:
-                return value
-        return "Email"
-
-    @staticmethod
-    def _extract_html(payload):
-        if "parts" in payload:
-            for part in payload["parts"]:
-                if part["mimeType"] == "text/html":
-                    try:
-                        return base64.urlsafe_b64decode(
-                            part["body"].get("data", "")
-                        ).decode("utf-8")
-                    except Exception as e:
-                        logging.error(f"Failed to decode email part: {e}")
-                        continue
-        elif "body" in payload:
-            html_data = payload["body"].get("data", "")
-            if html_data:
-                try:
-                    return base64.urlsafe_b64decode(html_data).decode("utf-8")
-                except Exception as e:
-                    logging.error(f"Failed to decode email body: {e}")
-        return None
-
-    @staticmethod
-    def _extract_job_urls(email_html):
-        soup, _ = safe_parse_html(email_html)
-        if not soup:
-            return []
-        seen = set()
-        urls = []
-        for link in soup.find_all("a", href=True):
-            url = link.get("href", "")
-            if url.startswith("http") and url not in seen:
-                if any(domain in url.lower() for domain in JOB_BOARD_DOMAINS):
-                    if not EmailExtractor._is_non_job_url(url):
-                        urls.append(url)
-                        seen.add(url)
-        return urls
-
-    @staticmethod
-    def _is_non_job_url(url):
-        non_job = [
-            "/unsubscribe",
-            "/my-alerts",
-            "/blog",
-            "/privacy",
-            "/terms",
-            "twitter.com",
-            "facebook.com",
-            "/preferences",
-            "/settings",
-            "/explore",
-            "view-more",
-            "install-autofill",
-        ]
-        return any(p in url.lower() for p in non_job)
-
-
-class PageFetcher:
-    def __init__(self):
-        self.session = _SESSION
-
-    def check_url_health(self, url):
-        if url in _URL_HEALTH_CACHE:
-            return _URL_HEALTH_CACHE[url]
-        response = retry_request(url, method="HEAD", max_retries=2)
-        if response:
-            is_healthy = response.status_code == 200
-            _URL_HEALTH_CACHE[url] = (is_healthy, response.status_code)
-            return is_healthy, response.status_code
-        _URL_HEALTH_CACHE[url] = (False, 0)
-        return False, 0
-
-    def fetch_page(self, url):
-        is_healthy, status = self.check_url_health(url)
-        if not is_healthy and status in [404, 403, 405]:
-            logging.info(f"Skipping unhealthy URL: {url} (status {status})")
-            return None, None, None
-        if self._is_js_heavy_platform(url):
-            html, final_url, page_source = self._try_selenium(url)
-            if html:
-                return (
-                    self._create_mock_response(html, final_url),
-                    final_url,
-                    page_source,
-                )
-        response = retry_request(url)
-        if response and response.status_code == 200:
-            return response, response.url, response.text
-        if SELENIUM_AVAILABLE:
-            logging.info(f"Standard request failed, trying Selenium for {url}")
-            html, final_url, page_source = self._try_selenium(url)
-            if html:
-                return (
-                    self._create_mock_response(html, final_url),
-                    final_url,
-                    page_source,
-                )
-        return None, None, None
-
-    @staticmethod
-    def _is_js_heavy_platform(url):
-        if not url:
-            return False
-        js_platforms = [
-            "workday",
-            "myworkdayjobs",
-            "greenhouse.io",
-            "oracle",
-            "oraclecloud",
-            "ashbyhq",
-        ]
-        return any(platform in url.lower() for platform in js_platforms)
-
-    @staticmethod
-    def _try_selenium(url):
-        if not SELENIUM_AVAILABLE:
-            return None, None, None
-        driver = None
-        try:
-            chrome_options = Options()
-            chrome_options.add_argument("--headless")
-            chrome_options.add_argument("--disable-blink-features=AutomationControlled")
-            chrome_options.add_argument("--no-sandbox")
-            chrome_options.add_argument("--disable-dev-shm-usage")
-            chrome_options.add_argument(f"user-agent={USER_AGENTS[0]}")
-            chrome_options.add_experimental_option(
-                "excludeSwitches", ["enable-logging"]
-            )
-            service = Service(ChromeDriverManager().install())
-            driver = webdriver.Chrome(service=service, options=chrome_options)
-            driver.set_page_load_timeout(30)
-            driver.get(url)
-            url_lower = url.lower()
-            if "oracle" in url_lower or "oraclecloud" in url_lower:
-                time.sleep(15)
-                try:
-                    WebDriverWait(driver, 10).until(
-                        EC.presence_of_element_located((By.TAG_NAME, "h1"))
-                    )
-                except:
-                    pass
-            elif "workday" in url_lower:
-                time.sleep(15)
-            elif "greenhouse" in url_lower:
-                time.sleep(10)
-            elif "ashby" in url_lower:
-                time.sleep(6)
-            else:
-                time.sleep(3)
-            driver.execute_script("window.scrollTo(0, document.body.scrollHeight);")
-            time.sleep(2)
-            page_source = driver.page_source
-            current_url = driver.current_url
-            return page_source, current_url, page_source
-        except Exception as e:
-            logging.error(f"Selenium failed for {url}: {e}")
-            return None, None, None
-        finally:
-            if driver:
-                try:
-                    driver.quit()
-                except:
-                    pass
-
-    @staticmethod
-    def _create_mock_response(html, url):
-        return type("obj", (object,), {"text": html, "status_code": 200, "url": url})()
+class FakeResponse:
+    def __init__(self, text, url, status_code=200):
+        self.text = text
+        self.url = url
+        self.status_code = status_code
 
 
 class PageParser:
     @staticmethod
-    def extract_company(soup, url):
-        platform = PlatformDetector.detect(url)
-        return CompanyExtractor.extract_all_methods(url, soup)
-
-    @staticmethod
-    def extract_title(soup):
+    def extract_title(soup) -> str:
         if not soup:
             return "Unknown"
-        json_ld = soup.find("script", type="application/ld+json")
-        if json_ld:
-            try:
-                data = json.loads(json_ld.string)
-                if isinstance(data, dict) and data.get("title"):
-                    title = data["title"]
-                    if 5 < len(title) < 200:
-                        return title
-            except:
-                pass
-        meta_title = soup.find("meta", {"property": "og:title"})
-        if meta_title and meta_title.get("content"):
-            title = meta_title.get("content").strip()
-            if 5 < len(title) < 200 and "careers" not in title.lower():
-                return title
-        h1 = soup.find("h1")
-        if h1:
-            title = h1.get_text().strip()
-            if 5 < len(title) < 200 and len(title.split()) > 1:
-                return title
+        try:
+            title_elem = soup.find("h1")
+            if title_elem:
+                return title_elem.get_text(strip=True)
+
+            title_selectors = [
+                '[data-automation-id="jobPostingHeader"]',
+                ".job-title",
+                ".posting-headline",
+                '[itemprop="title"]',
+                'h1[class*="title"]',
+                'h1[class*="job"]',
+            ]
+
+            for selector in title_selectors:
+                elem = soup.select_one(selector)
+                if elem:
+                    text = elem.get_text(strip=True)
+                    if text and len(text) > 5:
+                        return text
+
+            page_title = soup.find("title")
+            if page_title:
+                title_text = page_title.get_text()
+                if "|" in title_text:
+                    return title_text.split("|")[0].strip()
+                elif "-" in title_text:
+                    return title_text.split("-")[0].strip()
+                return title_text.strip()
+
+        except Exception as e:
+            logging.debug(f"Title extraction failed: {e}")
+
         return "Unknown"
 
     @staticmethod
-    def extract_job_id(soup, url):
-        return JobIDExtractor.extract_all_methods(url, soup)
-
-    @staticmethod
-    def extract_job_age_days(soup):
+    def extract_job_age_days(soup) -> Optional[int]:
         if not soup:
             return None
+
         try:
-            page_text = soup.get_text()[:3000]
-            days = DateParser.extract_days_ago(page_text)
-            if days is not None:
-                if days > MAX_REASONABLE_AGE_DAYS or days < 0:
-                    return None
-            return days
-        except:
-            return None
+            page_text = soup.get_text()[:5000]
+
+            patterns = [
+                (r"Posted\s+(\d+)\s+days?\s+ago", lambda m: int(m.group(1))),
+                (r"Posted\s+(\d+)d\s+ago", lambda m: int(m.group(1))),
+                (r"(\d+)\s+days?\s+ago", lambda m: int(m.group(1))),
+                (r"Posted:\s*(\d+)\s+day", lambda m: int(m.group(1))),
+                (r"Posted\s+today", lambda m: 0),
+                (r"Posted\s+yesterday", lambda m: 1),
+            ]
+
+            for pattern, extractor in patterns:
+                match = re.search(pattern, page_text, re.I)
+                if match:
+                    days = extractor(match)
+                    if 0 <= days <= MAX_JOB_AGE_DAYS * 10:
+                        return days
+
+            date_selectors = [
+                '[data-automation-id="postedOn"]',
+                ".posted-date",
+                ".posting-date",
+                '[itemprop="datePosted"]',
+            ]
+
+            for selector in date_selectors:
+                elem = soup.select_one(selector)
+                if elem:
+                    date_text = elem.get_text(strip=True)
+                    days = DateParser.extract_days_ago(date_text)
+                    if days is not None:
+                        return days
+
+        except Exception as e:
+            logging.debug(f"Job age extraction failed: {e}")
+
+        return None
 
     @staticmethod
-    def extract_jobright_data(soup, url, jobright_auth):
+    def extract_company(soup, url) -> str:
+        if not soup:
+            return "Unknown"
+
         try:
-            script_tag = soup.find("script", {"id": "__NEXT_DATA__"})
-            if not script_tag:
-                return None
-            data = json.loads(script_tag.string)
-            job_result = (
-                data.get("props", {})
-                .get("pageProps", {})
-                .get("dataSource", {})
-                .get("jobResult", {})
-            )
-            if not job_result:
-                return None
-            company = job_result.get("companyResult", {}).get("companyName", "Unknown")
-            title = job_result.get("jobTitle", "Unknown")
-            location = job_result.get("jobLocation", "Unknown")
-            is_remote = job_result.get("isRemote", False)
-            work_model = job_result.get("workModel", "").lower()
-            if is_remote or work_model == "remote":
-                remote = "Remote"
-            elif work_model == "hybrid":
-                remote = "Hybrid"
-            elif work_model == "onsite":
-                remote = "On Site"
+            company_selectors = [
+                '[data-automation-id="company-name"]',
+                ".company-name",
+                '[itemprop="hiringOrganization"]',
+                ".employer-name",
+            ]
+
+            for selector in company_selectors:
+                elem = soup.select_one(selector)
+                if elem:
+                    company = elem.get_text(strip=True)
+                    if company and len(company) > 2:
+                        return company
+
+            meta = soup.find("meta", {"property": "og:site_name"})
+            if meta and meta.get("content"):
+                return meta["content"].strip()
+
+        except Exception as e:
+            logging.debug(f"Company extraction failed: {e}")
+
+        return "Unknown"
+
+
+class SimplifyRedirectResolver:
+    _failed_urls = set()
+    _cache_loaded = False
+
+    @classmethod
+    def _load_failed_cache(cls):
+        if cls._cache_loaded:
+            return
+        try:
+            import os
+
+            if os.path.exists(FAILED_SIMPLIFY_CACHE):
+                with open(FAILED_SIMPLIFY_CACHE, "r") as f:
+                    data = json.load(f)
+                    cls._failed_urls = set(data.get("failed_urls", []))
+                    logging.info(
+                        f"Loaded {len(cls._failed_urls)} failed Simplify URLs from cache"
+                    )
+        except Exception as e:
+            logging.debug(f"Failed to load Simplify cache: {e}")
+        cls._cache_loaded = True
+
+    @classmethod
+    def _save_failed_cache(cls):
+        try:
+            with open(FAILED_SIMPLIFY_CACHE, "w") as f:
+                json.dump({"failed_urls": list(cls._failed_urls)}, f)
+        except Exception as e:
+            logging.debug(f"Failed to save Simplify cache: {e}")
+
+    @classmethod
+    def resolve(cls, simplify_url, page_fetcher=None) -> Tuple[Optional[str], bool]:
+        cls._load_failed_cache()
+
+        if simplify_url in cls._failed_urls:
+            logging.debug(f"Simplify URL in failed cache: {simplify_url}")
+            return None, False
+
+        if not page_fetcher:
+            from extractors import PageFetcher
+
+            page_fetcher = PageFetcher()
+
+        try:
+            actual_url = page_fetcher.resolve_simplify_url(simplify_url)
+            if actual_url and "simplify.jobs" not in actual_url.lower():
+                logging.info(f"Simplify HTTP: {actual_url[:80]}")
+                return actual_url, True
             else:
-                remote = "Unknown"
-            recommendation_tags = job_result.get("recommendationTags", [])
-            sponsorship = (
-                "Yes" if "H1B Sponsor Likely" in recommendation_tags else "Unknown"
-            )
-            actual_url = (
-                job_result.get("applyLink") or job_result.get("originalUrl") or url
-            )
-            is_company_site = job_result.get("isCompanySiteLink", False)
-            return {
-                "company": company,
-                "title": title,
-                "location": location,
-                "sponsorship": sponsorship,
-                "remote": remote,
-                "url": actual_url,
-                "is_company_site": is_company_site,
-            }
+                cls._failed_urls.add(simplify_url)
+                cls._save_failed_cache()
+                logging.warning(f"All methods failed: {simplify_url}")
+                return None, False
         except Exception as e:
-            logging.error(f"Failed to extract Jobright data: {e}")
-            return None
+            cls._failed_urls.add(simplify_url)
+            cls._save_failed_cache()
+            logging.warning(f"Simplify resolution error for {simplify_url}: {e}")
+            return None, False
 
 
-class SourceParsers:
+class JSONLDExtractor:
     @staticmethod
-    def parse_jobright_email(soup, url, jobright_auth):
+    def extract_job_data(html_content: str) -> Dict[str, Any]:
         try:
-            url_base = url.split("?")[0]
-            all_links = soup.find_all("a", href=re.compile(re.escape(url_base)))
-            title_link = None
-            for link in all_links:
-                link_text = link.get_text().strip()
-                if len(link_text) > 15 and any(
-                    kw in link_text.lower()
-                    for kw in ["intern", "engineer", "software", "data", "analyst"]
+            soup = BeautifulSoup(html_content, "lxml")
+            scripts = soup.find_all("script", type="application/ld+json")
+
+            for script in scripts:
+                try:
+                    data = json.loads(script.string)
+
+                    if isinstance(data, list):
+                        for item in data:
+                            if (
+                                isinstance(item, dict)
+                                and item.get("@type") == "JobPosting"
+                            ):
+                                return JSONLDExtractor._parse_job_posting(item)
+                    elif isinstance(data, dict):
+                        if data.get("@type") == "JobPosting":
+                            return JSONLDExtractor._parse_job_posting(data)
+                        elif data.get("@graph"):
+                            for item in data["@graph"]:
+                                if (
+                                    isinstance(item, dict)
+                                    and item.get("@type") == "JobPosting"
+                                ):
+                                    return JSONLDExtractor._parse_job_posting(item)
+                except (json.JSONDecodeError, AttributeError):
+                    continue
+
+            return {}
+        except Exception:
+            return {}
+
+    @staticmethod
+    def _parse_job_posting(data: Dict) -> Dict[str, Any]:
+        result = {}
+
+        try:
+            if "hiringOrganization" in data:
+                org = data["hiringOrganization"]
+                if isinstance(org, dict):
+                    result["company"] = org.get("name", "")
+
+            if "jobLocation" in data:
+                location = data["jobLocation"]
+                if isinstance(location, list):
+                    location = location[0] if location else {}
+
+                if isinstance(location, dict):
+                    if location.get("@type") == "VirtualLocation":
+                        result["remote"] = "Remote"
+                    elif "address" in location:
+                        address = location["address"]
+                        if isinstance(address, dict):
+                            city = address.get("addressLocality", "")
+                            state = address.get("addressRegion", "")
+                            if city and state:
+                                result["location"] = f"{city}, {state}"
+                            elif city:
+                                result["location"] = city
+                            elif state:
+                                result["location"] = state
+
+            if "workLocation" in data:
+                work_loc = data["workLocation"]
+                if (
+                    isinstance(work_loc, dict)
+                    and work_loc.get("@type") == "VirtualLocation"
                 ):
-                    title_link = link
-                    break
-            if not title_link:
-                title_link = next(
-                    (link for link in all_links if len(link.get_text().strip()) > 15),
-                    None,
-                )
-            if not title_link:
-                return None
-            job_section = title_link.find_parent("table", id="job-container")
-            if not job_section:
-                current = title_link
-                for _ in range(5):
-                    current = current.find_parent("table")
-                    if current and len(current.get_text()) > 100:
-                        job_section = current
-                        break
-            if not job_section:
-                return None
-            company = SourceParsers._extract_company_multi_method(job_section, soup)
-            title = SourceParsers._extract_title_multi_method(title_link, job_section)
-            location, remote = SourceParsers._extract_location_multi_method(
-                job_section, soup
+                    result["remote"] = "Remote"
+
+            if "identifier" in data:
+                identifier = data["identifier"]
+                if isinstance(identifier, dict):
+                    result["job_id"] = str(identifier.get("value", ""))
+                else:
+                    result["job_id"] = str(identifier)
+
+            if "baseSalary" in data:
+                salary = data["baseSalary"]
+                if isinstance(salary, dict):
+                    value = salary.get("value", {})
+                    if isinstance(value, dict):
+                        min_val = value.get("minValue", "")
+                        max_val = value.get("maxValue", "")
+                        if min_val or max_val:
+                            result["salary"] = f"{min_val}-{max_val}"
+
+            if "employmentType" in data:
+                emp_type = data["employmentType"]
+                if isinstance(emp_type, list):
+                    emp_type = ", ".join(emp_type)
+                result["employment_type"] = str(emp_type)
+
+            if "description" in data:
+                result["description"] = data["description"]
+
+        except Exception:
+            pass
+
+        return result
+
+
+class ATSDetector:
+    PLATFORMS = {
+        "workday": ["myworkdayjobs.com", "wd1.", "wd3.", "wd5.", "wd12."],
+        "greenhouse": ["greenhouse.io", "boards.greenhouse", "job-boards.greenhouse"],
+        "lever": ["lever.co", "jobs.lever.co"],
+        "icims": ["icims.com"],
+        "taleo": ["taleo.net"],
+        "jobvite": ["jobvite.com"],
+        "brassring": ["brassring.com"],
+        "adp": ["adp.com/careers"],
+        "glassdoor": ["glassdoor.com"],
+    }
+
+    SELECTORS = {
+        "workday": {
+            "location": [
+                '[data-automation-id="locations"]',
+                ".css-1gy6ixs",
+                '[data-automation-id="jobPostingLocation"]',
+            ],
+            "remote": ['[data-automation-id="workerSubType"]', ".css-k008qs"],
+            "description": [
+                '[data-automation-id="jobPostingDescription"]',
+                ".css-1q2dra3",
+            ],
+            "company": ['[data-automation-id="company-name"]'],
+            "job_id": ['[data-automation-id="requisitionId"]'],
+        },
+        "greenhouse": {
+            "location": [".location", ".job-location", '[data-mapped="location"]'],
+            "remote": [".location", ".workplaceTypes"],
+            "description": [
+                ".job-description",
+                "#content .content",
+                ".posting-description",
+            ],
+            "company": [".company-name", ".app-title"],
+            "job_id": [],
+        },
+        "lever": {
+            "location": [
+                ".posting-categories .location",
+                ".location",
+                '[data-qa="location"]',
+            ],
+            "remote": [".workplaceTypes", ".posting-categories .commitment"],
+            "description": [".posting-description", ".section-wrapper", ".content"],
+            "company": [".main-header-text a"],
+            "job_id": [],
+        },
+        "icims": {
+            "location": [".iCIMS_JobAttribute", ".job-location"],
+            "remote": [".iCIMS_JobAttribute"],
+            "description": [".iCIMS_JobDescription", ".iCIMS_InfoMsg"],
+            "company": [".iCIMS_Anchor"],
+            "job_id": [],
+        },
+        "taleo": {
+            "location": [".jobReqLocation", ".jobdetaillocation"],
+            "remote": [".jobReqLocation"],
+            "description": [".jobdescription", ".requisitionDescriptionInterface"],
+            "company": [".company-name"],
+            "job_id": [],
+        },
+    }
+
+    @staticmethod
+    def detect_platform(url: str) -> Optional[str]:
+        url_lower = url.lower()
+        for platform, patterns in ATSDetector.PLATFORMS.items():
+            if any(pattern in url_lower for pattern in patterns):
+                return platform
+        return None
+
+    @staticmethod
+    def get_selectors(platform: str) -> Dict[str, List[str]]:
+        return ATSDetector.SELECTORS.get(platform, {})
+
+
+class DescriptionExtractor:
+    SELECTORS = [
+        ".job-description",
+        '[itemprop="description"]',
+        ".description",
+        ".posting-description",
+        ".jobdescription",
+        '[data-automation-id="jobPostingDescription"]',
+        ".content .section",
+        '[role="main"] .content',
+        ".job-details",
+        "#job-description",
+        ".job-description-content",
+        '[data-qa="job-description"]',
+        ".description-content",
+        ".job-description-text",
+    ]
+
+    @staticmethod
+    def extract(soup: BeautifulSoup, platform: Optional[str] = None) -> str:
+        if platform:
+            platform_selectors = ATSDetector.get_selectors(platform).get(
+                "description", []
             )
-            age_days = DateParser.extract_days_ago(job_section.get_text())
-            actual_url, is_company_site = jobright_auth.resolve_jobright_url(url)
-            return {
-                "company": company,
-                "title": title,
-                "location": location,
-                "remote": remote,
-                "url": actual_url,
-                "sponsorship": "Unknown (Email)",
-                "is_company_site": is_company_site,
-                "email_age_days": age_days,
-            }
+            for selector in platform_selectors:
+                desc = DescriptionExtractor._try_selector(soup, selector)
+                if desc:
+                    return desc
+
+        for selector in DescriptionExtractor.SELECTORS:
+            desc = DescriptionExtractor._try_selector(soup, selector)
+            if desc:
+                return desc
+
+        semantic_elems = soup.find_all(
+            ["div", "section", "article"], {"itemprop": "description"}
+        )
+        for elem in semantic_elems:
+            text = elem.get_text(strip=True)
+            if len(text) > 200:
+                return text
+
+        all_divs = soup.find_all(["div", "section"], class_=True)
+        max_text = ""
+        for div in all_divs:
+            text = div.get_text(strip=True)
+            if len(text) > len(max_text) and len(text) > 300:
+                max_text = text
+
+        return max_text if max_text else ""
+
+    @staticmethod
+    def _try_selector(soup: BeautifulSoup, selector: str) -> str:
+        try:
+            if selector.startswith("."):
+                elem = soup.select_one(selector)
+            elif selector.startswith("["):
+                elem = soup.select_one(selector)
+            else:
+                elem = soup.find(class_=selector.replace(".", ""))
+
+            if elem:
+                text = elem.get_text(strip=True)
+                if len(text) > 100:
+                    return text
+        except Exception:
+            pass
+        return ""
+
+
+class LocationExtractor:
+    @staticmethod
+    def extract(
+        soup: BeautifulSoup, html_content: str, platform: Optional[str] = None
+    ) -> str:
+        if platform:
+            platform_selectors = ATSDetector.get_selectors(platform).get("location", [])
+            for selector in platform_selectors:
+                location = LocationExtractor._try_selector(soup, selector)
+                if location:
+                    return LocationExtractor._clean_location(location)
+
+        meta_location = LocationExtractor._extract_from_meta(soup)
+        if meta_location:
+            return meta_location
+
+        generic_selectors = [
+            ".location",
+            ".job-location",
+            "[data-location]",
+            ".posting-categories .location",
+            '[itemprop="jobLocation"]',
+        ]
+
+        for selector in generic_selectors:
+            location = LocationExtractor._try_selector(soup, selector)
+            if location:
+                return LocationExtractor._clean_location(location)
+
+        text_location = LocationExtractor._extract_from_text(html_content)
+        if text_location:
+            return text_location
+
+        return "Unknown"
+
+    @staticmethod
+    def _try_selector(soup: BeautifulSoup, selector: str) -> str:
+        try:
+            elem = soup.select_one(selector)
+            if elem:
+                location = elem.get_text(strip=True)
+                if location and len(location) > 2:
+                    return location
+        except Exception:
+            pass
+        return ""
+
+    @staticmethod
+    def _extract_from_meta(soup: BeautifulSoup) -> str:
+        meta_tags = [
+            ("property", "og:locality"),
+            ("name", "geo.placename"),
+            ("name", "location"),
+            ("property", "og:location"),
+        ]
+
+        for attr, value in meta_tags:
+            meta = soup.find("meta", {attr: value})
+            if meta and meta.get("content"):
+                return meta["content"].strip()
+
+        return ""
+
+    @staticmethod
+    def _extract_from_text(html_content: str) -> str:
+        patterns = [
+            r"Location:\s*([A-Z][a-z\s]+,\s*[A-Z]{2})",
+            r"Location:\s*([A-Z][a-z\s]+\s+-\s+[A-Z]{2})",
+            r"Office Location:\s*([A-Z][a-z\s]+,\s*[A-Z]{2})",
+            r"Work Location:\s*([A-Z][a-z\s]+,\s*[A-Z]{2})",
+        ]
+
+        for pattern in patterns:
+            match = re.search(pattern, html_content)
+            if match:
+                return match.group(1).strip()
+
+        return ""
+
+    @staticmethod
+    def _clean_location(location: str) -> str:
+        location = re.sub(r"\s+", " ", location).strip()
+        location = re.sub(r"^Location:\s*", "", location, flags=re.I)
+
+        if re.match(r"^[A-Za-z\s]+,\s*[A-Z]{2}$", location):
+            return location
+
+        if re.match(r"^[A-Za-z\s]+\s+-\s+[A-Z]{2}$", location):
+            return location.replace(" - ", ", ")
+
+        match = re.search(r"([A-Za-z\s]+)[,\-]\s*([A-Z]{2})\b", location)
+        if match:
+            return f"{match.group(1).strip()}, {match.group(2)}"
+
+        return location if len(location) < 50 else "Unknown"
+
+
+class RemoteDetector:
+    KEYWORDS = {
+        "remote": [
+            "remote",
+            "work from home",
+            "wfh",
+            "work from anywhere",
+            "distributed",
+            "100% remote",
+            "fully remote",
+            "remote-first",
+            "remote eligible",
+            "remote opportunity",
+            "work remotely",
+            "home-based",
+            "telecommute",
+            "virtual position",
+        ],
+        "hybrid": [
+            "hybrid",
+            "flexible location",
+            "remote/office",
+            "2-3 days in office",
+            "partially remote",
+            "flex work",
+            "flexible work",
+            "mix of remote",
+            "hybrid remote",
+        ],
+        "onsite": [
+            "on-site",
+            "onsite",
+            "in-person",
+            "in office",
+            "office-based",
+            "must relocate",
+            "local candidates",
+            "in-office",
+            "at office",
+            "on site",
+        ],
+    }
+
+    @staticmethod
+    def detect(
+        title: str, description: str, location: str, structured_data: Dict
+    ) -> str:
+        scores = {"remote": 0, "hybrid": 0, "onsite": 0}
+
+        if structured_data.get("remote"):
+            return structured_data["remote"]
+
+        title_lower = title.lower()
+        for status, keywords in RemoteDetector.KEYWORDS.items():
+            for keyword in keywords:
+                if keyword in title_lower:
+                    scores[status] += 3
+                    break
+
+        desc_lower = description.lower()
+        for status, keywords in RemoteDetector.KEYWORDS.items():
+            for keyword in keywords:
+                if keyword in desc_lower:
+                    scores[status] += 1
+
+        if location:
+            location_lower = location.lower()
+            if location_lower in [
+                "remote",
+                "usa",
+                "united states",
+                "nationwide",
+                "anywhere",
+            ]:
+                scores["remote"] += 2
+
+        max_score = max(scores.values())
+        if max_score == 0:
+            return "Unknown"
+
+        for status, score in scores.items():
+            if score == max_score:
+                return status.capitalize()
+
+        return "Unknown"
+
+
+class JobIDExtractor:
+    PATTERNS = {
+        "workday": [
+            r"([A-Z]{1,3}[-_]?\d{5,10})",
+            r"(JR[-_]?\d{5,10})",
+            r"(R[-_]?\d{5,10})",
+        ],
+        "greenhouse": [
+            r"jobs/(\d{7,10})",
+            r"gh_jid=(\d{7,10})",
+        ],
+        "lever": [
+            r"([a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12})",
+        ],
+        "icims": [
+            r"jobs/(\d{4,8})/job",
+        ],
+        "taleo": [
+            r"jobDetail\.ftl\?job=(\d{6,12})",
+        ],
+        "jobvite": [
+            r"job/([a-zA-Z0-9]{7,15})",
+        ],
+        "glassdoor": [],
+    }
+
+    @staticmethod
+    def extract(url: str, html_content: str, platform: Optional[str] = None) -> str:
+        if platform == "glassdoor" or "glassdoor" in url.lower():
+            return "N/A"
+
+        if platform and platform in JobIDExtractor.PATTERNS:
+            for pattern in JobIDExtractor.PATTERNS[platform]:
+                match = re.search(pattern, url)
+                if match:
+                    return match.group(1)
+
+        for patterns in JobIDExtractor.PATTERNS.values():
+            for pattern in patterns:
+                match = re.search(pattern, url)
+                if match:
+                    return match.group(1)
+
+        text_patterns = [
+            r"(?:Requisition|Req|Job)\s*(?:ID|#|Number):\s*([A-Z0-9\-_]+)",
+            r"(?:Reference|Ref)\s*#?:\s*([A-Z0-9\-_]+)",
+        ]
+
+        for pattern in text_patterns:
+            match = re.search(pattern, html_content, re.I)
+            if match:
+                job_id = match.group(1).strip()
+                if 4 <= len(job_id) <= 20:
+                    return job_id
+
+        return ""
+
+
+class SponsorshipDetector:
+    POSITIVE_KEYWORDS = [
+        "h1b sponsor",
+        "visa sponsorship",
+        "work authorization provided",
+        "eligible for sponsorship",
+        "will sponsor",
+        "sponsorship available",
+        "provide sponsorship",
+        "offers sponsorship",
+        "visa support",
+    ]
+
+    NEGATIVE_KEYWORDS = [
+        "must be authorized to work",
+        "work authorization required",
+        "no sponsorship",
+        "citizenship required",
+        "must be us citizen",
+        "cannot provide sponsorship",
+        "already authorized to work",
+        "us citizen or permanent resident",
+        "security clearance",
+        "no visa sponsorship",
+        "us work authorization",
+    ]
+
+    @staticmethod
+    def detect(description: str) -> str:
+        if not description or len(description) < 100:
+            return "Unknown"
+
+        desc_lower = description.lower()
+
+        positive_score = 0
+        for keyword in SponsorshipDetector.POSITIVE_KEYWORDS:
+            if keyword in desc_lower:
+                context_start = max(0, desc_lower.find(keyword) - 50)
+                context_end = min(
+                    len(desc_lower), desc_lower.find(keyword) + len(keyword) + 50
+                )
+                context = desc_lower[context_start:context_end]
+
+                if "not" not in context and "no " not in context:
+                    positive_score += 1
+
+        negative_score = 0
+        for keyword in SponsorshipDetector.NEGATIVE_KEYWORDS:
+            if keyword in desc_lower:
+                negative_score += 2
+
+        score = positive_score - negative_score
+
+        if score > 0:
+            return "Yes"
+        elif score < -1:
+            return "No"
+        else:
+            return "Unknown"
+
+
+class EmailExtractor:
+    SCOPES = ["https://www.googleapis.com/auth/gmail.readonly"]
+
+    def __init__(self):
+        self.service = None
+        self._authenticate()
+
+    def _authenticate(self):
+        creds = None
+        try:
+            with open(GMAIL_TOKEN_FILE, "rb") as token:
+                creds = pickle.load(token)
+        except FileNotFoundError:
+            pass
+
+        if not creds or not creds.valid:
+            if creds and creds.expired and creds.refresh_token:
+                creds.refresh(Request())
+            else:
+                flow = InstalledAppFlow.from_client_secrets_file(
+                    GMAIL_CREDS_FILE, self.SCOPES
+                )
+                creds = flow.run_local_server(port=0)
+
+            with open(GMAIL_TOKEN_FILE, "wb") as token:
+                pickle.dump(creds, token)
+
+        self.service = build("gmail", "v1", credentials=creds)
+        logging.info("[Gmail] Authenticated successfully")
+
+    def fetch_job_emails(self) -> List[Dict]:
+        if not self.service:
+            logging.error("[Gmail] Service not initialized")
+            return []
+
+        try:
+            today = datetime.now().date()
+            after_date = (today - timedelta(days=1)).strftime("%Y/%m/%d")
+
+            query = f"label:Job Hunt after:{after_date}"
+
+            logging.info("[Gmail] Authenticating...")
+            results = (
+                self.service.users()
+                .messages()
+                .list(userId="me", q=query, maxResults=50)
+                .execute()
+            )
+
+            messages = results.get("messages", [])
+
+            if not messages:
+                logging.info("[Gmail] No new messages found")
+                return []
+
+            logging.info(f"Found {len(messages)} labeled emails")
+
+            email_data = []
+            for msg in messages:
+                msg_id = msg["id"]
+                message = (
+                    self.service.users()
+                    .messages()
+                    .get(userId="me", id=msg_id, format="full")
+                    .execute()
+                )
+
+                headers = {h["name"]: h["value"] for h in message["payload"]["headers"]}
+                subject = headers.get("Subject", "")
+                date = headers.get("Date", "")
+                sender_raw = headers.get("From", "")
+
+                sender = "Unknown"
+                if "jobright" in sender_raw.lower():
+                    sender = "Jobright"
+                elif "simplify" in sender_raw.lower():
+                    sender = "Simplify"
+                elif "swe" in sender_raw.lower() or "pittcsc" in sender_raw.lower():
+                    sender = "SWE List"
+                elif sender_raw:
+                    sender = (
+                        sender_raw.split("<")[0].strip()
+                        if "<" in sender_raw
+                        else sender_raw
+                    )
+
+                body = self._get_body(message["payload"])
+
+                urls = re.findall(r'https?://[^\s<>"]+', body)
+                urls = [url.rstrip(".,;)]}") for url in urls]
+
+                if urls:
+                    email_data.append(
+                        {
+                            "email_id": msg_id,
+                            "subject": subject,
+                            "date": date,
+                            "sender": sender,
+                            "urls": urls,
+                            "body": body,
+                            "html": body,
+                        }
+                    )
+
+            logging.info(
+                f"Total: {sum(len(e['urls']) for e in email_data)} job URLs from {len(email_data)} emails"
+            )
+            return email_data
+
         except Exception as e:
-            logging.error(f"Failed to parse Jobright email: {e}")
+            logging.error(f"Email fetch error: {e}")
+            return []
+
+    def _get_body(self, payload):
+        if "body" in payload and payload["body"].get("data"):
+            import base64
+
+            return base64.urlsafe_b64decode(payload["body"]["data"]).decode(
+                "utf-8", errors="ignore"
+            )
+
+        if "parts" in payload:
+            for part in payload["parts"]:
+                if part["mimeType"] == "text/plain":
+                    if "data" in part["body"]:
+                        import base64
+
+                        return base64.urlsafe_b64decode(part["body"]["data"]).decode(
+                            "utf-8", errors="ignore"
+                        )
+                elif part["mimeType"] == "text/html":
+                    if "data" in part["body"]:
+                        import base64
+
+                        return base64.urlsafe_b64decode(part["body"]["data"]).decode(
+                            "utf-8", errors="ignore"
+                        )
+
+        return ""
+
+
+class PageFetcher:
+    def __init__(self):
+        self.driver = None
+        self.page_count = 0
+        self._initialize_driver()
+
+    def _initialize_driver(self):
+        try:
+            options = webdriver.ChromeOptions()
+            options.add_argument("--headless")
+            options.add_argument("--no-sandbox")
+            options.add_argument("--disable-dev-shm-usage")
+            options.add_argument("--disable-blink-features=AutomationControlled")
+            options.add_argument(
+                "--user-agent=Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+            )
+
+            self.driver = webdriver.Chrome(options=options)
+            self.driver.implicitly_wait(10)
+            logging.info("WebDriver initialized successfully")
+        except Exception as e:
+            logging.error(f"Driver initialization failed: {e}")
+            self.driver = None
+
+    def check_url_health(self, url: str) -> Tuple[bool, Optional[int]]:
+        try:
+            response = requests.head(url, timeout=10, allow_redirects=True)
+            status_code = response.status_code
+            if status_code in [200, 301, 302, 303, 307, 308]:
+                return True, status_code
+            elif status_code in [403, 405]:
+                response = requests.get(url, timeout=10, allow_redirects=True)
+                return response.status_code == 200, response.status_code
+            else:
+                return False, status_code
+        except requests.exceptions.Timeout:
+            return False, None
+        except requests.exceptions.ConnectionError:
+            return False, None
+        except Exception as e:
+            logging.debug(f"URL health check failed for {url}: {e}")
+            return False, None
+
+    def fetch_page(
+        self, url: str, wait_for_selector: Optional[str] = None
+    ) -> Tuple[Optional[FakeResponse], str, str]:
+        if not self.driver:
+            self._initialize_driver()
+
+        if not self.driver:
+            return (None, url, "")
+
+        try:
+            self.driver.get(url)
+
+            final_url = self.driver.current_url
+
+            if wait_for_selector:
+                try:
+                    WebDriverWait(self.driver, 15).until(
+                        EC.presence_of_element_located(
+                            (By.CSS_SELECTOR, wait_for_selector)
+                        )
+                    )
+                except TimeoutException:
+                    logging.debug(f"Timeout waiting for selector: {wait_for_selector}")
+
+            time.sleep(3)
+
+            self.driver.execute_script(
+                "window.scrollTo(0, document.body.scrollHeight);"
+            )
+            time.sleep(2)
+
+            html = self.driver.page_source
+            page_source = self.driver.page_source
+
+            response = FakeResponse(html, final_url)
+
+            self.page_count += 1
+            if self.page_count >= 50:
+                self._cleanup_driver()
+                self.page_count = 0
+
+            return (response, final_url, page_source)
+
+        except Exception as e:
+            logging.warning(f"Page fetch error for {url}: {e}")
+            return (None, url, "")
+
+    def resolve_simplify_url(self, simplify_url: str) -> Optional[str]:
+        if not self.driver:
+            self._initialize_driver()
+
+        if not self.driver:
             return None
 
-    @staticmethod
-    def _extract_company_multi_method(job_section, soup):
-        company_elem = job_section.find("p", id="job-company-name")
-        if company_elem:
-            company = company_elem.get_text().strip()
-            if company and company != "Unknown":
-                return company
-        company_elem = job_section.find("div", class_="company-name")
-        if company_elem:
-            company = company_elem.get_text().strip()
-            if company:
-                return company
-        for header in job_section.find_all(["h2", "h3", "h4"]):
-            text = header.get_text().strip()
-            if (
-                len(text) > 3
-                and len(text) < 50
-                and not any(
-                    kw in text.lower()
-                    for kw in ["intern", "engineer", "software", "match", "referral"]
+        try:
+            self.driver.get(simplify_url)
+
+            try:
+                WebDriverWait(self.driver, 15).until(
+                    lambda d: "simplify.jobs" not in d.current_url
                 )
-            ):
-                return text
-        all_text = job_section.get_text()
-        lines = [line.strip() for line in all_text.split("\n") if line.strip()]
-        for line in lines[:10]:
-            if len(line) > 3 and len(line) < 50:
-                if not any(
-                    kw in line.lower()
-                    for kw in [
-                        "match",
-                        "apply",
-                        "referral",
-                        "ago",
-                        "hour",
-                        "minute",
-                        "/hr",
-                    ]
+            except TimeoutException:
+                logging.debug("Simplify redirect timeout")
+
+            current_url = self.driver.current_url
+            if "simplify.jobs" not in current_url.lower():
+                return current_url
+
+            selectors = [
+                'a[href*="workday"]',
+                'a[href*="greenhouse"]',
+                'a[href*="lever"]',
+                'a[href*="icims"]',
+                'a[href*="taleo"]',
+                'button[onclick*="apply"]',
+                "a.apply-button",
+                'a[class*="apply"]',
+            ]
+
+            for selector in selectors:
+                try:
+                    element = self.driver.find_element(By.CSS_SELECTOR, selector)
+                    href = element.get_attribute("href")
+                    onclick = element.get_attribute("onclick")
+
+                    if href and "http" in href and "simplify.jobs" not in href:
+                        return href
+
+                    if onclick:
+                        url_match = re.search(r"https?://[^\s'\")]+", onclick)
+                        if url_match:
+                            return url_match.group(0)
+                except:
+                    continue
+
+            try:
+                meta_refresh = self.driver.find_element(
+                    By.CSS_SELECTOR, 'meta[http-equiv="refresh"]'
+                )
+                content = meta_refresh.get_attribute("content")
+                if content:
+                    match = re.search(r"url=(.+)", content, re.I)
+                    if match:
+                        redirect_url = match.group(1).strip()
+                        if "simplify.jobs" not in redirect_url:
+                            return redirect_url
+            except:
+                pass
+
+            soup = BeautifulSoup(self.driver.page_source, "lxml")
+            for a_tag in soup.find_all("a", href=True):
+                href = a_tag["href"]
+                if any(
+                    domain in href
+                    for domain in ["workday", "greenhouse", "lever", "icims", "taleo"]
                 ):
-                    if line[0].isupper() and not line.isupper():
-                        return line
-        return "Unknown"
+                    if "simplify.jobs" not in href:
+                        return href
 
-    @staticmethod
-    def _extract_title_multi_method(title_link, job_section):
-        title_text = title_link.get_text(separator="|||", strip=True)
-        title_parts = title_text.split("|||")
-        internship_kw = {
-            "intern",
-            "engineer",
-            "developer",
-            "software",
-            "data",
-            "ml",
-            "ai",
-            "analyst",
-            "co-op",
-            "coop",
-        }
-        title = next(
-            (
-                re.sub(r"\s*(APPLY NOW|Apply|View).*$", "", part, flags=re.I).strip()
-                for part in title_parts
-                if any(kw in part.lower() for kw in internship_kw) and len(part) > 5
-            ),
-            None,
+            return None
+
+        except Exception as e:
+            logging.warning(f"Simplify resolution failed for {simplify_url}: {e}")
+            return None
+
+    def extract_jobright_canonical(self, jobright_url: str) -> Optional[str]:
+        if not self.driver:
+            self._initialize_driver()
+
+        if not self.driver:
+            return None
+
+        try:
+            self.driver.get(jobright_url)
+
+            try:
+                WebDriverWait(self.driver, 10).until(
+                    EC.presence_of_element_located((By.TAG_NAME, "body"))
+                )
+            except TimeoutException:
+                logging.debug("Timeout loading Jobright page")
+
+            time.sleep(5)
+
+            selectors = [
+                'a[href*="workday"]',
+                'a[href*="greenhouse"]',
+                'a[href*="lever"]',
+                'a[href*="icims"]',
+                'a[href*="taleo"]',
+                'a[href*="myworkdayjobs"]',
+                "a.apply-button",
+                'a[class*="apply"]',
+                'a[href*="job"]',
+            ]
+
+            for selector in selectors:
+                try:
+                    elements = self.driver.find_elements(By.CSS_SELECTOR, selector)
+                    for element in elements:
+                        href = element.get_attribute("href")
+                        onclick = element.get_attribute("onclick")
+
+                        if href and "jobright.ai" not in href and "http" in href:
+                            if "linkedin" not in href.lower():
+                                return href
+
+                        if onclick:
+                            url_match = re.search(r"https?://[^\s'\")]+", onclick)
+                            if url_match:
+                                url = url_match.group(0)
+                                if (
+                                    "jobright.ai" not in url
+                                    and "linkedin" not in url.lower()
+                                ):
+                                    return url
+                except:
+                    continue
+
+            try:
+                for elem in self.driver.find_elements(By.CSS_SELECTOR, "[data-url]"):
+                    data_url = elem.get_attribute("data-url")
+                    if (
+                        data_url
+                        and "jobright.ai" not in data_url
+                        and "http" in data_url
+                    ):
+                        if "linkedin" not in data_url.lower():
+                            return data_url
+
+                for elem in self.driver.find_elements(
+                    By.CSS_SELECTOR, "[data-job-url]"
+                ):
+                    data_url = elem.get_attribute("data-job-url")
+                    if (
+                        data_url
+                        and "jobright.ai" not in data_url
+                        and "http" in data_url
+                    ):
+                        if "linkedin" not in data_url.lower():
+                            return data_url
+
+                for elem in self.driver.find_elements(
+                    By.CSS_SELECTOR, "[data-original-url]"
+                ):
+                    data_url = elem.get_attribute("data-original-url")
+                    if (
+                        data_url
+                        and "jobright.ai" not in data_url
+                        and "http" in data_url
+                    ):
+                        if "linkedin" not in data_url.lower():
+                            return data_url
+            except:
+                pass
+
+            try:
+                script_tags = self.driver.find_elements(By.TAG_NAME, "script")
+                for script in script_tags:
+                    text = script.get_attribute("innerHTML")
+                    if text:
+                        if "original_url" in text:
+                            match = re.search(r'"original_url"\s*:\s*"([^"]+)"', text)
+                            if match:
+                                url = match.group(1)
+                                if "linkedin" not in url.lower():
+                                    return url
+                        if "jobUrl" in text:
+                            match = re.search(r'"jobUrl"\s*:\s*"([^"]+)"', text)
+                            if match:
+                                url = match.group(1)
+                                if (
+                                    "jobright.ai" not in url
+                                    and "linkedin" not in url.lower()
+                                ):
+                                    return url
+            except:
+                pass
+
+            try:
+                meta_refresh = self.driver.find_element(
+                    By.CSS_SELECTOR, 'meta[http-equiv="refresh"]'
+                )
+                content = meta_refresh.get_attribute("content")
+                if content:
+                    match = re.search(r"url=(.+)", content, re.I)
+                    if match:
+                        redirect_url = match.group(1).strip()
+                        if (
+                            "jobright.ai" not in redirect_url
+                            and "linkedin" not in redirect_url.lower()
+                        ):
+                            return redirect_url
+            except:
+                pass
+
+            soup = BeautifulSoup(self.driver.page_source, "lxml")
+
+            for elem in soup.find_all(attrs={"data-url": True}):
+                url = elem.get("data-url")
+                if url and "jobright.ai" not in url and "http" in url:
+                    if "linkedin" not in url.lower():
+                        return url
+
+            for a_tag in soup.find_all("a", href=True):
+                href = a_tag["href"]
+                if "jobright.ai" not in href and any(
+                    d in href for d in ["workday", "greenhouse", "lever", "icims"]
+                ):
+                    if href.startswith("http") and "linkedin" not in href.lower():
+                        return href
+
+            return None
+
+        except Exception as e:
+            logging.warning(f"Jobright canonical extraction failed: {e}")
+            return None
+
+    def _cleanup_driver(self):
+        if self.driver:
+            try:
+                self.driver.delete_all_cookies()
+                logging.debug("Cleared cookies")
+            except:
+                pass
+
+    def close(self):
+        if self.driver:
+            try:
+                self.driver.quit()
+                logging.info("WebDriver closed")
+            except:
+                pass
+            self.driver = None
+
+
+class JobrightAuthenticator:
+    def __init__(self):
+        self.cookies = self._load_cookies()
+
+    def _load_cookies(self):
+        try:
+            with open("jobright_cookies.json", "r") as f:
+                cookies = json.load(f)
+                logging.info(f"Loaded {len(cookies)} Jobright cookies")
+                return cookies
+        except FileNotFoundError:
+            logging.warning("Jobright cookies not found")
+            return []
+
+    def login_interactive(self):
+        logging.info(
+            "Jobright authentication not implemented - manual cookie loading required"
         )
-        if title:
-            return title
-        for elem in job_section.find_all(["h1", "h2", "h3"]):
-            text = elem.get_text().strip()
-            if any(kw in text.lower() for kw in internship_kw) and len(text) > 10:
-                return re.sub(
-                    r"\s*(APPLY NOW|Apply|View).*$", "", text, flags=re.I
-                ).strip()
-        return "Unknown"
-
-    @staticmethod
-    def _extract_location_multi_method(job_section, soup):
-        location = "Unknown"
-        remote = "Unknown"
-        job_tags = job_section.find_all("p", id="job-tag")
-        for tag in job_tags:
-            text = tag.get_text(separator="|||", strip=True).split("|||")[0]
-            if "$" in text or "referral" in text.lower() or "/hr" in text.lower():
-                continue
-            text = re.sub(
-                r"(Team|Department|Division).*$", "", text, flags=re.I
-            ).strip()
-            if "," in text:
-                parts = text.split(",")
-                if len(parts) == 2:
-                    city, state = parts[0].strip(), parts[1].strip()
-                    if validate_us_state_code(state):
-                        location = f"{city}, {state.upper()}"
-                        remote = "On Site"
-                        return location, remote
-            if "remote" in text.lower():
-                location = "Remote"
-                remote = "Remote"
-                return location, remote
-            elif "hybrid" in text.lower():
-                location = "Hybrid"
-                remote = "Hybrid"
-                return location, remote
-        all_text = job_section.get_text()
-        city_state_pattern = r"\b([A-Z][a-z]+(?: [A-Z][a-z]+)*),\s*([A-Z]{2})\b"
-        matches = re.findall(city_state_pattern, all_text)
-        for city, state in matches:
-            if validate_us_state_code(state):
-                location = f"{city}, {state}"
-                remote = "On Site"
-                return location, remote
-        if re.search(r"\b(remote|100%\s*remote|fully\s*remote)\b", all_text, re.I):
-            location = "Remote"
-            remote = "Remote"
-            return location, remote
-        if re.search(r"\bhybrid\b", all_text, re.I):
-            location = "Hybrid"
-            remote = "Hybrid"
-            return location, remote
-        all_soup_text = soup.get_text()
-        matches = re.findall(city_state_pattern, all_soup_text)
-        for city, state in matches[:5]:
-            if validate_us_state_code(state):
-                location = f"{city}, {state}"
-                remote = "On Site"
-                return location, remote
-        return location, remote
-
-    @staticmethod
-    def parse_ziprecruiter_email(soup, url):
-        return None
-
-    @staticmethod
-    def parse_adzuna_email(soup, url):
-        return None
+        pass
 
 
 class SimplifyGitHubScraper:
     @staticmethod
-    def scrape(url, source_name="GitHub"):
+    def scrape(url: str, source_name: str = "GitHub") -> List[Dict]:
+        if "SimplifyJobs" in source_name or "simplify" in url.lower():
+            return SimplifyGitHubScraper.scrape_simplify(url)
+        else:
+            return SimplifyGitHubScraper.scrape_vanshb03(url)
+
+    @staticmethod
+    def scrape_simplify(url: str) -> List[Dict]:
         try:
-            logging.info(f"Fetching {source_name} from {url}")
-            response = retry_request(url)
-            if not response:
-                logging.error(f"{source_name}: Failed to fetch URL")
-                return []
-            if response.status_code != 200:
-                logging.error(f"{source_name}: HTTP {response.status_code}")
-                return []
-            logging.info(f"{source_name}: Fetched, length: {len(response.text)}")
-            soup, parser = safe_parse_html(response.text)
-            if soup:
-                logging.info(f"{source_name}: Parsed with {parser}")
-                tables = soup.find_all("table")
-                if tables:
-                    jobs = SimplifyGitHubScraper._parse_html_tables(soup, source_name)
-                    if jobs:
-                        logging.info(f"{source_name}: Found {len(jobs)} jobs via HTML")
-                        return jobs
-            logging.info(f"{source_name}: Trying Markdown")
-            jobs = SimplifyGitHubScraper._parse_markdown_text(
-                response.text, source_name
-            )
-            if jobs:
-                logging.info(f"{source_name}: Found {len(jobs)} jobs via Markdown")
-            return jobs
-        except Exception as e:
-            logging.error(f"{source_name}: Error: {e}")
-            return []
+            response = requests.get(url, timeout=30)
+            logging.info(f"SimplifyJobs: Fetched, length: {len(response.text)}")
 
-    @staticmethod
-    def _parse_markdown_text(text, source_name):
-        lines = text.split("\n")
-        jobs = []
-        header_idx = next(
-            (i for i, line in enumerate(lines) if _HEADER_PATTERN.search(line)), -1
-        )
-        if header_idx == -1:
-            return []
-        header = lines[header_idx]
-        delimiter = "\t" if "\t" in header else "|"
-        start = header_idx + 1 if delimiter == "\t" else header_idx + 2
-        for line in lines[start:]:
-            if not line.strip():
-                continue
-            parts = [p.strip() for p in line.split(delimiter) if p.strip()]
-            if len(parts) < 5:
-                continue
-            company = _EMOJI_PATTERN.sub("", parts[0]).strip()
-            title = _EMOJI_PATTERN.sub("", parts[1]).strip()
-            location = _EMOJI_PATTERN.sub("", parts[2]).strip()
-            link_cell = parts[3]
-            age = parts[4]
-            match = _HTML_LINK_PATTERN.search(link_cell) or _MD_LINK_PATTERN.search(
-                link_cell
-            )
-            url = (
-                match.group(1)
-                if match
-                else (link_cell if link_cell.startswith("http") else None)
-            )
-            if not url or any(marker in line for marker in ["🔒", "❌", "closed"]):
-                continue
-            jobs.append(
-                {
-                    "company": company,
-                    "title": title,
-                    "location": location,
-                    "url": url,
-                    "age": age,
-                    "is_closed": False,
-                    "source": source_name,
-                }
-            )
-        return jobs
+            tree = lxml_html.fromstring(response.content)
+            logging.info(f"SimplifyJobs: Parsed with lxml")
 
-    @staticmethod
-    def _parse_html_tables(soup, source_name):
-        jobs = []
-        for table in soup.find_all("table"):
-            for row in table.find_all("tr")[1:]:
-                cells = row.find_all("td")
+            table = tree.xpath("//table")[0] if tree.xpath("//table") else None
+            if not table:
+                return []
+
+            rows = table.xpath(".//tr")[1:]
+            jobs = []
+
+            for row in rows:
+                cells = row.xpath(".//td")
                 if len(cells) < 5:
                     continue
-                company_link = cells[0].find("a")
-                if not company_link:
+
+                company = cells[0].text_content().strip()
+                title = cells[1].text_content().strip()
+                location = cells[2].text_content().strip()
+
+                url_elem = cells[3].xpath(".//a")
+                url = url_elem[0].get("href") if url_elem else None
+
+                age = cells[4].text_content().strip() if len(cells) > 4 else ""
+
+                is_closed = "🔒" in row.text_content() or "❌" in row.text_content()
+
+                if url and not is_closed:
+                    jobs.append(
+                        {
+                            "company": company,
+                            "title": title,
+                            "location": location,
+                            "url": url,
+                            "age": age,
+                            "is_closed": False,
+                            "source": "SimplifyJobs",
+                        }
+                    )
+
+            logging.info(f"SimplifyJobs: Found {len(jobs)} jobs via HTML")
+            return jobs
+
+        except Exception as e:
+            logging.error(f"SimplifyJobs scraping failed: {e}")
+            return []
+
+    @staticmethod
+    def scrape_vanshb03(url: str) -> List[Dict]:
+        try:
+            response = requests.get(url, timeout=30)
+            logging.info(f"vanshb03: Fetched, length: {len(response.text)}")
+
+            tree = lxml_html.fromstring(response.content)
+            logging.info(f"vanshb03: Parsed with lxml")
+
+            table = tree.xpath("//table")[0] if tree.xpath("//table") else None
+            if table:
+                rows = table.xpath(".//tr")[1:]
+                jobs = []
+
+                for row in rows:
+                    cells = row.xpath(".//td")
+                    if len(cells) < 5:
+                        continue
+
+                    company = cells[0].text_content().strip()
+                    title = cells[1].text_content().strip()
+                    location = cells[2].text_content().strip()
+
+                    url_elem = cells[3].xpath(".//a")
+                    url = url_elem[0].get("href") if url_elem else None
+
+                    age = cells[4].text_content().strip() if len(cells) > 4 else ""
+
+                    is_closed = "🔒" in row.text_content() or "❌" in row.text_content()
+
+                    if url and not is_closed:
+                        jobs.append(
+                            {
+                                "company": company,
+                                "title": title,
+                                "location": location,
+                                "url": url,
+                                "age": age,
+                                "is_closed": False,
+                                "source": "SWE List",
+                            }
+                        )
+
+                logging.info(f"vanshb03: Found {len(jobs)} jobs via HTML")
+                return jobs
+
+            logging.info("vanshb03: Trying Markdown")
+            lines = response.text.split("\n")
+            jobs = []
+
+            for line in lines:
+                if "|" not in line or line.startswith("|---"):
                     continue
-                company = _EMOJI_PATTERN.sub("", company_link.get_text(strip=True))
-                title = _EMOJI_PATTERN.sub("", cells[1].get_text(strip=True))
-                location = _EMOJI_PATTERN.sub("", cells[2].get_text(strip=True))
-                age = cells[4].get_text(strip=True)
-                apply_link = cells[3].find("a", href=True)
-                if not apply_link:
+
+                parts = [p.strip() for p in line.split("|")]
+                if len(parts) < 6:
                     continue
-                url = apply_link.get("href", "")
-                is_closed = "🔒" in str(cells[3])
-                jobs.append(
-                    {
-                        "company": company,
-                        "title": title,
-                        "location": location,
-                        "url": url,
-                        "age": age,
-                        "is_closed": is_closed,
-                        "source": source_name,
-                    }
-                )
-        return jobs
+
+                company = parts[1]
+                title = parts[2]
+                location = parts[3]
+
+                url_match = re.search(r"\[.*?\]\((https?://[^\)]+)\)", parts[4])
+                if not url_match:
+                    url_match = re.search(r"<(https?://[^>]+)>", parts[4])
+                if not url_match:
+                    url_match = re.search(r'href="(https?://[^"]+)"', parts[4])
+
+                url = url_match.group(1) if url_match else None
+
+                age = parts[5] if len(parts) > 5 else ""
+
+                is_closed = "🔒" in line or "❌" in line
+
+                if url and not is_closed:
+                    jobs.append(
+                        {
+                            "company": company,
+                            "title": title,
+                            "location": location,
+                            "url": url,
+                            "age": age,
+                            "is_closed": False,
+                            "source": "SWE List",
+                        }
+                    )
+
+            logging.info(f"vanshb03: Found {len(jobs)} jobs via Markdown")
+            return jobs
+
+        except Exception as e:
+            logging.error(f"vanshb03 scraping failed: {e}")
+            return []
+
+
+class SourceParsers:
+    def __init__(self, page_fetcher: PageFetcher):
+        self.fetcher = page_fetcher
+
+    @staticmethod
+    def parse_jobright_email(soup, url, authenticator):
+        result = {
+            "company": "Unknown",
+            "title": "Unknown",
+            "location": "Unknown",
+            "remote": "Unknown",
+            "url": url,
+            "email_age_days": None,
+        }
+
+        try:
+            if soup:
+                title_elem = soup.find("h2")
+                if not title_elem:
+                    title_elem = soup.find("h3")
+                if title_elem:
+                    result["title"] = title_elem.get_text(strip=True)
+
+                company_elem = soup.find(string=re.compile(r"Company:", re.I))
+                if company_elem:
+                    parent = company_elem.parent
+                    if parent:
+                        company_text = parent.get_text(strip=True)
+                        company = company_text.replace("Company:", "").strip()
+                        if company:
+                            result["company"] = company
+
+                location_elem = soup.find(string=re.compile(r"Location:", re.I))
+                if location_elem:
+                    parent = location_elem.parent
+                    if parent:
+                        location_text = parent.get_text(strip=True)
+                        location = location_text.replace("Location:", "").strip()
+                        if location:
+                            result["location"] = location
+
+                date_elem = soup.find(string=re.compile(r"Posted:", re.I))
+                if date_elem:
+                    parent = date_elem.parent
+                    if parent:
+                        date_text = parent.get_text(strip=True)
+                        days = DateParser.extract_days_ago(date_text)
+                        if days is not None:
+                            result["email_age_days"] = days
+
+        except Exception as e:
+            logging.debug(f"Jobright email parsing error: {e}")
+
+        return result
+
+    def parse_job_page(self, url: str) -> Dict[str, Any]:
+        from processors import (
+            CompanyExtractor,
+            LocationExtractor,
+            JobIDExtractor,
+            LocationProcessor,
+        )
+        from utils import PlatformDetector
+
+        result = {
+            "company": "Unknown",
+            "location": "Unknown",
+            "remote": "Unknown",
+            "description": "",
+            "job_id": "N/A",
+            "sponsorship": "Unknown",
+        }
+
+        if "jobright.ai/jobs/info/" in url:
+            canonical_url = self.fetcher.extract_jobright_canonical(url)
+            if canonical_url:
+                url = canonical_url
+            else:
+                return result
+
+        response, final_url, page_source = self.fetcher.fetch_page(url)
+        if not response:
+            return result
+
+        soup = BeautifulSoup(response.text, "lxml")
+
+        platform = PlatformDetector.detect(final_url)
+
+        title = PageParser.extract_title(soup)
+
+        result["company"] = CompanyExtractor.extract_all_methods(final_url, soup)
+
+        location_extracted = LocationExtractor.extract_all_methods(
+            final_url, soup, title, platform, page_source
+        )
+        result["location"] = LocationProcessor.format_location_clean(location_extracted)
+
+        description = DescriptionExtractor.extract(soup, platform)
+        result["description"] = description
+
+        result["job_id"] = JobIDExtractor.extract_all_methods(final_url, soup, platform)
+
+        jsonld_data = JSONLDExtractor.extract_job_data(response.text)
+
+        result["remote"] = LocationProcessor.extract_remote_status_enhanced(
+            soup, result["location"], final_url
+        )
+
+        result["sponsorship"] = SponsorshipDetector.detect(description)
+
+        return result
+
+
+def safe_parse_html(html_content: str) -> Tuple[BeautifulSoup, str]:
+    try:
+        soup = BeautifulSoup(html_content, "lxml")
+        return (soup, "lxml")
+    except Exception:
+        try:
+            soup = BeautifulSoup(html_content, "html.parser")
+            return (soup, "html.parser")
+        except Exception:
+            return (None, "failed")

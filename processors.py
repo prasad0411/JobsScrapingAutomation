@@ -41,6 +41,7 @@ from config import (
     SPONSORSHIP_REJECT_PATTERNS,
     BLACKLIST_DOMAINS,
     MAX_REASONABLE_AGE_DAYS,
+    US_STATES_FALLBACK,
 )
 
 from utils import (
@@ -634,6 +635,8 @@ class LocationProcessor:
         try:
             location = location_text.strip()
 
+            location = re.sub(r"^locations", "", location, flags=re.I)
+
             for pattern in _COMPILED_METADATA_PATTERNS:
                 location = pattern.sub("", location)
 
@@ -823,8 +826,7 @@ class LocationProcessor:
         return True
 
     @staticmethod
-    def extract_remote_status_enhanced(soup, location, url):
-        """ORIGINAL: Full remote status extraction"""
+    def extract_remote_status_enhanced(soup, location, url, description=""):
         if not soup:
             return "Unknown"
 
@@ -835,6 +837,15 @@ class LocationProcessor:
                     return "Remote"
                 if "hybrid" in location_lower:
                     return "Hybrid"
+
+            if description:
+                desc_lower = description.lower()
+                if "100% remote" in desc_lower or "fully remote" in desc_lower:
+                    return "Remote"
+                if "hybrid" in desc_lower:
+                    return "Hybrid"
+                if "on-site" in desc_lower or "onsite" in desc_lower:
+                    return "On Site"
 
             page_text = soup.get_text()[:2000].lower()
 
@@ -1187,12 +1198,17 @@ class ValidationHelper:
 
     @staticmethod
     def clean_legal_entity(company):
-        """ORIGINAL"""
         if not company:
             return company
+        company = re.sub(r"^LE\d{4}\s+", "", company)
+        company = re.sub(r"^Company\s+\d+\s+-\s+", "", company)
         company = re.sub(r"^\d+\s+|^[A-Z]{2,4}[-\s]", "", company)
+        company = re.sub(r"\s*\([^)]*U\.S\.A\.\)", "", company)
+        company = re.sub(r"\s*[+|]\s+[^,]+$", "", company)
+        company = re.sub(r"\s+USA$", "", company)
+        company = re.sub(r"\s+ODA$", "", company)
         return re.sub(
-            r",?\s+(Inc\.?|LLC\.?|Corp\.?|Ltd\.?)$", "", company, flags=re.I
+            r",?\s+(Inc\.?|LLC\.?|Corp\.?|Ltd\.?|Corporation)$", "", company, flags=re.I
         ).strip()
 
     @staticmethod

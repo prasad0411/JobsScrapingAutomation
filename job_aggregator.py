@@ -151,6 +151,7 @@ class UnifiedJobAggregator:
         print(f"\n✓ DONE: {added_valid} valid, {added_discarded} discarded")
         print("=" * 80 + "\n")
         logging.info(f"SUMMARY: {added_valid} valid, {added_discarded} discarded")
+        self.page_fetcher.close()
 
     def _scrape_simplify_github(self):
         simplify_jobs = self._safe_scrape(SIMPLIFY_URL, "SimplifyJobs")
@@ -354,8 +355,11 @@ class UnifiedJobAggregator:
             location_formatted = LocationProcessor.format_location_clean(
                 location_extracted
             )
+            from extractors import DescriptionExtractor
+
+            description = DescriptionExtractor.extract(soup, platform)
             remote = LocationProcessor.extract_remote_status_enhanced(
-                soup, location_formatted, final_url
+                soup, location_formatted, final_url, description
             )
             sponsorship = self._check_sponsorship_tracking_only(soup)
             intl_check = LocationProcessor.check_if_international(
@@ -434,7 +438,9 @@ class UnifiedJobAggregator:
             for url in email["urls"]:
                 try:
                     if "simplify.jobs/p/" in url.lower():
-                        actual_url, resolved = SimplifyRedirectResolver.resolve(url)
+                        actual_url, resolved = SimplifyRedirectResolver.resolve(
+                            url, self.page_fetcher
+                        )
                         if resolved:
                             total_resolved += 1
                             self._process_single_url_with_extraction(
@@ -674,8 +680,11 @@ class UnifiedJobAggregator:
             location_formatted = LocationProcessor.format_location_clean(
                 location_extracted
             )
+            from extractors import DescriptionExtractor
+
+            description = DescriptionExtractor.extract(soup, platform)
             remote = LocationProcessor.extract_remote_status_enhanced(
-                soup, location_formatted, final_url
+                soup, location_formatted, final_url, description
             )
             sponsorship = self._check_sponsorship_tracking_only(soup)
             review_flags = []
@@ -818,8 +827,11 @@ class UnifiedJobAggregator:
             final_url, soup, job_data.get("title", ""), platform, page_source
         )
         page_location_formatted = LocationProcessor.format_location_clean(page_location)
+        from extractors import DescriptionExtractor
+
+        page_description = DescriptionExtractor.extract(soup, platform)
         page_remote = LocationProcessor.extract_remote_status_enhanced(
-            soup, page_location_formatted, final_url
+            soup, page_location_formatted, final_url, page_description
         )
         page_job_id = JobIDExtractor.extract_all_methods(final_url, soup, platform)
         page_company = CompanyExtractor.extract_all_methods(final_url, soup)
