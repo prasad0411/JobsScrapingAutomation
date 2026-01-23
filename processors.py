@@ -1111,29 +1111,167 @@ class ValidationHelper:
 
     @staticmethod
     def check_url_for_international(url):
-        """ORIGINAL: Delegates to LocationProcessor"""
         return LocationProcessor._check_url_for_canada(url)
 
     @staticmethod
+    def _check_clearance_requirements(soup):
+        if not soup:
+            return None, None
+
+        try:
+            page_text = soup.get_text()[:15000].lower()
+            clearance_patterns = [
+                r"(?:security\s+)?clearance.*(?:required|preferred)",
+                r"must\s+(?:be\s+)?(?:able\s+to\s+)?(?:obtain|get|acquire).*clearance",
+                r"(?:eligible|eligibility)\s+for.*(?:security\s+)?clearance",
+                r"able\s+to\s+obtain.*clearance",
+                r"clearance\s+(?:eligibility|required|preferred)",
+                r"u\.?s\.?\s+citizen.*clearance",
+                r"citizenship.*clearance",
+                r"dod\s+(?:secret|top\s+secret)",
+                r"ts/sci",
+                r"polygraph",
+            ]
+            for pattern in clearance_patterns:
+                if re.search(pattern, page_text, re.I):
+                    return "REJECT", "Security clearance required"
+        except Exception as e:
+            logging.debug(f"Clearance check failed: {e}")
+
+        return None, None
+
+    @staticmethod
+    def _check_graduation_year_requirements(soup):
+        if not soup:
+            return None, None
+
+        try:
+            page_text = soup.get_text()[:15000]
+
+            year_patterns = [
+                r"(?:graduating|graduation).*\b(202[0-9])\b",
+                r"\b(202[0-9])\b.*(?:graduating|graduation)",
+                r"class\s+of\s+(202[0-9])",
+            ]
+
+            found_years = set()
+            for pattern in year_patterns:
+                matches = re.findall(pattern, page_text, re.I)
+                for match in matches:
+                    year = int(match)
+                    if 2020 <= year <= 2030:
+                        found_years.add(year)
+
+            if found_years:
+                if all(year <= 2026 or year >= 2028 for year in found_years):
+                    invalid_years = ", ".join(str(y) for y in sorted(found_years))
+                    return "REJECT", f"Graduation year mismatch: {invalid_years}"
+
+        except Exception as e:
+            logging.debug(f"Graduation year check failed: {e}")
+
+        return None, None
+
+    @staticmethod
+    def _check_bs_only_restrictions(soup):
+        if not soup:
+            return None, None
+
+        try:
+            page_text = soup.get_text()[:15000]
+            page_lower = page_text.lower()
+
+            bs_indicators = [
+                r"\bb\.?s\.?\b.*(?:in\s+)?computer\s+science",
+                r"bachelor'?s?\s+degree",
+                r"undergraduate\s+(?:degree|student)",
+                r"(?:sophomore|junior)\s+standing",
+                r"pursuing.*bachelor",
+            ]
+
+            has_bs_requirement = any(
+                re.search(pattern, page_lower, re.I) for pattern in bs_indicators
+            )
+
+            if not has_bs_requirement:
+                return None, None
+
+            flexibility_phrases = [
+                r"bs/ms",
+                r"b\.?s\.?/m\.?s\.?",
+                r"bachelor'?s?\s+or\s+master'?s?",
+                r"undergraduate\s+or\s+graduate",
+                r"or\s+equivalent",
+                r"equivalent\s+experience",
+                r"advanced\s+degree",
+            ]
+
+            has_flexibility = any(
+                re.search(phrase, page_lower, re.I) for phrase in flexibility_phrases
+            )
+
+            if has_flexibility:
+                return None, None
+
+            context_window = 200
+            for match in re.finditer(
+                r"\bb\.?s\.?\b|bachelor'?s?|undergraduate", page_lower, re.I
+            ):
+                start = max(0, match.start() - context_window)
+                end = min(len(page_lower), match.end() + context_window)
+                context = page_lower[start:end]
+
+                if "preferred" in context and "required" not in context:
+                    return None, None
+
+            ms_indicators = [
+                r"\bm\.?s\.?\b",
+                r"master'?s?\s+degree",
+                r"graduate\s+(?:degree|student)",
+                r"ph\.?d\.?",
+            ]
+
+            has_ms = any(
+                re.search(pattern, page_lower, re.I) for pattern in ms_indicators
+            )
+
+            if has_ms:
+                return None, None
+
+            return "REJECT", "Bachelor's students only"
+
+        except Exception as e:
+            logging.debug(f"BS-only check failed: {e}")
+
+        return None, None
+
+    @staticmethod
     def check_page_restrictions(soup):
-        """ORIGINAL + ENHANCED sponsorship patterns"""
         if not soup:
             return None, None, []
 
         try:
-            # ORIGINAL: Degree check
             degree_decision, degree_reason = (
                 ValidationHelper._check_degree_requirements_strict(soup)
             )
             if degree_decision == "REJECT":
                 return degree_decision, degree_reason, []
 
-            page_text = soup.get_text()[:15000].lower()
+            bs_decision, bs_reason = ValidationHelper._check_bs_only_restrictions(soup)
+            if bs_decision == "REJECT":
+                return bs_decision, bs_reason, []
 
-            # ENHANCED: New sponsorship patterns with proximity matching
-            for pattern in _COMPILED_SPONSORSHIP_PATTERNS:
-                if pattern.search(page_text):
-                    return "REJECT", "Sponsorship not available", []
+            year_decision, year_reason = (
+                ValidationHelper._check_graduation_year_requirements(soup)
+            )
+            if year_decision == "REJECT":
+                return year_decision, year_reason, []
+
+            clearance_decision, clearance_reason = (
+                ValidationHelper._check_clearance_requirements(soup)
+            )
+            if clearance_decision == "REJECT":
+                return clearance_decision, clearance_reason, []
 
         except Exception as e:
             logging.debug(f"Page restrictions check failed: {e}")
@@ -1200,6 +1338,16 @@ class ValidationHelper:
     def clean_legal_entity(company):
         if not company:
             return company
+        import unicodedata
+
+        company = "".join(
+            c
+            for c in company
+            if c.isprintable() and unicodedata.category(c)[0] not in ["C", "So"]
+        )
+        company = company.strip()
+        if not company or len(company) < 2:
+            return "Unknown"
         company = re.sub(r"^LE\d{4}\s+", "", company)
         company = re.sub(r"^Company\s+\d+\s+-\s+", "", company)
         company = re.sub(r"^\d+\s+|^[A-Z]{2,4}[-\s]", "", company)

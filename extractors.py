@@ -25,6 +25,8 @@ from config import (
     GMAIL_TOKEN_FILE,
     MAX_JOB_AGE_DAYS,
     FAILED_SIMPLIFY_CACHE,
+    EMAIL_URL_BLACKLIST,
+    JOB_BOARD_WHITELIST,
 )
 from utils import DateParser
 
@@ -855,8 +857,7 @@ class EmailExtractor:
 
                 body = self._get_body(message["payload"])
 
-                urls = re.findall(r'https?://[^\s<>"]+', body)
-                urls = [url.rstrip(".,;)]}") for url in urls]
+                urls = self._extract_urls_smart(body, sender)
 
                 if urls:
                     email_data.append(
@@ -879,6 +880,127 @@ class EmailExtractor:
         except Exception as e:
             logging.error(f"Email fetch error: {e}")
             return []
+
+    def _extract_urls_smart(self, body: str, sender: str) -> List[str]:
+        try:
+            soup = BeautifulSoup(body, "html.parser")
+            all_links = [
+                a.get("href") for a in soup.find_all("a", href=True) if a.get("href")
+            ]
+        except:
+            all_links = re.findall(r'https?://[^\s<>"]+', body)
+            all_links = [url.rstrip(".,;)]}") for url in all_links]
+
+        urls = []
+        seen = set()
+
+        for url in all_links:
+            if not url or not url.startswith("http"):
+                continue
+
+            url_lower = url.lower()
+
+            if any(
+                blacklist_domain in url_lower
+                for blacklist_domain in EMAIL_URL_BLACKLIST
+            ):
+                continue
+
+            if sender == "SWE List":
+                if "simplify.jobs/p/" in url_lower:
+                    if url not in seen:
+                        urls.append(url)
+                        seen.add(url)
+                continue
+
+            if sender == "Jobright":
+                if "jobright.ai/jobs/info/" in url_lower:
+                    if url not in seen:
+                        urls.append(url)
+                        seen.add(url)
+                continue
+
+            if any(board in url_lower for board in JOB_BOARD_WHITELIST):
+                if url not in seen:
+                    urls.append(url)
+                    seen.add(url)
+                continue
+
+            if self._score_url_pattern(url_lower) >= 0.60:
+                if url not in seen:
+                    urls.append(url)
+                    seen.add(url)
+
+        return urls
+
+    def _score_url_pattern(self, url: str) -> float:
+        score = 0.0
+
+        domain_keywords = [
+            "career",
+            "job",
+            "talent",
+            "recruit",
+            "hire",
+            "work",
+            "employment",
+            "apply",
+        ]
+        if any(kw in url for kw in domain_keywords):
+            score += 0.40
+
+        path_segments = [
+            "/job/",
+            "/jobs/",
+            "/career/",
+            "/careers/",
+            "/position/",
+            "/opening/",
+            "/vacancy/",
+            "/role/",
+            "/apply/",
+            "/application/",
+        ]
+        if any(seg in url for seg in path_segments):
+            score += 0.30
+
+        if re.search(
+            r"/[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}", url
+        ):
+            score += 0.20
+        elif re.search(r"/\d{6,}", url):
+            score += 0.20
+        elif re.search(r"/[A-Z0-9]{5,20}(?:\?|$)", url):
+            score += 0.15
+
+        if len(url) > 50:
+            score += 0.10
+
+        generic_services = [
+            ".me/",
+            ".link/",
+            ".email/",
+            "usercontent.com",
+            "storage.com",
+            "cdn.",
+            "static.",
+        ]
+        if any(svc in url for svc in generic_services):
+            score -= 0.50
+
+        excluded_paths = [
+            "/unsubscribe",
+            "/preferences",
+            "/pixel",
+            "/track",
+            "/email",
+            "/o/",
+            "/u/",
+        ]
+        if any(path in url for path in excluded_paths):
+            score -= 0.40
+
+        return score
 
     def _get_body(self, payload):
         if "body" in payload and payload["body"].get("data"):
@@ -1528,7 +1650,7 @@ class SourceParsers:
         jsonld_data = JSONLDExtractor.extract_job_data(response.text)
 
         result["remote"] = LocationProcessor.extract_remote_status_enhanced(
-            soup, result["location"], final_url
+            soup, result["location"], final_url, description
         )
 
         result["sponsorship"] = SponsorshipDetector.detect(description)
