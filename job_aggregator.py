@@ -14,8 +14,6 @@ from config import (
     VANSHB03_URL,
     MAX_JOB_AGE_DAYS,
     CANADA_PROVINCES,
-    PROCESSED_EMAILS_FILE,
-    EMAIL_TRACKING_RETENTION_DAYS,
 )
 from processors import (
     TitleProcessor,
@@ -52,52 +50,6 @@ with open("skipped_jobs.log", "w") as f:
         f"JOB PROCESSING LOG - {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n"
     )
     f.write("=" * 100 + "\n\n")
-
-
-class EmailTracker:
-    @staticmethod
-    def load_processed_emails():
-        if os.path.exists(PROCESSED_EMAILS_FILE):
-            try:
-                with open(PROCESSED_EMAILS_FILE, "r") as f:
-                    return json.load(f)
-            except:
-                return {}
-        return {}
-
-    @staticmethod
-    def save_processed_emails(processed_emails):
-        try:
-            with open(PROCESSED_EMAILS_FILE, "w") as f:
-                json.dump(processed_emails, f, indent=2)
-        except Exception as e:
-            logging.error(f"Failed to save processed emails: {e}")
-
-    @staticmethod
-    def cleanup_old_entries(processed_emails):
-        cutoff_date = datetime.datetime.now() - datetime.timedelta(
-            days=EMAIL_TRACKING_RETENTION_DAYS
-        )
-        cutoff_str = cutoff_date.strftime("%Y-%m-%d")
-        cleaned = {
-            k: v
-            for k, v in processed_emails.items()
-            if v.get("processed_date", "9999-99-99") > cutoff_str
-        }
-        if len(cleaned) < len(processed_emails):
-            logging.info(
-                f"Cleaned up {len(processed_emails) - len(cleaned)} old email entries"
-            )
-        return cleaned
-
-    @staticmethod
-    def mark_email_processed(processed_emails, email_id, subject, url_count):
-        processed_emails[email_id] = {
-            "subject": subject,
-            "processed_date": datetime.datetime.now().strftime("%Y-%m-%d"),
-            "processed_time": datetime.datetime.now().strftime("%H:%M:%S"),
-            "url_count": url_count,
-        }
 
 
 class UnifiedJobAggregator:
@@ -151,7 +103,6 @@ class UnifiedJobAggregator:
         print(f"\n✓ DONE: {added_valid} valid, {added_discarded} discarded")
         print("=" * 80 + "\n")
         logging.info(f"SUMMARY: {added_valid} valid, {added_discarded} discarded")
-        self.page_fetcher.close()
 
     def _scrape_simplify_github(self):
         simplify_jobs = self._safe_scrape(SIMPLIFY_URL, "SimplifyJobs")
@@ -414,27 +365,16 @@ class UnifiedJobAggregator:
             logging.error(f"ERROR | {company} | {e}")
 
     def _process_emails_grouped(self, emails_data):
-        processed_emails = EmailTracker.load_processed_emails()
-        processed_emails = EmailTracker.cleanup_old_entries(processed_emails)
         total_resolved = 0
         total_failed = 0
-        emails_processed = 0
-        emails_skipped = 0
+        consecutive_failures = 0
         for email_idx, email in enumerate(emails_data, 1):
             email_id = email["email_id"]
             subject = email["subject"][:70]
             sender = email["sender"]
             url_count = len(email["urls"])
-            if email_id in processed_emails:
-                print(f'\nEmail {email_idx}/{len(emails_data)}: "{subject}" ({sender})')
-                print(
-                    f"  ⊘ Already processed on {processed_emails[email_id]['processed_date']}"
-                )
-                emails_skipped += 1
-                continue
-            emails_processed += 1
             print(f'\nEmail {email_idx}/{len(emails_data)}: "{subject}" ({sender})')
-            print(f"  {url_count} URLs from this email...")
+            print(f"  {url_count} URLs from this email...\n")
             for url in email["urls"]:
                 try:
                     if "simplify.jobs/p/" in url.lower():
@@ -443,11 +383,19 @@ class UnifiedJobAggregator:
                         )
                         if resolved:
                             total_resolved += 1
+                            consecutive_failures = 0
                             self._process_single_url_with_extraction(
                                 actual_url, email["html"], sender
                             )
                         else:
                             total_failed += 1
+                            consecutive_failures += 1
+                            print(f"    Simplify: ✗ Redirect failed")
+                            if consecutive_failures >= 20:
+                                print(
+                                    f"  ⚠️  WARNING: 20 Simplify URLs failed consecutively - continuing\n"
+                                )
+                                consecutive_failures = 0
                     else:
                         self._process_single_url_with_extraction(
                             url, email["html"], sender
@@ -456,15 +404,9 @@ class UnifiedJobAggregator:
                     print(f"    ERROR: {str(e)[:50]}")
                     logging.error(f"Exception: {e}")
                     continue
-            EmailTracker.mark_email_processed(
-                processed_emails, email_id, subject, url_count
-            )
-        EmailTracker.save_processed_emails(processed_emails)
-        if emails_skipped > 0:
-            print(f"\n  ⊘ Skipped {emails_skipped} already-processed emails")
         if total_resolved > 0 or total_failed > 0:
             print(
-                f"  Simplify totals: {total_resolved} resolved, {total_failed} failed\n"
+                f"\n  Simplify totals: {total_resolved} resolved, {total_failed} failed\n"
             )
 
     def _process_single_url_with_extraction(self, url, email_html, sender):
