@@ -153,63 +153,112 @@ class PageParser:
 
 
 class SimplifyRedirectResolver:
-    _failed_urls = set()
-    _cache_loaded = False
-
-    @classmethod
-    def _load_failed_cache(cls):
-        if cls._cache_loaded:
-            return
-        try:
-            import os
-
-            if os.path.exists(FAILED_SIMPLIFY_CACHE):
-                with open(FAILED_SIMPLIFY_CACHE, "r") as f:
-                    data = json.load(f)
-                    cls._failed_urls = set(data.get("failed_urls", []))
-                    logging.info(
-                        f"Loaded {len(cls._failed_urls)} failed Simplify URLs from cache"
-                    )
-        except Exception as e:
-            logging.debug(f"Failed to load Simplify cache: {e}")
-        cls._cache_loaded = True
-
-    @classmethod
-    def _save_failed_cache(cls):
-        try:
-            with open(FAILED_SIMPLIFY_CACHE, "w") as f:
-                json.dump({"failed_urls": list(cls._failed_urls)}, f)
-        except Exception as e:
-            logging.debug(f"Failed to save Simplify cache: {e}")
+    _success_cache = {}
 
     @classmethod
     def resolve(cls, simplify_url, page_fetcher=None) -> Tuple[Optional[str], bool]:
-        cls._load_failed_cache()
-
-        if simplify_url in cls._failed_urls:
-            logging.debug(f"Simplify URL in failed cache: {simplify_url}")
-            return None, False
+        if simplify_url in cls._success_cache:
+            logging.debug(f"Simplify: Using cached success")
+            return cls._success_cache[simplify_url], True
 
         if not page_fetcher:
             from extractors import PageFetcher
 
             page_fetcher = PageFetcher()
 
+        logging.info(f"Simplify: Attempting resolution for {simplify_url[:60]}")
+
+        result = cls._method_1_http_redirect(simplify_url)
+        if result:
+            cls._success_cache[simplify_url] = result
+            return result, True
+
+        result = cls._method_2_parse_page(simplify_url)
+        if result:
+            cls._success_cache[simplify_url] = result
+            return result, True
+
+        result = cls._method_3_selenium(simplify_url, page_fetcher)
+        if result:
+            cls._success_cache[simplify_url] = result
+            return result, True
+
+        logging.warning(f"Simplify: All methods failed for {simplify_url[:60]}")
+        return None, False
+
+    @classmethod
+    def _method_1_http_redirect(cls, url):
         try:
-            actual_url = page_fetcher.resolve_simplify_url(simplify_url)
-            if actual_url and "simplify.jobs" not in actual_url.lower():
-                logging.info(f"Simplify HTTP: {actual_url[:80]}")
-                return actual_url, True
-            else:
-                cls._failed_urls.add(simplify_url)
-                cls._save_failed_cache()
-                logging.warning(f"All methods failed: {simplify_url}")
-                return None, False
+            logging.debug("Simplify Method 1: HTTP redirect")
+            response = requests.get(url, allow_redirects=True, timeout=5)
+            final_url = response.url
+            if (
+                "simplify.jobs" not in final_url.lower()
+                and "linkedin" not in final_url.lower()
+            ):
+                logging.info(f"Simplify Method 1: ✓ HTTP redirect to {final_url[:60]}")
+                return final_url
+            logging.debug("Simplify Method 1: Still on Simplify page")
         except Exception as e:
-            cls._failed_urls.add(simplify_url)
-            cls._save_failed_cache()
-            logging.warning(f"Simplify resolution error for {simplify_url}: {e}")
-            return None, False
+            logging.debug(f"Simplify Method 1: Failed - {e}")
+        return None
+
+    @classmethod
+    def _method_2_parse_page(cls, url):
+        try:
+            logging.debug("Simplify Method 2: Parse page")
+            response = requests.get(url, timeout=5)
+            soup = BeautifulSoup(response.text, "lxml")
+
+            apply_selectors = [
+                "a.apply-button",
+                'a[class*="apply"]',
+                'a[href*="workday"]',
+                'a[href*="greenhouse"]',
+                'a[href*="lever"]',
+                'button[onclick*="workday"]',
+            ]
+
+            for selector in apply_selectors:
+                elem = soup.select_one(selector)
+                if elem:
+                    href = elem.get("href") or elem.get("onclick")
+                    if (
+                        href
+                        and "http" in href
+                        and "simplify" not in href
+                        and "linkedin" not in href
+                    ):
+                        if elem.get("onclick"):
+                            url_match = re.search(r'https?://[^\s\'"]+', href)
+                            if url_match:
+                                href = url_match.group(0)
+                        logging.info(
+                            f"Simplify Method 2: ✓ Parsed from page {href[:60]}"
+                        )
+                        return href
+
+            logging.debug("Simplify Method 2: No apply links found")
+        except Exception as e:
+            logging.debug(f"Simplify Method 2: Failed - {e}")
+        return None
+
+    @classmethod
+    def _method_3_selenium(cls, url, page_fetcher):
+        try:
+            logging.debug("Simplify Method 3: Selenium")
+            actual_url = page_fetcher.resolve_simplify_url(url)
+            if (
+                actual_url
+                and "simplify.jobs" not in actual_url.lower()
+                and "linkedin" not in actual_url.lower()
+            ):
+                logging.info(f"Simplify Method 3: ✓ Selenium found {actual_url[:60]}")
+                return actual_url
+            logging.debug("Simplify Method 3: No valid URL found")
+        except Exception as e:
+            logging.debug(f"Simplify Method 3: Failed - {e}")
+        return None
 
 
 class JSONLDExtractor:
@@ -1125,23 +1174,133 @@ class PageFetcher:
             self._initialize_driver()
 
         if not self.driver:
+            logging.warning("Simplify: Driver not available")
             return None
 
         try:
+            logging.info(f"Simplify: Loading {simplify_url[:60]}...")
             self.driver.get(simplify_url)
 
             try:
                 WebDriverWait(self.driver, 15).until(
                     lambda d: "simplify.jobs" not in d.current_url
                 )
+                logging.info("Simplify: Auto-redirected successfully")
             except TimeoutException:
-                logging.debug("Simplify redirect timeout")
+                logging.info("Simplify: No auto-redirect, checking page")
 
             current_url = self.driver.current_url
+            logging.info(f"Simplify: Current URL: {current_url[:80]}")
+
             if "simplify.jobs" not in current_url.lower():
+                logging.info(f"Simplify: ✓ Resolved to {current_url[:80]}")
                 return current_url
 
+            page_title = self.driver.title
+            logging.info(f"Simplify: Page title: {page_title[:60]}")
+
+            try:
+                iframe_count = len(self.driver.find_elements(By.TAG_NAME, "iframe"))
+                logging.info(f"Simplify: Found {iframe_count} iframes")
+
+                for iframe in self.driver.find_elements(By.TAG_NAME, "iframe"):
+                    iframe_src = iframe.get_attribute("src")
+                    if (
+                        iframe_src
+                        and "http" in iframe_src
+                        and "simplify" not in iframe_src
+                    ):
+                        if "linkedin" not in iframe_src.lower():
+                            logging.info(
+                                f"Simplify: ✓ Found URL in iframe src: {iframe_src[:60]}"
+                            )
+                            return iframe_src
+            except Exception as e:
+                logging.debug(f"Simplify: Iframe check failed: {e}")
+
+            try:
+                logging.info("Simplify: Attempting click-based extraction")
+                click_selectors = [
+                    "//button[contains(text(), 'Apply')]",
+                    "//a[contains(text(), 'Apply')]",
+                    "//button[contains(text(), 'Easy Apply')]",
+                    "//a[contains(@class, 'apply')]",
+                ]
+
+                original_window = self.driver.current_window_handle
+                original_url = self.driver.current_url
+
+                for selector in click_selectors:
+                    try:
+                        elements = self.driver.find_elements(By.XPATH, selector)
+                        if elements:
+                            logging.info(
+                                f"Simplify: Found {len(elements)} clickable elements"
+                            )
+                            for elem in elements:
+                                try:
+                                    elem_text = elem.text[:30]
+                                    logging.info(
+                                        f"Simplify: Trying to click: {elem_text}"
+                                    )
+
+                                    elem.click()
+                                    time.sleep(5)
+
+                                    new_url = self.driver.current_url
+                                    if (
+                                        new_url != original_url
+                                        and "simplify.jobs" not in new_url
+                                    ):
+                                        if "linkedin" not in new_url.lower():
+                                            logging.info(
+                                                f"Simplify: ✓ Click navigated to {new_url[:60]}"
+                                            )
+                                            self.driver.get(simplify_url)
+                                            return new_url
+
+                                    all_windows = self.driver.window_handles
+                                    if len(all_windows) > 1:
+                                        for window in all_windows:
+                                            if window != original_window:
+                                                self.driver.switch_to.window(window)
+                                                tab_url = self.driver.current_url
+                                                if (
+                                                    "simplify.jobs" not in tab_url
+                                                    and "linkedin"
+                                                    not in tab_url.lower()
+                                                ):
+                                                    logging.info(
+                                                        f"Simplify: ✓ Click opened tab: {tab_url[:60]}"
+                                                    )
+                                                    self.driver.close()
+                                                    self.driver.switch_to.window(
+                                                        original_window
+                                                    )
+                                                    return tab_url
+                                                self.driver.close()
+                                        self.driver.switch_to.window(original_window)
+
+                                    self.driver.get(simplify_url)
+                                    time.sleep(2)
+                                except Exception as e:
+                                    logging.debug(f"Simplify: Click action failed: {e}")
+                                    try:
+                                        self.driver.switch_to.window(original_window)
+                                        self.driver.get(simplify_url)
+                                    except:
+                                        pass
+                    except Exception as e:
+                        logging.debug(
+                            f"Simplify: Click selector {selector} failed: {e}"
+                        )
+
+                logging.info("Simplify: Click method completed, no URL found")
+            except Exception as e:
+                logging.warning(f"Simplify: Click method error: {e}")
+
             selectors = [
+                'a[href*="applytojob"]',
                 'a[href*="workday"]',
                 'a[href*="greenhouse"]',
                 'a[href*="lever"]',
@@ -1159,14 +1318,23 @@ class PageFetcher:
                     onclick = element.get_attribute("onclick")
 
                     if href and "http" in href and "simplify.jobs" not in href:
+                        logging.info(
+                            f"Simplify: ✓ Found via selector {selector}: {href[:60]}"
+                        )
                         return href
 
                     if onclick:
                         url_match = re.search(r"https?://[^\s'\")]+", onclick)
                         if url_match:
-                            return url_match.group(0)
+                            url = url_match.group(0)
+                            logging.info(
+                                f"Simplify: ✓ Found via onclick {selector}: {url[:60]}"
+                            )
+                            return url
                 except:
                     continue
+
+            logging.info("Simplify: No selectors matched, trying meta refresh")
 
             try:
                 meta_refresh = self.driver.find_element(
@@ -1178,24 +1346,34 @@ class PageFetcher:
                     if match:
                         redirect_url = match.group(1).strip()
                         if "simplify.jobs" not in redirect_url:
+                            logging.info(
+                                f"Simplify: ✓ Found via meta refresh: {redirect_url[:60]}"
+                            )
                             return redirect_url
             except:
-                pass
+                logging.info("Simplify: No meta refresh found")
 
+            logging.info("Simplify: Trying BeautifulSoup parse")
             soup = BeautifulSoup(self.driver.page_source, "lxml")
-            for a_tag in soup.find_all("a", href=True):
+
+            job_links = soup.find_all("a", href=True)
+            logging.info(f"Simplify: Found {len(job_links)} total links on page")
+
+            for a_tag in job_links:
                 href = a_tag["href"]
                 if any(
                     domain in href
                     for domain in ["workday", "greenhouse", "lever", "icims", "taleo"]
                 ):
                     if "simplify.jobs" not in href:
+                        logging.info(f"Simplify: ✓ Found via soup: {href[:60]}")
                         return href
 
+            logging.warning("Simplify: ✗ All resolution methods failed")
             return None
 
         except Exception as e:
-            logging.warning(f"Simplify resolution failed for {simplify_url}: {e}")
+            logging.error(f"Simplify resolution error: {e}")
             return None
 
     def extract_jobright_canonical(self, jobright_url: str) -> Optional[str]:
@@ -1203,21 +1381,123 @@ class PageFetcher:
             self._initialize_driver()
 
         if not self.driver:
+            logging.warning("Jobright: Driver not available")
             return None
 
         try:
+            logging.info(f"Jobright: Loading {jobright_url[:70]}...")
             self.driver.get(jobright_url)
 
             try:
                 WebDriverWait(self.driver, 10).until(
                     EC.presence_of_element_located((By.TAG_NAME, "body"))
                 )
+                logging.info("Jobright: Page loaded")
             except TimeoutException:
-                logging.debug("Timeout loading Jobright page")
+                logging.warning("Jobright: Page load timeout")
 
             time.sleep(5)
 
+            page_title = self.driver.title
+            current_url = self.driver.current_url
+            logging.info(f"Jobright: Title: {page_title[:50]}")
+            logging.info(f"Jobright: URL: {current_url[:80]}")
+
+            try:
+                logging.info("Jobright: Attempting click-based extraction")
+                apply_selectors = [
+                    'a[id="apply-now-button"]',
+                    'button[id="apply-now-button"]',
+                    'a:contains("APPLY NOW")',
+                    'button:contains("Apply")',
+                    "a.apply-button",
+                ]
+
+                original_window = self.driver.current_window_handle
+                original_url = self.driver.current_url
+
+                for selector in apply_selectors:
+                    try:
+                        if "contains" in selector:
+                            buttons = self.driver.find_elements(
+                                By.XPATH, f"//*[contains(text(), 'APPLY')]"
+                            )
+                        else:
+                            buttons = self.driver.find_elements(
+                                By.CSS_SELECTOR, selector
+                            )
+
+                        if buttons:
+                            logging.info(
+                                f"Jobright: Found {len(buttons)} elements matching {selector}"
+                            )
+                            button = buttons[0]
+
+                            href = button.get_attribute("href")
+                            if href and "applytojob.com" in href:
+                                logging.info(
+                                    f"Jobright: ✓ Click method found applytojob in href: {href[:60]}"
+                                )
+                                return href
+
+                            try:
+                                button.click()
+                                time.sleep(3)
+
+                                new_url = self.driver.current_url
+                                if (
+                                    new_url != original_url
+                                    and "jobright.ai" not in new_url
+                                ):
+                                    if "linkedin" not in new_url.lower():
+                                        logging.info(
+                                            f"Jobright: ✓ Click navigation to {new_url[:60]}"
+                                        )
+                                        self.driver.get(jobright_url)
+                                        return new_url
+
+                                all_windows = self.driver.window_handles
+                                if len(all_windows) > 1:
+                                    for window in all_windows:
+                                        if window != original_window:
+                                            self.driver.switch_to.window(window)
+                                            new_tab_url = self.driver.current_url
+                                            if (
+                                                "jobright.ai" not in new_tab_url
+                                                and "linkedin"
+                                                not in new_tab_url.lower()
+                                            ):
+                                                logging.info(
+                                                    f"Jobright: ✓ Click opened new tab: {new_tab_url[:60]}"
+                                                )
+                                                self.driver.close()
+                                                self.driver.switch_to.window(
+                                                    original_window
+                                                )
+                                                return new_tab_url
+                                            self.driver.close()
+                                    self.driver.switch_to.window(original_window)
+
+                                self.driver.get(jobright_url)
+                                time.sleep(2)
+                            except Exception as e:
+                                logging.debug(
+                                    f"Jobright: Click failed for {selector}: {e}"
+                                )
+                                try:
+                                    self.driver.switch_to.window(original_window)
+                                except:
+                                    pass
+                    except Exception as e:
+                        logging.debug(f"Jobright: Selector {selector} failed: {e}")
+                        continue
+
+                logging.info("Jobright: Click method did not find URL")
+            except Exception as e:
+                logging.warning(f"Jobright: Click method error: {e}")
+
             selectors = [
+                'a[href*="applytojob"]',
                 'a[href*="workday"]',
                 'a[href*="greenhouse"]',
                 'a[href*="lever"]',
@@ -1229,15 +1509,20 @@ class PageFetcher:
                 'a[href*="job"]',
             ]
 
+            selector_count = 0
             for selector in selectors:
                 try:
                     elements = self.driver.find_elements(By.CSS_SELECTOR, selector)
+                    selector_count += len(elements)
                     for element in elements:
                         href = element.get_attribute("href")
                         onclick = element.get_attribute("onclick")
 
                         if href and "jobright.ai" not in href and "http" in href:
                             if "linkedin" not in href.lower():
+                                logging.info(
+                                    f"Jobright: ✓ Found via {selector}: {href[:60]}"
+                                )
                                 return href
 
                         if onclick:
@@ -1248,11 +1533,31 @@ class PageFetcher:
                                     "jobright.ai" not in url
                                     and "linkedin" not in url.lower()
                                 ):
+                                    logging.info(
+                                        f"Jobright: ✓ Found via onclick {selector}: {url[:60]}"
+                                    )
                                     return url
                 except:
                     continue
 
+            logging.info(
+                f"Jobright: Checked selectors, found {selector_count} elements"
+            )
+
             try:
+                data_url_count = len(
+                    self.driver.find_elements(By.CSS_SELECTOR, "[data-url]")
+                )
+                data_job_count = len(
+                    self.driver.find_elements(By.CSS_SELECTOR, "[data-job-url]")
+                )
+                data_orig_count = len(
+                    self.driver.find_elements(By.CSS_SELECTOR, "[data-original-url]")
+                )
+                logging.info(
+                    f"Jobright: data-url={data_url_count}, data-job-url={data_job_count}, data-original-url={data_orig_count}"
+                )
+
                 for elem in self.driver.find_elements(By.CSS_SELECTOR, "[data-url]"):
                     data_url = elem.get_attribute("data-url")
                     if (
@@ -1261,6 +1566,9 @@ class PageFetcher:
                         and "http" in data_url
                     ):
                         if "linkedin" not in data_url.lower():
+                            logging.info(
+                                f"Jobright: ✓ Found via data-url: {data_url[:60]}"
+                            )
                             return data_url
 
                 for elem in self.driver.find_elements(
@@ -1273,6 +1581,9 @@ class PageFetcher:
                         and "http" in data_url
                     ):
                         if "linkedin" not in data_url.lower():
+                            logging.info(
+                                f"Jobright: ✓ Found via data-job-url: {data_url[:60]}"
+                            )
                             return data_url
 
                 for elem in self.driver.find_elements(
@@ -1285,12 +1596,16 @@ class PageFetcher:
                         and "http" in data_url
                     ):
                         if "linkedin" not in data_url.lower():
+                            logging.info(
+                                f"Jobright: ✓ Found via data-original-url: {data_url[:60]}"
+                            )
                             return data_url
-            except:
-                pass
+            except Exception as e:
+                logging.info(f"Jobright: Data attribute check failed: {e}")
 
             try:
                 script_tags = self.driver.find_elements(By.TAG_NAME, "script")
+                logging.info(f"Jobright: Checking {len(script_tags)} script tags")
                 for script in script_tags:
                     text = script.get_attribute("innerHTML")
                     if text:
@@ -1299,6 +1614,9 @@ class PageFetcher:
                             if match:
                                 url = match.group(1)
                                 if "linkedin" not in url.lower():
+                                    logging.info(
+                                        f"Jobright: ✓ Found original_url in JSON: {url[:60]}"
+                                    )
                                     return url
                         if "jobUrl" in text:
                             match = re.search(r'"jobUrl"\s*:\s*"([^"]+)"', text)
@@ -1308,9 +1626,12 @@ class PageFetcher:
                                     "jobright.ai" not in url
                                     and "linkedin" not in url.lower()
                                 ):
+                                    logging.info(
+                                        f"Jobright: ✓ Found jobUrl in JSON: {url[:60]}"
+                                    )
                                     return url
-            except:
-                pass
+            except Exception as e:
+                logging.info(f"Jobright: Script tag parsing failed: {e}")
 
             try:
                 meta_refresh = self.driver.find_element(
@@ -1325,30 +1646,38 @@ class PageFetcher:
                             "jobright.ai" not in redirect_url
                             and "linkedin" not in redirect_url.lower()
                         ):
+                            logging.info(
+                                f"Jobright: ✓ Found via meta refresh: {redirect_url[:60]}"
+                            )
                             return redirect_url
             except:
-                pass
+                logging.info("Jobright: No meta refresh found")
 
             soup = BeautifulSoup(self.driver.page_source, "lxml")
+            all_links = soup.find_all("a", href=True)
+            logging.info(f"Jobright: BeautifulSoup found {len(all_links)} links")
 
             for elem in soup.find_all(attrs={"data-url": True}):
                 url = elem.get("data-url")
                 if url and "jobright.ai" not in url and "http" in url:
                     if "linkedin" not in url.lower():
+                        logging.info(f"Jobright: ✓ Found via soup data-url: {url[:60]}")
                         return url
 
-            for a_tag in soup.find_all("a", href=True):
+            for a_tag in all_links:
                 href = a_tag["href"]
                 if "jobright.ai" not in href and any(
                     d in href for d in ["workday", "greenhouse", "lever", "icims"]
                 ):
                     if href.startswith("http") and "linkedin" not in href.lower():
+                        logging.info(f"Jobright: ✓ Found via soup href: {href[:60]}")
                         return href
 
+            logging.warning("Jobright: ✗ All extraction methods failed")
             return None
 
         except Exception as e:
-            logging.warning(f"Jobright canonical extraction failed: {e}")
+            logging.error(f"Jobright extraction error: {e}")
             return None
 
     def _cleanup_driver(self):
@@ -1561,43 +1890,100 @@ class SourceParsers:
         }
 
         try:
-            if soup:
-                title_elem = soup.find("h2")
-                if not title_elem:
-                    title_elem = soup.find("h3")
-                if title_elem:
+            if not soup:
+                logging.warning("Jobright email: No soup provided")
+                return result
+
+            job_id = url.split("/info/")[-1].split("?")[0] if "/info/" in url else None
+
+            if not job_id:
+                logging.warning(
+                    f"Jobright email: Could not extract job ID from {url[:60]}"
+                )
+                return result
+
+            logging.info(f"Jobright email: Looking for job card with ID {job_id}")
+
+            target_container = None
+            all_links = soup.find_all("a", href=True)
+
+            for link in all_links:
+                href = link.get("href", "")
+                if job_id in href and "jobright.ai/jobs/info/" in href:
+                    logging.info(f"Jobright email: Found link with job ID")
+                    parent = link
+                    for _ in range(15):
+                        parent = parent.parent
+                        if not parent:
+                            break
+                        if parent.name == "table" and (
+                            parent.get("id") == "job-section"
+                            or parent.get("id") == "job-container"
+                        ):
+                            target_container = parent
+                            logging.info(
+                                f"Jobright email: Found container {parent.get('id')}"
+                            )
+                            break
+                    if target_container:
+                        break
+
+            if not target_container:
+                logging.warning(
+                    "Jobright email: Could not find job container, searching entire email"
+                )
+                target_container = soup
+
+            company_elem = target_container.find(id="job-company-name")
+            if company_elem:
+                result["company"] = company_elem.get_text(strip=True)
+                logging.info(f"Jobright email: Company = {result['company']}")
+
+            title_elem = target_container.find(id="job-title")
+            if title_elem:
+                title_link = title_elem.find("a")
+                if title_link:
+                    result["title"] = title_link.get_text(strip=True)
+                else:
                     result["title"] = title_elem.get_text(strip=True)
+                logging.info(f"Jobright email: Title = {result['title']}")
 
-                company_elem = soup.find(string=re.compile(r"Company:", re.I))
-                if company_elem:
-                    parent = company_elem.parent
-                    if parent:
-                        company_text = parent.get_text(strip=True)
-                        company = company_text.replace("Company:", "").strip()
-                        if company:
-                            result["company"] = company
+            location_tags = target_container.find_all(id="job-tag")
+            if location_tags:
+                for tag in location_tags:
+                    text = tag.get_text(strip=True)
+                    if (
+                        "," in text
+                        and "$" not in text
+                        and "referral" not in text.lower()
+                        and "hour" not in text.lower()
+                        and "ago" not in text.lower()
+                    ):
+                        result["location"] = text
+                        logging.info(f"Jobright email: Location = {result['location']}")
+                        break
 
-                location_elem = soup.find(string=re.compile(r"Location:", re.I))
-                if location_elem:
-                    parent = location_elem.parent
-                    if parent:
-                        location_text = parent.get_text(strip=True)
-                        location = location_text.replace("Location:", "").strip()
-                        if location:
-                            result["location"] = location
+            time_elem = target_container.find(id="job-time-posted")
+            if time_elem:
+                time_text = time_elem.get_text(strip=True)
+                days = DateParser.extract_days_ago(time_text)
+                if days is not None:
+                    result["email_age_days"] = days
+                    logging.info(f"Jobright email: Age = {days} days")
 
-                date_elem = soup.find(string=re.compile(r"Posted:", re.I))
-                if date_elem:
-                    parent = date_elem.parent
-                    if parent:
-                        date_text = parent.get_text(strip=True)
-                        days = DateParser.extract_days_ago(date_text)
-                        if days is not None:
-                            result["email_age_days"] = days
+            if result["company"] != "Unknown" and result["title"] != "Unknown":
+                logging.info(
+                    f"Jobright email: ✓ Extracted {result['company']} - {result['title']}"
+                )
+            else:
+                logging.warning(
+                    f"Jobright email: Incomplete - company={result['company']}, title={result['title']}"
+                )
 
         except Exception as e:
-            logging.debug(f"Jobright email parsing error: {e}")
+            logging.error(f"Jobright email parsing error: {e}")
 
+        return result
         return result
 
     def parse_job_page(self, url: str) -> Dict[str, Any]:

@@ -316,19 +316,20 @@ class UnifiedJobAggregator:
             intl_check = LocationProcessor.check_if_international(
                 location_formatted, soup, final_url, title
             )
-            if intl_check and "Canada" in str(intl_check):
-                print(f"  {company[:30]}: ✗ {intl_check}")
-                self._add_to_discarded(
-                    company,
-                    title,
-                    "Canada",
-                    remote,
-                    final_url,
-                    job_id,
-                    intl_check,
-                    source,
-                    sponsorship,
-                )
+            if intl_check:
+                if "Canada" in str(intl_check) or "International" in str(intl_check):
+                    print(f"  {company[:30]}: ✗ {intl_check}")
+                    self._add_to_discarded(
+                        company,
+                        title,
+                        "Canada",
+                        remote,
+                        final_url,
+                        job_id,
+                        intl_check,
+                        source,
+                        sponsorship,
+                    )
                 self.outcomes["discarded"] += 1
                 return
             if location_formatted == "Unknown":
@@ -439,102 +440,115 @@ class UnifiedJobAggregator:
             return
         if "jobright.ai/jobs/info/" in url.lower():
             soup, _ = safe_parse_html(email_html)
-            if soup:
-                job_data = SourceParsers.parse_jobright_email(
-                    soup, url, self.jobright_auth
+            if not soup:
+                logging.warning("Jobright: No email HTML to parse")
+                return
+
+            email_data = SourceParsers.parse_jobright_email(
+                soup, url, self.jobright_auth
+            )
+
+            if not email_data:
+                logging.warning("Jobright: Email parsing returned None")
+                return
+
+            email_company = email_data.get("company", "Unknown")
+            email_title = email_data.get("title", "Unknown")
+            email_location = email_data.get("location", "Unknown")
+            email_age = email_data.get("email_age_days")
+
+            logging.info(
+                f"Jobright: Email data - {email_company} | {email_title} | {email_location}"
+            )
+
+            if email_age is not None and email_age > MAX_JOB_AGE_DAYS:
+                print(f"    {email_company[:28]}: ✗ Posted {email_age}d ago")
+                self.outcomes["skipped_too_old"] += 1
+                return
+
+            canonical_url = self.page_fetcher.extract_jobright_canonical(url)
+
+            if (
+                canonical_url
+                and "simplify" not in canonical_url
+                and "linkedin" not in canonical_url
+            ):
+                logging.info(f"Jobright: ✓ Canonical URL found: {canonical_url[:60]}")
+                response, final_url, page_source = self.page_fetcher.fetch_page(
+                    canonical_url
                 )
-                if job_data:
-                    email_company = job_data.get("company", "Unknown")
-                    email_location = job_data.get("location", "Unknown")
-                    email_remote = job_data.get("remote", "Unknown")
-                    email_age = job_data.get("email_age_days")
-                    if email_age is not None and email_age > MAX_JOB_AGE_DAYS:
-                        self.outcomes["skipped_too_old"] += 1
-                        return
-                    actual_url = job_data["url"]
-                    if actual_url != url and "linkedin" not in actual_url.lower():
-                        response, final_url, page_source = self.page_fetcher.fetch_page(
-                            actual_url
+
+                if response and final_url:
+                    soup_page, _ = safe_parse_html(response.text)
+                    if soup_page:
+                        platform = PlatformDetector.detect(final_url)
+                        self._enhance_job_data_from_page(
+                            email_data, soup_page, final_url, platform, page_source
                         )
-                        if response and final_url:
-                            soup_page, _ = safe_parse_html(response.text)
-                            if soup_page:
-                                platform = PlatformDetector.detect(final_url)
-                                self._enhance_job_data_from_page(
-                                    job_data,
-                                    soup_page,
-                                    final_url,
-                                    platform,
-                                    page_source,
-                                )
-                                if (
-                                    job_data.get("company") == "Unknown"
-                                    and email_company != "Unknown"
-                                ):
-                                    job_data["company"] = email_company
-                                if (
-                                    job_data.get("location") == "Unknown"
-                                    and email_location != "Unknown"
-                                ):
-                                    job_data["location"] = email_location
-                                if (
-                                    job_data.get("remote") == "Unknown"
-                                    and email_remote != "Unknown"
-                                ):
-                                    job_data["remote"] = email_remote
-                                job_data["url"] = final_url
-                                page_age = PageParser.extract_job_age_days(soup_page)
-                                if page_age is not None and page_age > MAX_JOB_AGE_DAYS:
-                                    self.outcomes["skipped_too_old"] += 1
-                                    return
-                                is_valid_season, season_reason = (
-                                    TitleProcessor.check_season_requirement(
-                                        job_data["title"], soup_page.get_text()[:2000]
-                                    )
-                                )
-                                if not is_valid_season:
-                                    self.outcomes["skipped_wrong_season"] += 1
-                                    return self._create_discard_result(
-                                        job_data, season_reason, sender
-                                    )
-                                decision, restriction, review_flags = (
-                                    self._check_page_restrictions_no_sponsorship(
-                                        soup_page
-                                    )
-                                )
-                                if decision == "REJECT" and restriction:
-                                    return self._create_discard_result(
-                                        job_data, restriction, sender
-                                    )
-                                if review_flags:
-                                    job_data["review_flags"] = review_flags
-                                if page_age is None:
-                                    if "review_flags" not in job_data:
-                                        job_data["review_flags"] = []
-                                    job_data["review_flags"].append("⚠️ Age unknown")
-                                intl_check = LocationProcessor.check_if_international(
-                                    job_data["location"],
-                                    soup_page,
-                                    final_url,
-                                    job_data.get("title", ""),
-                                )
-                                if intl_check and "Canada" in str(intl_check):
-                                    return self._create_discard_result(
-                                        job_data, intl_check, sender
-                                    )
-                        else:
-                            if email_company != "Unknown":
-                                job_data["company"] = email_company
-                            if email_location != "Unknown":
-                                job_data["location"] = email_location
-                    result = self._validate_parsed_job(job_data, sender)
-                    if result:
-                        self._handle_validation_result(result, sender)
+
+                        if (
+                            email_data.get("company") == "Unknown"
+                            and email_company != "Unknown"
+                        ):
+                            email_data["company"] = email_company
+                        if (
+                            email_data.get("location") == "Unknown"
+                            and email_location != "Unknown"
+                        ):
+                            email_data["location"] = email_location
+                        if (
+                            email_data.get("title") == "Unknown"
+                            and email_title != "Unknown"
+                        ):
+                            email_data["title"] = email_title
+
+                        email_data["url"] = final_url
+
+                        page_age = PageParser.extract_job_age_days(soup_page)
+                        if page_age is not None and page_age > MAX_JOB_AGE_DAYS:
+                            print(
+                                f"    {email_data['company'][:28]}: ✗ Posted {page_age}d ago"
+                            )
+                            self.outcomes["skipped_too_old"] += 1
+                            return
+
+                        decision, restriction, review_flags = (
+                            self._check_page_restrictions_no_sponsorship(soup_page)
+                        )
+                        if decision == "REJECT" and restriction:
+                            print(f"    {email_data['company'][:28]}: ✗ {restriction}")
+                            return self._create_discard_result(
+                                email_data, restriction, sender
+                            )
                     else:
-                        print(
-                            f"    {job_data.get('company', 'Unknown')[:28]}: ⊘ Duplicate"
-                        )
-                    return
+                        logging.warning("Jobright: Page parse failed, using email data")
+                        if email_company != "Unknown":
+                            email_data["company"] = email_company
+                        if email_location != "Unknown":
+                            email_data["location"] = email_location
+                else:
+                    logging.warning(
+                        "Jobright: Page fetch failed, using email data only"
+                    )
+                    if email_company != "Unknown":
+                        email_data["company"] = email_company
+                    if email_location != "Unknown":
+                        email_data["location"] = email_location
+            else:
+                logging.info("Jobright: No canonical URL, using email data only")
+                if email_company != "Unknown":
+                    email_data["company"] = email_company
+                if email_location != "Unknown":
+                    email_data["location"] = email_location
+                if email_title != "Unknown":
+                    email_data["title"] = email_title
+
+            result = self._validate_parsed_job(email_data, sender)
+            if result:
+                self._handle_validation_result(result, sender)
+            else:
+                print(f"    {email_data.get('company', 'Unknown')[:28]}: ⊘ Duplicate")
+            return
         clean_url = URLCleaner.clean_url(url)
         if clean_url in self.processing_lock:
             self.outcomes["skipped_duplicate_url"] += 1
@@ -633,7 +647,9 @@ class UnifiedJobAggregator:
             intl_check = LocationProcessor.check_if_international(
                 location_formatted, soup, final_url, title
             )
-            if intl_check and "Canada" in str(intl_check):
+            if intl_check and (
+                "Canada" in str(intl_check) or "International" in str(intl_check)
+            ):
                 print(f"    {company[:28]}: ✗ {intl_check}")
                 return self._create_discard_result(
                     {
@@ -718,8 +734,9 @@ class UnifiedJobAggregator:
             job_data.get("url"),
             job_data.get("title", ""),
         )
-        if intl_check and "Canada" in str(intl_check):
-            return self._create_discard_result(job_data, intl_check, sender)
+        if intl_check:
+            if "Canada" in str(intl_check) or "International" in str(intl_check):
+                return self._create_discard_result(job_data, intl_check, sender)
         location_formatted = LocationProcessor.format_location_clean(
             job_data.get("location", "Unknown")
         )
