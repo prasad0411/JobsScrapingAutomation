@@ -104,7 +104,7 @@ class TitleProcessor:
         if not title or len(title) < 5:
             return False, "Title too short"
 
-        excluded = {"application", "click here", "apply now", "view job", "submit your"}
+        excluded = {"click here", "apply now", "view job", "submit your", "click to"}
         if any(phrase in title.lower() for phrase in excluded):
             return False, "Invalid title pattern"
 
@@ -1148,24 +1148,75 @@ class ValidationHelper:
         try:
             page_text = soup.get_text()[:15000]
 
-            year_patterns = [
-                r"(?:graduating|graduation).*\b(202[0-9])\b",
-                r"\b(202[0-9])\b.*(?:graduating|graduation)",
-                r"class\s+of\s+(202[0-9])",
+            if re.search(
+                r"(?:graduation|graduating).*(?:or\s+later|and\s+beyond)",
+                page_text,
+                re.I,
+            ):
+                logging.debug("Grad year: 'or later' found - flexible")
+                return None, None
+
+            text_cleaned = re.sub(
+                r"\b(?:January|February|March|April|May|June|July|August|September|October|November|December)\s+\d{1,2},?\s+\d{4}\b",
+                "",
+                page_text,
+                flags=re.I,
+            )
+
+            graduation_years = set()
+
+            range_patterns = [
+                r"(?:between\s+)?(\d{1,2})/(\d{4})\s*-\s*(\d{1,2})/(\d{4})",
+                r"between\s+(\d{4})\s+(?:and|to)\s+(\d{4})",
+                r"(\d{4})\s+(?:and|to|-)\s+(\d{4}).*(?:graduat|class)",
             ]
 
-            found_years = set()
-            for pattern in year_patterns:
-                matches = re.findall(pattern, page_text, re.I)
-                for match in matches:
-                    year = int(match)
-                    if 2020 <= year <= 2030:
-                        found_years.add(year)
+            for pattern in range_patterns:
+                for match in re.finditer(pattern, text_cleaned, re.I):
+                    years = [
+                        g for g in match.groups() if g and g.isdigit() and len(g) == 4
+                    ]
+                    for y in years:
+                        year_int = int(y)
+                        if 2020 <= year_int <= 2030:
+                            graduation_years.add(year_int)
 
-            if found_years:
-                if all(year <= 2026 or year >= 2028 for year in found_years):
-                    invalid_years = ", ".join(str(y) for y in sorted(found_years))
-                    return "REJECT", f"Graduation year mismatch: {invalid_years}"
+            if graduation_years:
+                min_year = min(graduation_years)
+                max_year = max(graduation_years)
+                if min_year <= 2027 <= max_year:
+                    logging.debug(
+                        f"Grad year: Range {min_year}-{max_year} includes 2027"
+                    )
+                    return None, None
+
+            specific_patterns = [
+                r"(?:anticipated\s+)?graduation(?:\s+of)?(?:\s+date)?[:\s]+(?:in\s+)?(?:[A-Za-z]+\s+)?(\d{4})",
+                r"graduating\s+(?:in\s+)?(?:[A-Za-z]+\s+)?(\d{4})",
+                r"class\s+of\s+(\d{4})",
+                r"expected\s+graduation[:\s]+(?:[A-Za-z]+\s+)?(\d{4})",
+            ]
+
+            for pattern in specific_patterns:
+                for match in re.finditer(pattern, text_cleaned, re.I):
+                    year_str = match.group(1)
+                    if year_str and year_str.isdigit():
+                        year_int = int(year_str)
+                        if 2020 <= year_int <= 2030:
+                            graduation_years.add(year_int)
+
+            if not graduation_years:
+                logging.debug("Grad year: No years found")
+                return None, None
+
+            if 2027 in graduation_years:
+                logging.debug(f"Grad year: {graduation_years} includes 2027")
+                return None, None
+
+            if all(y < 2027 or y > 2027 for y in graduation_years):
+                years_str = ", ".join(str(y) for y in sorted(graduation_years))
+                logging.debug(f"Grad year: {years_str} excludes 2027")
+                return "REJECT", f"Graduation year mismatch: {years_str}"
 
         except Exception as e:
             logging.debug(f"Graduation year check failed: {e}")
@@ -1181,63 +1232,69 @@ class ValidationHelper:
             page_text = soup.get_text()[:15000]
             page_lower = page_text.lower()
 
+            flexibility_phrases = [
+                r"bachelor'?s?\s+or\s+master'?s?",
+                r"bs\s*/\s*ms",
+                r"b\.s\.\s*/\s*m\.s\.",
+                r"b\.s\.\s+or\s+m\.s\.",
+                r"undergraduate\s+or\s+graduate",
+                r"or\s+equivalent\s+experience",
+                r"or\s+advanced\s+degree",
+                r"bachelor'?s?\s+degree\s+or\s+equivalent",
+                r"bs\s+or\s+ms\s+degree",
+                r"graduate\s+students?.*(?:welcome|encouraged|may\s+apply)",
+            ]
+
+            for phrase in flexibility_phrases:
+                if re.search(phrase, page_lower):
+                    logging.debug(f"BS check: Found flexibility phrase: {phrase}")
+                    return None, None
+
             bs_indicators = [
                 r"\bb\.?s\.?\b.*(?:in\s+)?computer\s+science",
                 r"bachelor'?s?\s+degree",
-                r"undergraduate\s+(?:degree|student)",
+                r"undergraduate\s+(?:degree|student|program)",
                 r"(?:sophomore|junior)\s+standing",
-                r"pursuing.*bachelor",
+                r"pursuing\s+a?\s+bachelor",
             ]
 
-            has_bs_requirement = any(
-                re.search(pattern, page_lower, re.I) for pattern in bs_indicators
-            )
+            has_bs_requirement = False
+            for pattern in bs_indicators:
+                if re.search(pattern, page_lower):
+                    has_bs_requirement = True
+                    logging.debug(f"BS check: Found BS requirement: {pattern}")
+                    break
 
             if not has_bs_requirement:
                 return None, None
 
-            flexibility_phrases = [
-                r"bs/ms",
-                r"b\.?s\.?/m\.?s\.?",
-                r"bachelor'?s?\s+or\s+master'?s?",
-                r"undergraduate\s+or\s+graduate",
-                r"or\s+equivalent",
-                r"equivalent\s+experience",
+            ms_indicators = [
+                r"\bm\.?s\.?\b",
+                r"master'?s?\s+degree",
+                r"graduate\s+(?:degree|student|program)",
+                r"ph\.?d\.?",
                 r"advanced\s+degree",
             ]
 
-            has_flexibility = any(
-                re.search(phrase, page_lower, re.I) for phrase in flexibility_phrases
-            )
+            has_ms = any(re.search(pattern, page_lower) for pattern in ms_indicators)
 
-            if has_flexibility:
+            if has_ms:
+                logging.debug("BS check: Found MS indicators - flexible")
                 return None, None
 
             context_window = 200
             for match in re.finditer(
-                r"\bb\.?s\.?\b|bachelor'?s?|undergraduate", page_lower, re.I
+                r"\bb\.?s\.?\b|bachelor'?s?|undergraduate", page_lower
             ):
                 start = max(0, match.start() - context_window)
                 end = min(len(page_lower), match.end() + context_window)
                 context = page_lower[start:end]
 
                 if "preferred" in context and "required" not in context:
+                    logging.debug("BS check: Found 'preferred' context - not strict")
                     return None, None
 
-            ms_indicators = [
-                r"\bm\.?s\.?\b",
-                r"master'?s?\s+degree",
-                r"graduate\s+(?:degree|student)",
-                r"ph\.?d\.?",
-            ]
-
-            has_ms = any(
-                re.search(pattern, page_lower, re.I) for pattern in ms_indicators
-            )
-
-            if has_ms:
-                return None, None
-
+            logging.debug("BS check: BS-only confirmed")
             return "REJECT", "Bachelor's students only"
 
         except Exception as e:
