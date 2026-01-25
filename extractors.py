@@ -180,15 +180,7 @@ class SimplifyRedirectResolver:
 
         result = cls._method_3_selenium(simplify_url, page_fetcher)
         if result:
-            if isinstance(result, dict):
-                logging.info("Simplify: ✓ Extracted page data (no canonical URL)")
-                return result, True
             cls._success_cache[simplify_url] = result
-            return result, True
-
-        result = cls._method_4_scrape_page_data(simplify_url, page_fetcher)
-        if result:
-            logging.info(f"Simplify: ✓ Scraped page data as fallback")
             return result, True
 
         logging.warning(f"Simplify: All methods failed for {simplify_url[:60]}")
@@ -267,73 +259,6 @@ class SimplifyRedirectResolver:
         except Exception as e:
             logging.debug(f"Simplify Method 3: Failed - {e}")
         return None
-
-    @classmethod
-    def _method_4_scrape_page_data(cls, url, page_fetcher):
-        try:
-            logging.info("Simplify Method 4: Scraping page data as fallback")
-
-            if not page_fetcher or not page_fetcher.driver:
-                response = requests.get(url, timeout=5)
-                soup = BeautifulSoup(response.text, "lxml")
-                page_title = soup.find("title")
-                title_text = page_title.get_text() if page_title else ""
-            else:
-                page_title = page_fetcher.driver.title
-                title_text = page_title
-                soup = BeautifulSoup(page_fetcher.driver.page_source, "lxml")
-
-            logging.info(f"Simplify Method 4: Page title: {title_text}")
-
-            company = "Unknown"
-            job_title = "Unknown"
-            location = "Unknown"
-
-            if " @ " in title_text:
-                parts = title_text.split(" @ ")
-                if len(parts) >= 2:
-                    job_title = parts[0].strip()
-                    company_part = parts[1].split("|")[0].strip()
-                    company = company_part
-                    logging.info(
-                        f"Simplify Method 4: Extracted from title - {company} | {job_title}"
-                    )
-
-            location_patterns = [
-                r"([A-Z][a-z]+(?:\s+[A-Z][a-z]+)*,\s*[A-Z]{2})",
-                r"(Remote)",
-                r"([A-Z][a-z]+,\s*[A-Z]{2})",
-            ]
-
-            page_text = soup.get_text()[:3000]
-            for pattern in location_patterns:
-                match = re.search(pattern, page_text)
-                if match:
-                    location = match.group(1)
-                    logging.info(f"Simplify Method 4: Found location: {location}")
-                    break
-
-            if company != "Unknown" and job_title != "Unknown":
-                result = {
-                    "company": company,
-                    "title": job_title,
-                    "location": location,
-                    "url": url,
-                    "source": "simplify_page",
-                    "description": "",
-                    "job_id": "N/A",
-                    "remote": "Unknown",
-                    "sponsorship": "Unknown",
-                }
-                logging.info(f"Simplify Method 4: ✓ Returning structured data")
-                return result
-
-            logging.warning("Simplify Method 4: Could not extract sufficient data")
-            return None
-
-        except Exception as e:
-            logging.error(f"Simplify Method 4: Failed - {e}")
-            return None
 
 
 class JSONLDExtractor:
@@ -1257,15 +1182,14 @@ class PageFetcher:
             self.driver.get(simplify_url)
 
             try:
-                WebDriverWait(self.driver, 15).until(
+                WebDriverWait(self.driver, 8).until(
                     lambda d: "simplify.jobs" not in d.current_url
                 )
-                logging.info("Simplify: Auto-redirected successfully")
+                logging.info("Simplify: Auto-redirect")
             except TimeoutException:
-                logging.info("Simplify: No auto-redirect, checking page")
+                pass
 
             current_url = self.driver.current_url
-            logging.info(f"Simplify: Current URL: {current_url[:80]}")
 
             if "simplify.jobs" not in current_url.lower():
                 logging.info(
@@ -1307,71 +1231,66 @@ class PageFetcher:
                             f"Simplify: Iframe {idx+1} has {len(iframe_links)} links"
                         )
 
-                        for link in iframe_links[:20]:
+                        for link in iframe_links[:15]:
                             href = link.get_attribute("href")
-                            if href:
-                                logging.info(f"Simplify: Iframe link: {href[:80]}")
-                                if any(
-                                    domain in href
-                                    for domain in [
-                                        "workday",
-                                        "greenhouse",
-                                        "lever",
-                                        "icims",
-                                        "taleo",
-                                        "applytojob",
-                                    ]
+                            if href and any(
+                                d in href
+                                for d in [
+                                    "workday",
+                                    "greenhouse",
+                                    "lever",
+                                    "icims",
+                                    "taleo",
+                                    "applytojob",
+                                    "careers",
+                                ]
+                            ):
+                                if (
+                                    "simplify" not in href
+                                    and "linkedin" not in href.lower()
                                 ):
-                                    if (
-                                        "simplify" not in href
-                                        and "linkedin" not in href.lower()
-                                    ):
-                                        logging.info(
-                                            f"Simplify: ✓ Found in iframe {idx+1}: {href[:60]}"
-                                        )
-                                        self.driver.switch_to.default_content()
-                                        return href
+                                    logging.info(
+                                        f"Simplify: ✓ Iframe{idx+1} link: {href[:60]}"
+                                    )
+                                    self.driver.switch_to.default_content()
+                                    return href
 
                         iframe_buttons = self.driver.find_elements(
                             By.TAG_NAME, "button"
                         )
-                        logging.info(
-                            f"Simplify: Iframe {idx+1} has {len(iframe_buttons)} buttons"
-                        )
 
-                        for button in iframe_buttons[:10]:
-                            btn_text = button.text[:30]
-                            onclick = button.get_attribute("onclick")
-                            logging.info(
-                                f"Simplify: Button: '{btn_text}' onclick: {onclick[:60] if onclick else 'none'}"
-                            )
+                        for button in iframe_buttons[:5]:
+                            btn_text = button.text[:20]
 
                             if "apply" in btn_text.lower():
                                 try:
+                                    logging.info(
+                                        f"Simplify: Clicking iframe button: {btn_text}"
+                                    )
                                     original_url = self.driver.current_url
                                     original_window = self.driver.current_window_handle
 
                                     button.click()
-                                    time.sleep(5)
+                                    time.sleep(3)
 
                                     new_url = self.driver.current_url
                                     if (
                                         new_url != original_url
                                         and "simplify" not in new_url
+                                        and "linkedin" not in new_url.lower()
                                     ):
-                                        if "linkedin" not in new_url.lower():
-                                            logging.info(
-                                                f"Simplify: ✓ Iframe button clicked, navigated to {new_url[:60]}"
-                                            )
-                                            self.driver.switch_to.default_content()
-                                            self.driver.get(simplify_url)
-                                            return new_url
+                                        logging.info(
+                                            f"Simplify: ✓ Iframe click → {new_url[:60]}"
+                                        )
+                                        self.driver.switch_to.default_content()
+                                        self.driver.get(simplify_url)
+                                        return new_url
 
-                                    all_windows = self.driver.window_handles
-                                    if len(all_windows) > 1:
-                                        for window in all_windows:
-                                            if window != original_window:
-                                                self.driver.switch_to.window(window)
+                                    windows = self.driver.window_handles
+                                    if len(windows) > 1:
+                                        for win in windows:
+                                            if win != original_window:
+                                                self.driver.switch_to.window(win)
                                                 tab_url = self.driver.current_url
                                                 if (
                                                     "simplify" not in tab_url
@@ -1379,7 +1298,7 @@ class PageFetcher:
                                                     not in tab_url.lower()
                                                 ):
                                                     logging.info(
-                                                        f"Simplify: ✓ Iframe button opened tab: {tab_url[:60]}"
+                                                        f"Simplify: ✓ Iframe tab {tab_url[:60]}"
                                                     )
                                                     self.driver.close()
                                                     self.driver.switch_to.window(
@@ -1393,7 +1312,7 @@ class PageFetcher:
                                     self.driver.switch_to.frame(iframe)
                                 except Exception as e:
                                     logging.debug(
-                                        f"Simplify: Iframe button click failed: {e}"
+                                        f"Simplify: Iframe button click error: {e}"
                                     )
 
                         self.driver.switch_to.default_content()
@@ -1601,12 +1520,74 @@ class PageFetcher:
             except TimeoutException:
                 logging.warning("Jobright: Page load timeout")
 
-            time.sleep(5)
+            time.sleep(3)
 
             page_title = self.driver.title
             current_url = self.driver.current_url
             logging.info(f"Jobright: Title: {page_title[:50]}")
             logging.info(f"Jobright: URL: {current_url[:80]}")
+
+            try:
+                logging.info("Jobright: Parsing page source for JSON data")
+                page_source = self.driver.page_source
+
+                json_patterns = [
+                    r'"originalUrl"\s*:\s*"([^"]+)"',
+                    r'"applyLink"\s*:\s*"([^"]+)"',
+                    r'"original_url"\s*:\s*"([^"]+)"',
+                    r'"apply_link"\s*:\s*"([^"]+)"',
+                    r'"jobUrl"\s*:\s*"([^"]+)"',
+                    r'"job_url"\s*:\s*"([^"]+)"',
+                    r'"canonicalUrl"\s*:\s*"([^"]+)"',
+                ]
+
+                for pattern in json_patterns:
+                    matches = re.findall(pattern, page_source)
+                    for match in matches:
+                        if (
+                            match
+                            and "http" in match
+                            and "jobright.ai" not in match
+                            and "linkedin" not in match.lower()
+                        ):
+                            logging.info(f"Jobright: ✓ Found URL in JSON: {match[:60]}")
+                            return match
+
+                logging.info("Jobright: No URL found in JSON data")
+            except Exception as e:
+                logging.debug(f"Jobright: JSON parsing failed: {e}")
+
+            try:
+                logging.info("Jobright: Searching for 'Original Job Post' link")
+                original_link_selectors = [
+                    "//a[contains(text(), 'Original Job Post')]",
+                    "//a[contains(text(), 'Original')]",
+                    "//a[contains(@id, 'original')]",
+                    "//button[contains(text(), 'Original')]",
+                ]
+
+                for selector in original_link_selectors:
+                    elements = self.driver.find_elements(By.XPATH, selector)
+                    if elements:
+                        for elem in elements:
+                            href = elem.get_attribute("href")
+                            text = elem.text[:50]
+                            logging.info(
+                                f"Jobright: Found element '{text}', href: {href[:60] if href else 'none'}"
+                            )
+                            if (
+                                href
+                                and "jobright.ai" not in href
+                                and "linkedin" not in href.lower()
+                            ):
+                                logging.info(
+                                    f"Jobright: ✓ Found via Original link: {href[:60]}"
+                                )
+                                return href
+
+                logging.info("Jobright: No direct Original Job Post link found")
+            except Exception as e:
+                logging.debug(f"Jobright: Original link search failed: {e}")
 
             try:
                 logging.info("Jobright: Attempting click-based extraction")
@@ -2189,7 +2170,32 @@ class SourceParsers:
             logging.error(f"Jobright email parsing error: {e}")
 
         return result
-        return result
+
+    @staticmethod
+    def extract_company_from_swelist_email(soup, simplify_url):
+        try:
+            if not soup:
+                return None
+
+            all_links = soup.find_all("a", href=True)
+            for link in all_links:
+                href = link.get("href", "")
+                if simplify_url in href:
+                    prev_sibling = link.find_previous("strong")
+                    if prev_sibling:
+                        company = prev_sibling.get_text(strip=True)
+                        company = company.rstrip(":").strip()
+                        if company and len(company) > 2:
+                            logging.info(
+                                f"SWE List: Extracted company from email: {company}"
+                            )
+                            return company
+
+            logging.debug("SWE List: Could not find company in email")
+            return None
+        except Exception as e:
+            logging.debug(f"SWE List company extraction error: {e}")
+            return None
 
     def parse_job_page(self, url: str) -> Dict[str, Any]:
         from processors import (
