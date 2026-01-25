@@ -385,23 +385,13 @@ class UnifiedJobAggregator:
                         if resolved:
                             total_resolved += 1
                             consecutive_failures = 0
-                            if isinstance(actual_url, dict):
-                                logging.info(f"Simplify: Processing scraped page data")
-                                result = self._validate_parsed_job(actual_url, sender)
-                                if result:
-                                    self._handle_validation_result(result, sender)
-                                else:
-                                    print(
-                                        f"    {actual_url.get('company', 'Unknown')[:28]}: ⊘ Duplicate"
-                                    )
-                            else:
-                                self._process_single_url_with_extraction(
-                                    actual_url, email["html"], sender
-                                )
+                            self._process_single_url_with_extraction(
+                                actual_url, email["html"], sender
+                            )
                         else:
                             total_failed += 1
                             consecutive_failures += 1
-                            print(f"    Simplify: ✗ All methods failed")
+                            self.outcomes["skipped_no_canonical"] += 1
                             if consecutive_failures >= 20:
                                 print(
                                     f"  ⚠️  WARNING: 20 Simplify URLs failed consecutively - continuing\n"
@@ -479,79 +469,59 @@ class UnifiedJobAggregator:
             canonical_url = self.page_fetcher.extract_jobright_canonical(url)
 
             if (
-                canonical_url
-                and "simplify" not in canonical_url
-                and "linkedin" not in canonical_url
+                not canonical_url
+                or "simplify" in canonical_url
+                or "linkedin" in canonical_url
             ):
-                logging.info(f"Jobright: ✓ Canonical URL found: {canonical_url[:60]}")
-                response, final_url, page_source = self.page_fetcher.fetch_page(
-                    canonical_url
-                )
+                logging.info("Jobright: No canonical URL found, skipping job")
+                print(f"    {email_company[:28]}: ✗ No canonical URL")
+                self.outcomes["skipped_no_canonical"] += 1
+                return
 
-                if response and final_url:
-                    soup_page, _ = safe_parse_html(response.text)
-                    if soup_page:
-                        platform = PlatformDetector.detect(final_url)
-                        self._enhance_job_data_from_page(
-                            email_data, soup_page, final_url, platform, page_source
-                        )
+            logging.info(f"Jobright: ✓ Canonical URL: {canonical_url[:60]}")
+            response, final_url, page_source = self.page_fetcher.fetch_page(
+                canonical_url
+            )
 
-                        if (
-                            email_data.get("company") == "Unknown"
-                            and email_company != "Unknown"
-                        ):
-                            email_data["company"] = email_company
-                        if (
-                            email_data.get("location") == "Unknown"
-                            and email_location != "Unknown"
-                        ):
-                            email_data["location"] = email_location
-                        if (
-                            email_data.get("title") == "Unknown"
-                            and email_title != "Unknown"
-                        ):
-                            email_data["title"] = email_title
+            if not response or not final_url:
+                logging.warning("Jobright: Page fetch failed, skipping")
+                print(f"    {email_company[:28]}: ✗ Page fetch failed")
+                self.outcomes["skipped_fetch_failed"] += 1
+                return
 
-                        email_data["url"] = final_url
+            soup_page, _ = safe_parse_html(response.text)
+            if not soup_page:
+                logging.warning("Jobright: Page parse failed, skipping")
+                print(f"    {email_company[:28]}: ✗ Parse failed")
+                self.outcomes["skipped_parse_failed"] += 1
+                return
 
-                        page_age = PageParser.extract_job_age_days(soup_page)
-                        if page_age is not None and page_age > MAX_JOB_AGE_DAYS:
-                            print(
-                                f"    {email_data['company'][:28]}: ✗ Posted {page_age}d ago"
-                            )
-                            self.outcomes["skipped_too_old"] += 1
-                            return
+            platform = PlatformDetector.detect(final_url)
+            self._enhance_job_data_from_page(
+                email_data, soup_page, final_url, platform, page_source
+            )
 
-                        decision, restriction, review_flags = (
-                            self._check_page_restrictions_no_sponsorship(soup_page)
-                        )
-                        if decision == "REJECT" and restriction:
-                            print(f"    {email_data['company'][:28]}: ✗ {restriction}")
-                            return self._create_discard_result(
-                                email_data, restriction, sender
-                            )
-                    else:
-                        logging.warning("Jobright: Page parse failed, using email data")
-                        if email_company != "Unknown":
-                            email_data["company"] = email_company
-                        if email_location != "Unknown":
-                            email_data["location"] = email_location
-                else:
-                    logging.warning(
-                        "Jobright: Page fetch failed, using email data only"
-                    )
-                    if email_company != "Unknown":
-                        email_data["company"] = email_company
-                    if email_location != "Unknown":
-                        email_data["location"] = email_location
-            else:
-                logging.info("Jobright: No canonical URL, using email data only")
-                if email_company != "Unknown":
-                    email_data["company"] = email_company
-                if email_location != "Unknown":
-                    email_data["location"] = email_location
-                if email_title != "Unknown":
-                    email_data["title"] = email_title
+            if email_data.get("company") == "Unknown" and email_company != "Unknown":
+                email_data["company"] = email_company
+            if email_data.get("location") == "Unknown" and email_location != "Unknown":
+                email_data["location"] = email_location
+            if email_data.get("title") == "Unknown" and email_title != "Unknown":
+                email_data["title"] = email_title
+
+            email_data["url"] = final_url
+
+            page_age = PageParser.extract_job_age_days(soup_page)
+            if page_age is not None and page_age > MAX_JOB_AGE_DAYS:
+                print(f"    {email_data['company'][:28]}: ✗ Posted {page_age}d ago")
+                self.outcomes["skipped_too_old"] += 1
+                return
+
+            decision, restriction, review_flags = (
+                self._check_page_restrictions_no_sponsorship(soup_page)
+            )
+            if decision == "REJECT" and restriction:
+                print(f"    {email_data['company'][:28]}: ✗ {restriction}")
+                return self._create_discard_result(email_data, restriction, sender)
 
             result = self._validate_parsed_job(email_data, sender)
             if result:
