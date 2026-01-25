@@ -385,13 +385,23 @@ class UnifiedJobAggregator:
                         if resolved:
                             total_resolved += 1
                             consecutive_failures = 0
-                            self._process_single_url_with_extraction(
-                                actual_url, email["html"], sender
-                            )
+                            if isinstance(actual_url, dict):
+                                logging.info(f"Simplify: Processing scraped page data")
+                                result = self._validate_parsed_job(actual_url, sender)
+                                if result:
+                                    self._handle_validation_result(result, sender)
+                                else:
+                                    print(
+                                        f"    {actual_url.get('company', 'Unknown')[:28]}: ⊘ Duplicate"
+                                    )
+                            else:
+                                self._process_single_url_with_extraction(
+                                    actual_url, email["html"], sender
+                                )
                         else:
                             total_failed += 1
                             consecutive_failures += 1
-                            print(f"    Simplify: ✗ Redirect failed")
+                            print(f"    Simplify: ✗ All methods failed")
                             if consecutive_failures >= 20:
                                 print(
                                     f"  ⚠️  WARNING: 20 Simplify URLs failed consecutively - continuing\n"
