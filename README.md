@@ -2,7 +2,7 @@
 
 ## Overview
 
-Enterprise-grade Python application that aggregates, validates, and manages software engineering internship opportunities from multiple sources. The system processes 1,300+ job postings daily, applies intelligent filtering rules, and maintains a centralized Google Sheets database with 99.9% data accuracy.
+Enterprise-grade Python application that aggregates, validates, and manages software engineering internship opportunities from multiple sources. The system processes 1,300+ job postings daily, applies intelligent filtering rules, and maintains a centralized Google Sheets database with 90% data accuracy.
 
 ## Core Features
 
