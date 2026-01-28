@@ -1730,7 +1730,11 @@ class PageFetcher:
 
             try:
                 logging.info("Jobright: Parsing page source for JSON data")
-                page_source = self.driver.page_source
+
+                raw_response = requests.get(jobright_url, timeout=10)
+                page_source = (
+                    raw_response.text
+                )  
 
                 json_patterns = [
                     r'"originalUrl"\s*:\s*"([^"]+)"',
