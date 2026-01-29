@@ -1,0 +1,938 @@
+{
+  "timestamp": "2026-01-28T22:57:17.847535",
+  "simplify": [
+    {
+      "url": "https://simplify.jobs/p/8be884a5-0b4e-4535-b754-158649a19e31?utm_source=swelist",
+      "timestamp": "2026-01-28T22:57:21.997226",
+      "methods_attempted": [
+        {
+          "method": "Full JSON Analysis",
+          "status": "success",
+          "field": "url",
+          "url": "https://simplify.jobs/jobs/click/8be884a5-0b4e-4535-b754-158649a19e31"
+        }
+      ],
+      "data_found": {
+        "jobPosting_keys": [
+          "total_views",
+          "title",
+          "description",
+          "requirements",
+          "responsibilities",
+          "desirable",
+          "subtitles",
+          "id",
+          "job_id",
+          "ats",
+          "start_date",
+          "end_date",
+          "updated_date",
+          "tracked_obj",
+          "entry_level",
+          "junior",
+          "mid_level",
+          "senior",
+          "expert",
+          "active",
+          "visible",
+          "archive",
+          "degrees",
+          "currency_type",
+          "min_salary",
+          "max_salary",
+          "salary_period",
+          "additional_salary_info",
+          "additional_salary_info_v2",
+          "additional_requirements",
+          "sponsors_h1b",
+          "travel_requirements",
+          "lift_requirement",
+          "questions",
+          "locations",
+          "additional_location_info",
+          "job",
+          "skills",
+          "functions",
+          "other_locations",
+          "seasons",
+          "is_scout_job_posting",
+          "url"
+        ],
+        "url_fields": {
+          "url": "https://simplify.jobs/jobs/click/8be884a5-0b4e-4535-b754-158649a19e31"
+        },
+        "tracked_obj": "workday:Comcast_Careers/Comcast-Software-Engineer-Co-op_R421854"
+      },
+      "final_url": "https://simplify.jobs/jobs/click/8be884a5-0b4e-4535-b754-158649a19e31",
+      "success_method": "Full JSON Analysis"
+    },
+    {
+      "url": "https://simplify.jobs/p/62ddf41b-fb28-48c0-a0d4-ef12d453eb0b?utm_source=swelist",
+      "timestamp": "2026-01-28T22:57:22.598739",
+      "methods_attempted": [
+        {
+          "method": "Full JSON Analysis",
+          "status": "success",
+          "field": "url",
+          "url": "https://simplify.jobs/jobs/click/62ddf41b-fb28-48c0-a0d4-ef12d453eb0b"
+        }
+      ],
+      "data_found": {
+        "jobPosting_keys": [
+          "total_views",
+          "title",
+          "description",
+          "requirements",
+          "responsibilities",
+          "desirable",
+          "subtitles",
+          "id",
+          "job_id",
+          "ats",
+          "start_date",
+          "end_date",
+          "updated_date",
+          "tracked_obj",
+          "entry_level",
+          "junior",
+          "mid_level",
+          "senior",
+          "expert",
+          "active",
+          "visible",
+          "archive",
+          "degrees",
+          "currency_type",
+          "min_salary",
+          "max_salary",
+          "salary_period",
+          "additional_salary_info",
+          "additional_salary_info_v2",
+          "additional_requirements",
+          "sponsors_h1b",
+          "travel_requirements",
+          "lift_requirement",
+          "questions",
+          "locations",
+          "additional_location_info",
+          "job",
+          "skills",
+          "functions",
+          "other_locations",
+          "seasons",
+          "is_scout_job_posting",
+          "url"
+        ],
+        "url_fields": {
+          "url": "https://simplify.jobs/jobs/click/62ddf41b-fb28-48c0-a0d4-ef12d453eb0b"
+        },
+        "tracked_obj": "workday:MFCJH_adminJobs/Product-Documentation-Specialist---Co-op_JR26010907-1"
+      },
+      "final_url": "https://simplify.jobs/jobs/click/62ddf41b-fb28-48c0-a0d4-ef12d453eb0b",
+      "success_method": "Full JSON Analysis"
+    },
+    {
+      "url": "https://simplify.jobs/p/a34fd6fd-c9fc-43d2-bff0-d75f752bbed7?utm_source=swelist",
+      "timestamp": "2026-01-28T22:57:22.879497",
+      "methods_attempted": [
+        {
+          "method": "Full JSON Analysis",
+          "status": "success",
+          "field": "url",
+          "url": "https://simplify.jobs/jobs/click/a34fd6fd-c9fc-43d2-bff0-d75f752bbed7"
+        }
+      ],
+      "data_found": {
+        "jobPosting_keys": [
+          "total_views",
+          "title",
+          "description",
+          "requirements",
+          "responsibilities",
+          "desirable",
+          "subtitles",
+          "id",
+          "job_id",
+          "ats",
+          "start_date",
+          "end_date",
+          "updated_date",
+          "tracked_obj",
+          "entry_level",
+          "junior",
+          "mid_level",
+          "senior",
+          "expert",
+          "active",
+          "visible",
+          "archive",
+          "degrees",
+          "currency_type",
+          "min_salary",
+          "max_salary",
+          "salary_period",
+          "additional_salary_info",
+          "additional_salary_info_v2",
+          "additional_requirements",
+          "sponsors_h1b",
+          "travel_requirements",
+          "lift_requirement",
+          "questions",
+          "locations",
+          "additional_location_info",
+          "job",
+          "skills",
+          "functions",
+          "other_locations",
+          "seasons",
+          "is_scout_job_posting",
+          "url"
+        ],
+        "url_fields": {
+          "url": "https://simplify.jobs/jobs/click/a34fd6fd-c9fc-43d2-bff0-d75f752bbed7"
+        },
+        "tracked_obj": "greenhouse:ginkgobioworks/jobs/5033171007"
+      },
+      "final_url": "https://simplify.jobs/jobs/click/a34fd6fd-c9fc-43d2-bff0-d75f752bbed7",
+      "success_method": "Full JSON Analysis"
+    },
+    {
+      "url": "https://simplify.jobs/p/f19fc366-1b13-4cf5-a10f-75ccd232212d?utm_source=swelist",
+      "timestamp": "2026-01-28T22:57:23.175506",
+      "methods_attempted": [
+        {
+          "method": "Full JSON Analysis",
+          "status": "success",
+          "field": "url",
+          "url": "https://simplify.jobs/jobs/click/f19fc366-1b13-4cf5-a10f-75ccd232212d"
+        }
+      ],
+      "data_found": {
+        "jobPosting_keys": [
+          "total_views",
+          "title",
+          "description",
+          "requirements",
+          "responsibilities",
+          "desirable",
+          "subtitles",
+          "id",
+          "job_id",
+          "ats",
+          "start_date",
+          "end_date",
+          "updated_date",
+          "tracked_obj",
+          "entry_level",
+          "junior",
+          "mid_level",
+          "senior",
+          "expert",
+          "active",
+          "visible",
+          "archive",
+          "degrees",
+          "currency_type",
+          "min_salary",
+          "max_salary",
+          "salary_period",
+          "additional_salary_info",
+          "additional_salary_info_v2",
+          "additional_requirements",
+          "sponsors_h1b",
+          "travel_requirements",
+          "lift_requirement",
+          "questions",
+          "locations",
+          "additional_location_info",
+          "job",
+          "skills",
+          "functions",
+          "other_locations",
+          "seasons",
+          "is_scout_job_posting",
+          "url"
+        ],
+        "url_fields": {
+          "url": "https://simplify.jobs/jobs/click/f19fc366-1b13-4cf5-a10f-75ccd232212d"
+        },
+        "tracked_obj": "greenhouse:ginkgobioworks/jobs/5033167007"
+      },
+      "final_url": "https://simplify.jobs/jobs/click/f19fc366-1b13-4cf5-a10f-75ccd232212d",
+      "success_method": "Full JSON Analysis"
+    },
+    {
+      "url": "https://simplify.jobs/p/87d52ae5-6541-4808-850f-f372c052d638?utm_source=swelist",
+      "timestamp": "2026-01-28T22:57:23.720472",
+      "methods_attempted": [
+        {
+          "method": "Full JSON Analysis",
+          "status": "success",
+          "field": "url",
+          "url": "https://simplify.jobs/jobs/click/87d52ae5-6541-4808-850f-f372c052d638"
+        }
+      ],
+      "data_found": {
+        "jobPosting_keys": [
+          "total_views",
+          "title",
+          "description",
+          "requirements",
+          "responsibilities",
+          "desirable",
+          "subtitles",
+          "id",
+          "job_id",
+          "ats",
+          "start_date",
+          "end_date",
+          "updated_date",
+          "tracked_obj",
+          "entry_level",
+          "junior",
+          "mid_level",
+          "senior",
+          "expert",
+          "active",
+          "visible",
+          "archive",
+          "degrees",
+          "currency_type",
+          "min_salary",
+          "max_salary",
+          "salary_period",
+          "additional_salary_info",
+          "additional_salary_info_v2",
+          "additional_requirements",
+          "sponsors_h1b",
+          "travel_requirements",
+          "lift_requirement",
+          "questions",
+          "locations",
+          "additional_location_info",
+          "job",
+          "skills",
+          "functions",
+          "other_locations",
+          "seasons",
+          "is_scout_job_posting",
+          "url"
+        ],
+        "url_fields": {
+          "url": "https://simplify.jobs/jobs/click/87d52ae5-6541-4808-850f-f372c052d638"
+        },
+        "tracked_obj": "workday:evercommerce_careers/EverPro---Growth-and-Markets-Internship--Remote--US-_R-105892"
+      },
+      "final_url": "https://simplify.jobs/jobs/click/87d52ae5-6541-4808-850f-f372c052d638",
+      "success_method": "Full JSON Analysis"
+    },
+    {
+      "url": "https://simplify.jobs/p/868e02e4-42c4-4b33-ac1b-9570679b6494?utm_source=swelist",
+      "timestamp": "2026-01-28T22:57:23.998708",
+      "methods_attempted": [
+        {
+          "method": "Full JSON Analysis",
+          "status": "success",
+          "field": "url",
+          "url": "https://simplify.jobs/jobs/click/868e02e4-42c4-4b33-ac1b-9570679b6494"
+        }
+      ],
+      "data_found": {
+        "jobPosting_keys": [
+          "total_views",
+          "title",
+          "description",
+          "requirements",
+          "responsibilities",
+          "desirable",
+          "subtitles",
+          "id",
+          "job_id",
+          "ats",
+          "start_date",
+          "end_date",
+          "updated_date",
+          "tracked_obj",
+          "entry_level",
+          "junior",
+          "mid_level",
+          "senior",
+          "expert",
+          "active",
+          "visible",
+          "archive",
+          "degrees",
+          "currency_type",
+          "min_salary",
+          "max_salary",
+          "salary_period",
+          "additional_salary_info",
+          "additional_salary_info_v2",
+          "additional_requirements",
+          "sponsors_h1b",
+          "travel_requirements",
+          "lift_requirement",
+          "questions",
+          "locations",
+          "additional_location_info",
+          "job",
+          "skills",
+          "functions",
+          "other_locations",
+          "seasons",
+          "is_scout_job_posting",
+          "url"
+        ],
+        "url_fields": {
+          "url": "https://simplify.jobs/jobs/click/868e02e4-42c4-4b33-ac1b-9570679b6494"
+        },
+        "tracked_obj": "workday:ext/Technology---Summer-Intern_R-10385804"
+      },
+      "final_url": "https://simplify.jobs/jobs/click/868e02e4-42c4-4b33-ac1b-9570679b6494",
+      "success_method": "Full JSON Analysis"
+    },
+    {
+      "url": "https://simplify.jobs/p/3e9b649c-56d2-4ee6-87a5-5e91fff90254?utm_source=swelist",
+      "timestamp": "2026-01-28T22:57:24.440375",
+      "methods_attempted": [
+        {
+          "method": "Full JSON Analysis",
+          "status": "success",
+          "field": "url",
+          "url": "https://simplify.jobs/jobs/click/3e9b649c-56d2-4ee6-87a5-5e91fff90254"
+        }
+      ],
+      "data_found": {
+        "jobPosting_keys": [
+          "total_views",
+          "title",
+          "description",
+          "requirements",
+          "responsibilities",
+          "desirable",
+          "subtitles",
+          "id",
+          "job_id",
+          "ats",
+          "start_date",
+          "end_date",
+          "updated_date",
+          "tracked_obj",
+          "entry_level",
+          "junior",
+          "mid_level",
+          "senior",
+          "expert",
+          "active",
+          "visible",
+          "archive",
+          "degrees",
+          "currency_type",
+          "min_salary",
+          "max_salary",
+          "salary_period",
+          "additional_salary_info",
+          "additional_salary_info_v2",
+          "additional_requirements",
+          "sponsors_h1b",
+          "travel_requirements",
+          "lift_requirement",
+          "questions",
+          "locations",
+          "additional_location_info",
+          "job",
+          "skills",
+          "functions",
+          "other_locations",
+          "seasons",
+          "is_scout_job_posting",
+          "url"
+        ],
+        "url_fields": {
+          "url": "https://simplify.jobs/jobs/click/3e9b649c-56d2-4ee6-87a5-5e91fff90254"
+        },
+        "tracked_obj": "workday:rocket_careers/Product-Development-Intern---Summer-2026_R-081447-1"
+      },
+      "final_url": "https://simplify.jobs/jobs/click/3e9b649c-56d2-4ee6-87a5-5e91fff90254",
+      "success_method": "Full JSON Analysis"
+    },
+    {
+      "url": "https://simplify.jobs/p/ccd71198-61f7-4cdd-9be6-a0bfda36060b?utm_source=swelist",
+      "timestamp": "2026-01-28T22:57:24.810657",
+      "methods_attempted": [
+        {
+          "method": "Full JSON Analysis",
+          "status": "success",
+          "field": "url",
+          "url": "https://simplify.jobs/jobs/click/ccd71198-61f7-4cdd-9be6-a0bfda36060b"
+        }
+      ],
+      "data_found": {
+        "jobPosting_keys": [
+          "total_views",
+          "title",
+          "description",
+          "requirements",
+          "responsibilities",
+          "desirable",
+          "subtitles",
+          "id",
+          "job_id",
+          "ats",
+          "start_date",
+          "end_date",
+          "updated_date",
+          "tracked_obj",
+          "entry_level",
+          "junior",
+          "mid_level",
+          "senior",
+          "expert",
+          "active",
+          "visible",
+          "archive",
+          "degrees",
+          "currency_type",
+          "min_salary",
+          "max_salary",
+          "salary_period",
+          "additional_salary_info",
+          "additional_salary_info_v2",
+          "additional_requirements",
+          "sponsors_h1b",
+          "travel_requirements",
+          "lift_requirement",
+          "questions",
+          "locations",
+          "additional_location_info",
+          "job",
+          "skills",
+          "functions",
+          "other_locations",
+          "seasons",
+          "is_scout_job_posting",
+          "url"
+        ],
+        "url_fields": {
+          "url": "https://simplify.jobs/jobs/click/ccd71198-61f7-4cdd-9be6-a0bfda36060b"
+        },
+        "tracked_obj": "jobvite:metropolitantransportationauthority/oyvozfwK"
+      },
+      "final_url": "https://simplify.jobs/jobs/click/ccd71198-61f7-4cdd-9be6-a0bfda36060b",
+      "success_method": "Full JSON Analysis"
+    },
+    {
+      "url": "https://simplify.jobs/p/71f428b3-2ce6-407a-8540-4e867b13dc6c?utm_source=swelist",
+      "timestamp": "2026-01-28T22:57:25.196604",
+      "methods_attempted": [
+        {
+          "method": "Full JSON Analysis",
+          "status": "success",
+          "field": "url",
+          "url": "https://simplify.jobs/jobs/click/71f428b3-2ce6-407a-8540-4e867b13dc6c"
+        }
+      ],
+      "data_found": {
+        "jobPosting_keys": [
+          "total_views",
+          "title",
+          "description",
+          "requirements",
+          "responsibilities",
+          "desirable",
+          "subtitles",
+          "id",
+          "job_id",
+          "ats",
+          "start_date",
+          "end_date",
+          "updated_date",
+          "tracked_obj",
+          "entry_level",
+          "junior",
+          "mid_level",
+          "senior",
+          "expert",
+          "active",
+          "visible",
+          "archive",
+          "degrees",
+          "currency_type",
+          "min_salary",
+          "max_salary",
+          "salary_period",
+          "additional_salary_info",
+          "additional_salary_info_v2",
+          "additional_requirements",
+          "sponsors_h1b",
+          "travel_requirements",
+          "lift_requirement",
+          "questions",
+          "locations",
+          "additional_location_info",
+          "job",
+          "skills",
+          "functions",
+          "other_locations",
+          "seasons",
+          "is_scout_job_posting",
+          "url"
+        ],
+        "url_fields": {
+          "url": "https://simplify.jobs/jobs/click/71f428b3-2ce6-407a-8540-4e867b13dc6c"
+        },
+        "tracked_obj": "oraclecloud:fa-evmr-saasfaprod1/30507"
+      },
+      "final_url": "https://simplify.jobs/jobs/click/71f428b3-2ce6-407a-8540-4e867b13dc6c",
+      "success_method": "Full JSON Analysis"
+    },
+    {
+      "url": "https://simplify.jobs/p/6733555f-9ee9-4e61-98d6-6430f675caff?utm_source=swelist",
+      "timestamp": "2026-01-28T22:57:25.574861",
+      "methods_attempted": [
+        {
+          "method": "Full JSON Analysis",
+          "status": "success",
+          "field": "url",
+          "url": "https://simplify.jobs/jobs/click/6733555f-9ee9-4e61-98d6-6430f675caff"
+        }
+      ],
+      "data_found": {
+        "jobPosting_keys": [
+          "total_views",
+          "title",
+          "description",
+          "requirements",
+          "responsibilities",
+          "desirable",
+          "subtitles",
+          "id",
+          "job_id",
+          "ats",
+          "start_date",
+          "end_date",
+          "updated_date",
+          "tracked_obj",
+          "entry_level",
+          "junior",
+          "mid_level",
+          "senior",
+          "expert",
+          "active",
+          "visible",
+          "archive",
+          "degrees",
+          "currency_type",
+          "min_salary",
+          "max_salary",
+          "salary_period",
+          "additional_salary_info",
+          "additional_salary_info_v2",
+          "additional_requirements",
+          "sponsors_h1b",
+          "travel_requirements",
+          "lift_requirement",
+          "questions",
+          "locations",
+          "additional_location_info",
+          "job",
+          "skills",
+          "functions",
+          "other_locations",
+          "seasons",
+          "is_scout_job_posting",
+          "url"
+        ],
+        "url_fields": {
+          "url": "https://simplify.jobs/jobs/click/6733555f-9ee9-4e61-98d6-6430f675caff"
+        },
+        "tracked_obj": "icims:careers-lmi/13576"
+      },
+      "final_url": "https://simplify.jobs/jobs/click/6733555f-9ee9-4e61-98d6-6430f675caff",
+      "success_method": "Full JSON Analysis"
+    }
+  ],
+  "jobright": [
+    {
+      "url": "https://jobright.ai/jobs/info/697972679c90a224ecc32aad?utm_source=1025&imp_id=3693281075824215859__digest_job_alert__1769624650468_4348&utm_medium=email",
+      "timestamp": "2026-01-28T22:57:26.344510",
+      "methods_attempted": [
+        {
+          "method": "Stealth HTTP",
+          "status": "failed",
+          "reason": "Found URL fields but all invalid",
+          "fields_found": [
+            "originalUrl",
+            "applyLink"
+          ]
+        }
+      ],
+      "data_found": {
+        "json_fields": {
+          "originalUrl": [
+            "https://jobs.keysight.com/jobs/51418?lang=en-us&iis=LinkedIn&iisn=Linkedin&mode=apply",
+            "https://jobs.keysight.com/jobs/51418?lang=en-us\\u0026iis=LinkedIn\\u0026iisn=Linkedin\\u0026mode=apply"
+          ],
+          "applyLink": [
+            "https://jobs.keysight.com/jobs/51418?lang=en-us&iis=LinkedIn&iisn=Linkedin&mode=apply",
+            "https://jobs.keysight.com/jobs/51418?lang=en-us\\u0026iis=LinkedIn\\u0026iisn=Linkedin\\u0026mode=apply"
+          ]
+        }
+      },
+      "final_url": null,
+      "success_method": null
+    },
+    {
+      "url": "https://jobright.ai/jobs/info/695d2456f1f8465b79f34df3?utm_source=1025&imp_id=3693281075824215859__digest_job_alert__1769624650468_4348&utm_medium=email",
+      "timestamp": "2026-01-28T22:57:26.995738",
+      "methods_attempted": [
+        {
+          "method": "Stealth HTTP",
+          "status": "success",
+          "field": "originalUrl",
+          "url": "https://fa-evmr-saasfaprod1.fa.ocs.oraclecloud.com/hcmUI/CandidateExperience/en/job/29405/?utm_medium=jobshare&src=SNS-102"
+        }
+      ],
+      "data_found": {
+        "json_fields": {
+          "originalUrl": [
+            "https://fa-evmr-saasfaprod1.fa.ocs.oraclecloud.com/hcmUI/CandidateExperience/en/job/29405/?utm_medium=jobshare&src=SNS-102",
+            "https://fa-evmr-saasfaprod1.fa.ocs.oraclecloud.com/hcmUI/CandidateExperience/en/job/29405/?utm_medium=jobshare\\u0026src=SNS-102"
+          ],
+          "applyLink": [
+            "https://fa-evmr-saasfaprod1.fa.ocs.oraclecloud.com/hcmUI/CandidateExperience/en/job/29405/?utm_medium=jobshare&src=SNS-102",
+            "https://fa-evmr-saasfaprod1.fa.ocs.oraclecloud.com/hcmUI/CandidateExperience/en/job/29405/?utm_medium=jobshare\\u0026src=SNS-102"
+          ]
+        }
+      },
+      "final_url": "https://fa-evmr-saasfaprod1.fa.ocs.oraclecloud.com/hcmUI/CandidateExperience/en/job/29405/?utm_medium=jobshare&src=SNS-102",
+      "success_method": "Stealth HTTP"
+    },
+    {
+      "url": "https://jobright.ai/jobs/info/6979f85cb4589b4ee87c3bb4?utm_source=1025&imp_id=3693281075824215859__digest_job_alert__1769624650468_4348&utm_medium=email",
+      "timestamp": "2026-01-28T22:57:27.631822",
+      "methods_attempted": [
+        {
+          "method": "Stealth HTTP",
+          "status": "failed",
+          "reason": "Found URL fields but all invalid",
+          "fields_found": [
+            "originalUrl",
+            "applyLink"
+          ]
+        }
+      ],
+      "data_found": {
+        "json_fields": {
+          "originalUrl": [
+            "https://careers-cadent.icims.com/jobs/1286/engineering-intern---spring-2026/job?in_iframe=1&mode=apply&iis=LinkedIn",
+            "https://careers-cadent.icims.com/jobs/1286/engineering-intern---spring-2026/job?in_iframe=1\\u0026mode=apply\\u0026iis=LinkedIn"
+          ],
+          "applyLink": [
+            "https://careers-cadent.icims.com/jobs/1286/engineering-intern---spring-2026/job?in_iframe=1&mode=apply&iis=LinkedIn",
+            "https://careers-cadent.icims.com/jobs/1286/engineering-intern---spring-2026/job?in_iframe=1\\u0026mode=apply\\u0026iis=LinkedIn"
+          ]
+        }
+      },
+      "final_url": null,
+      "success_method": null
+    },
+    {
+      "url": "https://jobright.ai/jobs/info/697a30eca5b9804527dff7f1?utm_source=1025&imp_id=3693281075824215859__digest_job_alert__1769624650468_4348&utm_medium=email",
+      "timestamp": "2026-01-28T22:57:28.299684",
+      "methods_attempted": [
+        {
+          "method": "Stealth HTTP",
+          "status": "success",
+          "field": "originalUrl",
+          "url": "https://www.ziprecruiter.com/kn/AALsNDmWYvDXJ0LhUvk1GdmfaHgvT8iZvFN9fTFHQGXb6CWB9kBmx9D6XL_3cc9w55obKwU3GQHfFeN-jZmabTf6d9M-wwKokUKeyCa5GDwoDczopFlC6Gi0RlVzVYaTT11M-8yKJ5cXoBA_f6ltLTINEbdy22TfvKsh8LBTHRz_xB9znNIcQJ2B2t4ucVSyWs4iDnsMPMfBXexmpPyeM1FHXE7hG8gbx7GEwNuaNv4NUU3DOA-w-hVJoJv-l3M2wiYiYKu-mGMRO3zEcF5z7gUGnYAkOqe6QwKKR_uqImrjfVWhimmDv6no2e-dBvmDuWTD3IywPBRfX8N4aRqRx7TRSWDOawU_Q2FX1LZvf_Hg27jJSxdxkPjZ75PU8kf4SNfetdcV3dITDovDujXHWIrp1JqwbUL-P4_zR5mxmAp5YBds_7pJlEYqDzNGJqaQ"
+        }
+      ],
+      "data_found": {
+        "json_fields": {
+          "originalUrl": [
+            "https://www.ziprecruiter.com/kn/AALsNDmWYvDXJ0LhUvk1GdmfaHgvT8iZvFN9fTFHQGXb6CWB9kBmx9D6XL_3cc9w55obKwU3GQHfFeN-jZmabTf6d9M-wwKokUKeyCa5GDwoDczopFlC6Gi0RlVzVYaTT11M-8yKJ5cXoBA_f6ltLTINEbdy22TfvKsh8LBTHRz_xB9znNIcQJ2B2t4ucVSyWs4iDnsMPMfBXexmpPyeM1FHXE7hG8gbx7GEwNuaNv4NUU3DOA-w-hVJoJv-l3M2wiYiYKu-mGMRO3zEcF5z7gUGnYAkOqe6QwKKR_uqImrjfVWhimmDv6no2e-dBvmDuWTD3IywPBRfX8N4aRqRx7TRSWDOawU_Q2FX1LZvf_Hg27jJSxdxkPjZ75PU8kf4SNfetdcV3dITDovDujXHWIrp1JqwbUL-P4_zR5mxmAp5YBds_7pJlEYqDzNGJqaQ",
+            "https://www.ziprecruiter.com/kn/AALsNDmWYvDXJ0LhUvk1GdmfaHgvT8iZvFN9fTFHQGXb6CWB9kBmx9D6XL_3cc9w55obKwU3GQHfFeN-jZmabTf6d9M-wwKokUKeyCa5GDwoDczopFlC6Gi0RlVzVYaTT11M-8yKJ5cXoBA_f6ltLTINEbdy22TfvKsh8LBTHRz_xB9znNIcQJ2B2t4ucVSyWs4iDnsMPMfBXexmpPyeM1FHXE7hG8gbx7GEwNuaNv4NUU3DOA-w-hVJoJv-l3M2wiYiYKu-mGMRO3zEcF5z7gUGnYAkOqe6QwKKR_uqImrjfVWhimmDv6no2e-dBvmDuWTD3IywPBRfX8N4aRqRx7TRSWDOawU_Q2FX1LZvf_Hg27jJSxdxkPjZ75PU8kf4SNfetdcV3dITDovDujXHWIrp1JqwbUL-P4_zR5mxmAp5YBds_7pJlEYqDzNGJqaQ"
+          ],
+          "applyLink": [
+            "https://www.ziprecruiter.com/kn/AALsNDmWYvDXJ0LhUvk1GdmfaHgvT8iZvFN9fTFHQGXb6CWB9kBmx9D6XL_3cc9w55obKwU3GQHfFeN-jZmabTf6d9M-wwKokUKeyCa5GDwoDczopFlC6Gi0RlVzVYaTT11M-8yKJ5cXoBA_f6ltLTINEbdy22TfvKsh8LBTHRz_xB9znNIcQJ2B2t4ucVSyWs4iDnsMPMfBXexmpPyeM1FHXE7hG8gbx7GEwNuaNv4NUU3DOA-w-hVJoJv-l3M2wiYiYKu-mGMRO3zEcF5z7gUGnYAkOqe6QwKKR_uqImrjfVWhimmDv6no2e-dBvmDuWTD3IywPBRfX8N4aRqRx7TRSWDOawU_Q2FX1LZvf_Hg27jJSxdxkPjZ75PU8kf4SNfetdcV3dITDovDujXHWIrp1JqwbUL-P4_zR5mxmAp5YBds_7pJlEYqDzNGJqaQ",
+            "https://www.ziprecruiter.com/kn/AALsNDmWYvDXJ0LhUvk1GdmfaHgvT8iZvFN9fTFHQGXb6CWB9kBmx9D6XL_3cc9w55obKwU3GQHfFeN-jZmabTf6d9M-wwKokUKeyCa5GDwoDczopFlC6Gi0RlVzVYaTT11M-8yKJ5cXoBA_f6ltLTINEbdy22TfvKsh8LBTHRz_xB9znNIcQJ2B2t4ucVSyWs4iDnsMPMfBXexmpPyeM1FHXE7hG8gbx7GEwNuaNv4NUU3DOA-w-hVJoJv-l3M2wiYiYKu-mGMRO3zEcF5z7gUGnYAkOqe6QwKKR_uqImrjfVWhimmDv6no2e-dBvmDuWTD3IywPBRfX8N4aRqRx7TRSWDOawU_Q2FX1LZvf_Hg27jJSxdxkPjZ75PU8kf4SNfetdcV3dITDovDujXHWIrp1JqwbUL-P4_zR5mxmAp5YBds_7pJlEYqDzNGJqaQ"
+          ]
+        }
+      },
+      "final_url": "https://www.ziprecruiter.com/kn/AALsNDmWYvDXJ0LhUvk1GdmfaHgvT8iZvFN9fTFHQGXb6CWB9kBmx9D6XL_3cc9w55obKwU3GQHfFeN-jZmabTf6d9M-wwKokUKeyCa5GDwoDczopFlC6Gi0RlVzVYaTT11M-8yKJ5cXoBA_f6ltLTINEbdy22TfvKsh8LBTHRz_xB9znNIcQJ2B2t4ucVSyWs4iDnsMPMfBXexmpPyeM1FHXE7hG8gbx7GEwNuaNv4NUU3DOA-w-hVJoJv-l3M2wiYiYKu-mGMRO3zEcF5z7gUGnYAkOqe6QwKKR_uqImrjfVWhimmDv6no2e-dBvmDuWTD3IywPBRfX8N4aRqRx7TRSWDOawU_Q2FX1LZvf_Hg27jJSxdxkPjZ75PU8kf4SNfetdcV3dITDovDujXHWIrp1JqwbUL-P4_zR5mxmAp5YBds_7pJlEYqDzNGJqaQ",
+      "success_method": "Stealth HTTP"
+    },
+    {
+      "url": "https://jobright.ai/jobs/info/6979382688e2b47213bd5df4?utm_source=1025&imp_id=3693281075824215859__digest_job_alert__1769624650468_4348&utm_medium=email",
+      "timestamp": "2026-01-28T22:57:28.923870",
+      "methods_attempted": [
+        {
+          "method": "Stealth HTTP",
+          "status": "failed",
+          "reason": "Found URL fields but all invalid",
+          "fields_found": [
+            "originalUrl",
+            "applyLink"
+          ]
+        }
+      ],
+      "data_found": {
+        "json_fields": {
+          "originalUrl": [
+            "https://ibmglobal.avature.net/en_US/careers/JobDetail?jobId=88256&src=SN_LinkedIn",
+            "https://ibmglobal.avature.net/en_US/careers/JobDetail?jobId=88256\\u0026src=SN_LinkedIn"
+          ],
+          "applyLink": [
+            "https://ibmglobal.avature.net/en_US/careers/JobDetail?jobId=88256&src=SN_LinkedIn",
+            "https://ibmglobal.avature.net/en_US/careers/JobDetail?jobId=88256\\u0026src=SN_LinkedIn"
+          ]
+        }
+      },
+      "final_url": null,
+      "success_method": null
+    },
+    {
+      "url": "https://jobright.ai/jobs/info/6979947aca92cf0d6a82c60a?utm_source=1025&imp_id=3693281075824215859__digest_job_alert__1769624650468_4348&utm_medium=email",
+      "timestamp": "2026-01-28T22:57:29.574109",
+      "methods_attempted": [
+        {
+          "method": "Stealth HTTP",
+          "status": "failed",
+          "reason": "Found URL fields but all invalid",
+          "fields_found": [
+            "originalUrl",
+            "applyLink"
+          ]
+        }
+      ],
+      "data_found": {
+        "json_fields": {
+          "originalUrl": [
+            "https://jobs.siemens.com/externaljobs/JobDetail/493363?source=LinkedIn&sourceType=PREMIUM_POST_SITE",
+            "https://jobs.siemens.com/externaljobs/JobDetail/493363?source=LinkedIn\\u0026sourceType=PREMIUM_POST_SITE"
+          ],
+          "applyLink": [
+            "https://jobs.siemens.com/externaljobs/JobDetail/493363?source=LinkedIn&sourceType=PREMIUM_POST_SITE",
+            "https://jobs.siemens.com/externaljobs/JobDetail/493363?source=LinkedIn\\u0026sourceType=PREMIUM_POST_SITE"
+          ]
+        }
+      },
+      "final_url": null,
+      "success_method": null
+    },
+    {
+      "url": "https://jobright.ai/jobs/info/695d7ccff5f3c43f38e249e5?utm_source=1025&imp_id=3693281075824215859__digest_job_alert__1769624650468_4348&utm_medium=email",
+      "timestamp": "2026-01-28T22:57:30.240454",
+      "methods_attempted": [
+        {
+          "method": "Stealth HTTP",
+          "status": "failed",
+          "reason": "Found URL fields but all invalid",
+          "fields_found": [
+            "originalUrl",
+            "applyLink"
+          ]
+        }
+      ],
+      "data_found": {
+        "json_fields": {
+          "originalUrl": [
+            "https://careers.sig.com/job/SUSQA004Y10445?mode=apply&iis=LinkedIn",
+            "https://careers.sig.com/job/SUSQA004Y10445?mode=apply\\u0026iis=LinkedIn"
+          ],
+          "applyLink": [
+            "https://careers.sig.com/job/SUSQA004Y10445?mode=apply&iis=LinkedIn",
+            "https://careers.sig.com/job/SUSQA004Y10445?mode=apply\\u0026iis=LinkedIn"
+          ]
+        }
+      },
+      "final_url": null,
+      "success_method": null
+    },
+    {
+      "url": "https://jobright.ai/jobs/info/69255ee227bf2f41a2c3e67a?utm_source=1025&imp_id=3693281075824215859__digest_job_alert__1769624650468_4348&utm_medium=email",
+      "timestamp": "2026-01-28T22:57:30.910972",
+      "methods_attempted": [
+        {
+          "method": "Stealth HTTP",
+          "status": "failed",
+          "reason": "Found URL fields but all invalid",
+          "fields_found": [
+            "originalUrl",
+            "applyLink"
+          ]
+        }
+      ],
+      "data_found": {
+        "json_fields": {
+          "originalUrl": [
+            "https://mercor.com/careers?ashby_jid=de3025e5-10ca-4d55-b688-eff0e647ac8d&utm_source=Xqz4BKyMEM&src=LinkedIn&referralCode=c8d27b51-ac8a-43a7-a314-1bf9a982e733",
+            "https://mercor.com/careers?ashby_jid=de3025e5-10ca-4d55-b688-eff0e647ac8d\\u0026utm_source=Xqz4BKyMEM\\u0026src=LinkedIn\\u0026referralCode=c8d27b51-ac8a-43a7-a314-1bf9a982e733"
+          ],
+          "applyLink": [
+            "https://mercor.com/careers?ashby_jid=de3025e5-10ca-4d55-b688-eff0e647ac8d&utm_source=Xqz4BKyMEM&src=LinkedIn&referralCode=c8d27b51-ac8a-43a7-a314-1bf9a982e733",
+            "https://mercor.com/careers?ashby_jid=de3025e5-10ca-4d55-b688-eff0e647ac8d\\u0026utm_source=Xqz4BKyMEM\\u0026src=LinkedIn\\u0026referralCode=c8d27b51-ac8a-43a7-a314-1bf9a982e733"
+          ]
+        }
+      },
+      "final_url": null,
+      "success_method": null
+    },
+    {
+      "url": "https://jobright.ai/jobs/info/697946de88e2b47213bd7d67?utm_source=1025&imp_id=3693281075824215859__digest_job_alert__1769624650468_4348&utm_medium=email",
+      "timestamp": "2026-01-28T22:57:31.527226",
+      "methods_attempted": [
+        {
+          "method": "Stealth HTTP",
+          "status": "failed",
+          "reason": "Found URL fields but all invalid",
+          "fields_found": [
+            "originalUrl",
+            "applyLink"
+          ]
+        }
+      ],
+      "data_found": {
+        "json_fields": {
+          "originalUrl": [
+            "https://www.linkedin.com/jobs/view/4356164760",
+            "https://www.linkedin.com/jobs/view/4356164760"
+          ],
+          "applyLink": [
+            "https://www.linkedin.com/jobs/view/4356164760",
+            "https://www.linkedin.com/jobs/view/4356164760"
+          ]
+        }
+      },
+      "final_url": null,
+      "success_method": null
+    },
+    {
+      "url": "https://jobright.ai/jobs/info/697a1988a5b9804527dfeb75?utm_source=1025&imp_id=3693281075824215859__digest_job_alert__1769624650468_4348&utm_medium=email",
+      "timestamp": "2026-01-28T22:57:32.150811",
+      "methods_attempted": [
+        {
+          "method": "Stealth HTTP",
+          "status": "success",
+          "field": "originalUrl",
+          "url": "https://chatgpt-jobs.com/job/2026-software-engineer-paid-intern-may-and-august-hires-the-church-of-jesus-christ-of-latter-day-saints-2743"
+        }
+      ],
+      "data_found": {
+        "json_fields": {
+          "originalUrl": [
+            "https://chatgpt-jobs.com/job/2026-software-engineer-paid-intern-may-and-august-hires-the-church-of-jesus-christ-of-latter-day-saints-2743",
+            "https://chatgpt-jobs.com/job/2026-software-engineer-paid-intern-may-and-august-hires-the-church-of-jesus-christ-of-latter-day-saints-2743"
+          ],
+          "applyLink": [
+            "https://chatgpt-jobs.com/job/2026-software-engineer-paid-intern-may-and-august-hires-the-church-of-jesus-christ-of-latter-day-saints-2743",
+            "https://chatgpt-jobs.com/job/2026-software-engineer-paid-intern-may-and-august-hires-the-church-of-jesus-christ-of-latter-day-saints-2743"
+          ]
+        }
+      },
+      "final_url": "https://chatgpt-jobs.com/job/2026-software-engineer-paid-intern-may-and-august-hires-the-church-of-jesus-christ-of-latter-day-saints-2743",
+      "success_method": "Stealth HTTP"
+    }
+  ]
+}
