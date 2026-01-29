@@ -41,7 +41,6 @@ from config import (
     SPONSORSHIP_REJECT_PATTERNS,
     BLACKLIST_DOMAINS,
     MAX_REASONABLE_AGE_DAYS,
-    US_STATES_FALLBACK,
 )
 
 from utils import (
@@ -104,7 +103,7 @@ class TitleProcessor:
         if not title or len(title) < 5:
             return False, "Title too short"
 
-        excluded = {"click here", "apply now", "view job", "submit your", "click to"}
+        excluded = {"application", "click here", "apply now", "view job", "submit your"}
         if any(phrase in title.lower() for phrase in excluded):
             return False, "Invalid title pattern"
 
@@ -265,7 +264,15 @@ class JobIDExtractor:
             for pattern, confidence in [
                 (r"Job\s*Code\s*:?\s*([A-Z0-9]{4,15})\b", 0.90),
                 (r"Job\s*ID\s*:?\s*([A-Z0-9\-]{4,15})\b", 0.85),
+                (
+                    r"job\s+requisition\s+id\s*:?\s*([A-Z0-9\-]{4,20})\b",
+                    0.88,
+                ),  # NEW: vRad format
                 (r"Req(?:uisition)?\s*ID\s*:?\s*([A-Z0-9\-]{4,20})\b", 0.85),
+                (
+                    r"requisition\s+(?:id|number)\s*:?\s*([A-Z0-9\-]{4,20})\b",
+                    0.85,
+                ),  # NEW: flexible
                 (r"Role\s*ID\s*:?\s*([A-Z0-9\-]{4,20})\b", 0.85),  # NEW: EA format
             ]:
                 match = re.search(pattern, page_text, re.I)
@@ -635,8 +642,6 @@ class LocationProcessor:
         try:
             location = location_text.strip()
 
-            location = re.sub(r"^locations", "", location, flags=re.I)
-
             for pattern in _COMPILED_METADATA_PATTERNS:
                 location = pattern.sub("", location)
 
@@ -826,7 +831,8 @@ class LocationProcessor:
         return True
 
     @staticmethod
-    def extract_remote_status_enhanced(soup, location, url, description=""):
+    def extract_remote_status_enhanced(soup, location, url):
+        """ORIGINAL: Full remote status extraction"""
         if not soup:
             return "Unknown"
 
@@ -837,15 +843,6 @@ class LocationProcessor:
                     return "Remote"
                 if "hybrid" in location_lower:
                     return "Hybrid"
-
-            if description:
-                desc_lower = description.lower()
-                if "100% remote" in desc_lower or "fully remote" in desc_lower:
-                    return "Remote"
-                if "hybrid" in desc_lower:
-                    return "Hybrid"
-                if "on-site" in desc_lower or "onsite" in desc_lower:
-                    return "On Site"
 
             page_text = soup.get_text()[:2000].lower()
 
@@ -1111,224 +1108,57 @@ class ValidationHelper:
 
     @staticmethod
     def check_url_for_international(url):
+        """ORIGINAL: Delegates to LocationProcessor"""
         return LocationProcessor._check_url_for_canada(url)
 
     @staticmethod
-    def _check_clearance_requirements(soup):
-        if not soup:
-            return None, None
-
-        try:
-            page_text = soup.get_text()[:15000].lower()
-            clearance_patterns = [
-                r"(?:security\s+)?clearance.*(?:required|preferred)",
-                r"must\s+(?:be\s+)?(?:able\s+to\s+)?(?:obtain|get|acquire).*clearance",
-                r"(?:eligible|eligibility)\s+for.*(?:security\s+)?clearance",
-                r"able\s+to\s+obtain.*clearance",
-                r"clearance\s+(?:eligibility|required|preferred)",
-                r"u\.?s\.?\s+citizen.*clearance",
-                r"citizenship.*clearance",
-                r"dod\s+(?:secret|top\s+secret)",
-                r"ts/sci",
-                r"polygraph",
-            ]
-            for pattern in clearance_patterns:
-                if re.search(pattern, page_text, re.I):
-                    return "REJECT", "Security clearance required"
-        except Exception as e:
-            logging.debug(f"Clearance check failed: {e}")
-
-        return None, None
-
-    @staticmethod
-    def _check_graduation_year_requirements(soup):
-        if not soup:
-            return None, None
-
-        try:
-            page_text = soup.get_text()[:15000]
-
-            if re.search(
-                r"(?:graduation|graduating).*(?:or\s+later|and\s+beyond)",
-                page_text,
-                re.I,
-            ):
-                logging.debug("Grad year: 'or later' found - flexible")
-                return None, None
-
-            text_cleaned = re.sub(
-                r"\b(?:January|February|March|April|May|June|July|August|September|October|November|December)\s+\d{1,2},?\s+\d{4}\b",
-                "",
-                page_text,
-                flags=re.I,
-            )
-
-            graduation_years = set()
-
-            range_patterns = [
-                r"(?:between\s+)?(\d{1,2})/(\d{4})\s*-\s*(\d{1,2})/(\d{4})",
-                r"between\s+(\d{4})\s+(?:and|to)\s+(\d{4})",
-                r"(\d{4})\s+(?:and|to|-)\s+(\d{4}).*(?:graduat|class)",
-            ]
-
-            for pattern in range_patterns:
-                for match in re.finditer(pattern, text_cleaned, re.I):
-                    years = [
-                        g for g in match.groups() if g and g.isdigit() and len(g) == 4
-                    ]
-                    for y in years:
-                        year_int = int(y)
-                        if 2020 <= year_int <= 2030:
-                            graduation_years.add(year_int)
-
-            if graduation_years:
-                min_year = min(graduation_years)
-                max_year = max(graduation_years)
-                if min_year <= 2027 <= max_year:
-                    logging.debug(
-                        f"Grad year: Range {min_year}-{max_year} includes 2027"
-                    )
-                    return None, None
-
-            specific_patterns = [
-                r"(?:anticipated\s+)?graduation(?:\s+of)?(?:\s+date)?[:\s]+(?:in\s+)?(?:[A-Za-z]+\s+)?(\d{4})",
-                r"graduating\s+(?:in\s+)?(?:[A-Za-z]+\s+)?(\d{4})",
-                r"class\s+of\s+(\d{4})",
-                r"expected\s+graduation[:\s]+(?:[A-Za-z]+\s+)?(\d{4})",
-            ]
-
-            for pattern in specific_patterns:
-                for match in re.finditer(pattern, text_cleaned, re.I):
-                    year_str = match.group(1)
-                    if year_str and year_str.isdigit():
-                        year_int = int(year_str)
-                        if 2020 <= year_int <= 2030:
-                            graduation_years.add(year_int)
-
-            if not graduation_years:
-                logging.debug("Grad year: No years found")
-                return None, None
-
-            if 2027 in graduation_years:
-                logging.debug(f"Grad year: {graduation_years} includes 2027")
-                return None, None
-
-            if all(y < 2027 or y > 2027 for y in graduation_years):
-                years_str = ", ".join(str(y) for y in sorted(graduation_years))
-                logging.debug(f"Grad year: {years_str} excludes 2027")
-                return "REJECT", f"Graduation year mismatch: {years_str}"
-
-        except Exception as e:
-            logging.debug(f"Graduation year check failed: {e}")
-
-        return None, None
-
-    @staticmethod
-    def _check_bs_only_restrictions(soup):
-        if not soup:
-            return None, None
-
-        try:
-            page_text = soup.get_text()[:15000]
-            page_lower = page_text.lower()
-
-            flexibility_phrases = [
-                r"bachelor'?s?\s+or\s+master'?s?",
-                r"bs\s*/\s*ms",
-                r"b\.s\.\s*/\s*m\.s\.",
-                r"b\.s\.\s+or\s+m\.s\.",
-                r"undergraduate\s+or\s+graduate",
-                r"or\s+equivalent\s+experience",
-                r"or\s+advanced\s+degree",
-                r"bachelor'?s?\s+degree\s+or\s+equivalent",
-                r"bs\s+or\s+ms\s+degree",
-                r"graduate\s+students?.*(?:welcome|encouraged|may\s+apply)",
-            ]
-
-            for phrase in flexibility_phrases:
-                if re.search(phrase, page_lower):
-                    logging.debug(f"BS check: Found flexibility phrase: {phrase}")
-                    return None, None
-
-            bs_indicators = [
-                r"\bb\.?s\.?\b.*(?:in\s+)?computer\s+science",
-                r"bachelor'?s?\s+degree",
-                r"undergraduate\s+(?:degree|student|program)",
-                r"(?:sophomore|junior)\s+standing",
-                r"pursuing\s+a?\s+bachelor",
-            ]
-
-            has_bs_requirement = False
-            for pattern in bs_indicators:
-                if re.search(pattern, page_lower):
-                    has_bs_requirement = True
-                    logging.debug(f"BS check: Found BS requirement: {pattern}")
-                    break
-
-            if not has_bs_requirement:
-                return None, None
-
-            ms_indicators = [
-                r"\bm\.?s\.?\b",
-                r"master'?s?\s+degree",
-                r"graduate\s+(?:degree|student|program)",
-                r"ph\.?d\.?",
-                r"advanced\s+degree",
-            ]
-
-            has_ms = any(re.search(pattern, page_lower) for pattern in ms_indicators)
-
-            if has_ms:
-                logging.debug("BS check: Found MS indicators - flexible")
-                return None, None
-
-            context_window = 200
-            for match in re.finditer(
-                r"\bb\.?s\.?\b|bachelor'?s?|undergraduate", page_lower
-            ):
-                start = max(0, match.start() - context_window)
-                end = min(len(page_lower), match.end() + context_window)
-                context = page_lower[start:end]
-
-                if "preferred" in context and "required" not in context:
-                    logging.debug("BS check: Found 'preferred' context - not strict")
-                    return None, None
-
-            logging.debug("BS check: BS-only confirmed")
-            return "REJECT", "Bachelor's students only"
-
-        except Exception as e:
-            logging.debug(f"BS-only check failed: {e}")
-
-        return None, None
-
-    @staticmethod
     def check_page_restrictions(soup):
+        """ENHANCED: Added clearance, citizenship, and undergraduate-only checks"""
         if not soup:
             return None, None, []
 
         try:
+            # Check 1: Security clearance requirements
+            clearance_decision, clearance_reason = (
+                ValidationHelper._check_clearance_requirements(soup)
+            )
+            if clearance_decision == "REJECT":
+                return clearance_decision, clearance_reason, []
+
+            # Check 2: US Citizenship requirements
+            citizenship_decision, citizenship_reason = (
+                ValidationHelper._check_citizenship_requirements(soup)
+            )
+            if citizenship_decision == "REJECT":
+                return citizenship_decision, citizenship_reason, []
+
+            # Check 3: Undergraduate-only requirements (NEW)
+            undergrad_decision, undergrad_reason = (
+                ValidationHelper._check_undergraduate_only_requirements(soup)
+            )
+            if undergrad_decision == "REJECT":
+                return undergrad_decision, undergrad_reason, []
+
+            # Check 4: Degree requirements (Bachelor's only)
             degree_decision, degree_reason = (
                 ValidationHelper._check_degree_requirements_strict(soup)
             )
             if degree_decision == "REJECT":
                 return degree_decision, degree_reason, []
 
-            bs_decision, bs_reason = ValidationHelper._check_bs_only_restrictions(soup)
-            if bs_decision == "REJECT":
-                return bs_decision, bs_reason, []
-
+            # Check 5: Graduation year requirements
             year_decision, year_reason = (
                 ValidationHelper._check_graduation_year_requirements(soup)
             )
             if year_decision == "REJECT":
                 return year_decision, year_reason, []
 
-            clearance_decision, clearance_reason = (
-                ValidationHelper._check_clearance_requirements(soup)
-            )
-            if clearance_decision == "REJECT":
-                return clearance_decision, clearance_reason, []
+            page_text = soup.get_text()[:15000].lower()
+
+            # Check 6: Sponsorship patterns
+            for pattern in _COMPILED_SPONSORSHIP_PATTERNS:
+                if pattern.search(page_text):
+                    return "REJECT", "Sponsorship not available", []
 
         except Exception as e:
             logging.debug(f"Page restrictions check failed: {e}")
@@ -1366,6 +1196,206 @@ class ValidationHelper:
         return None, None
 
     @staticmethod
+    def _check_undergraduate_only_requirements(soup):
+        """NEW: Detect requirements for current undergraduate enrollment (MS students don't qualify)"""
+        if not soup:
+            return None, None
+
+        try:
+            page_text = soup.get_text()[:15000].lower()
+
+            # Patterns that indicate CURRENT undergrad enrollment required
+            undergraduate_patterns = [
+                r"pursuing\s+(?:a\s+)?bachelor'?s?\s+degree",
+                r"currently\s+enrolled\s+in\s+(?:a\s+)?bachelor",
+                r"entering\s+(?:junior|senior)\s+year",
+                r"(?:sophomore|junior|senior)\s+standing",
+                r"undergraduate\s+students?\s+only",
+                r"must\s+be\s+pursuing\s+(?:a\s+)?(?:bs|ba)\b",
+                r"enrolled\s+in\s+(?:an?\s+)?undergraduate\s+program",
+                r"currently\s+pursuing\s+(?:a\s+)?bachelor",
+                r"must\s+be\s+(?:an?\s+)?undergraduate\s+student",
+            ]
+
+            for pattern in undergraduate_patterns:
+                match = re.search(pattern, page_text, re.I)
+                if match:
+                    # Check context for flexibility (MS/graduate also acceptable)
+                    context_start = max(0, match.start() - 200)
+                    context_end = min(len(page_text), match.end() + 200)
+                    context = page_text[context_start:context_end]
+
+                    # If context mentions graduate/master's, it's flexible
+                    if any(
+                        kw in context
+                        for kw in [
+                            "master",
+                            "graduate",
+                            "ms/phd",
+                            "or graduate",
+                            "and graduate",
+                        ]
+                    ):
+                        continue
+
+                    logging.debug(
+                        f"Undergrad-only check: Found '{pattern}' without grad flexibility"
+                    )
+                    return (
+                        "REJECT",
+                        "Undergraduate students only (MS students not eligible)",
+                    )
+
+        except Exception as e:
+            logging.debug(f"Undergraduate-only check failed: {e}")
+
+        return None, None
+
+    @staticmethod
+    def _check_citizenship_requirements(soup):
+        """NEW: Detect US citizenship requirements (stricter than sponsorship)"""
+        if not soup:
+            return None, None
+
+        try:
+            page_text = soup.get_text()[:15000].lower()
+
+            # Patterns that indicate citizenship is required
+            citizenship_patterns = [
+                r"us\s+citizenship\s+required",
+                r"must\s+be\s+(?:a\s+)?us\s+citizen",
+                r"us\s+citizen\s+or\s+permanent\s+resident\s+only",
+                r"citizenship\s+requirement",
+                r"require(?:s|d)?\s+us\s+citizenship",
+                r"only\s+us\s+citizens",
+                r"us\s+citizens?\s+only",
+            ]
+
+            for pattern in citizenship_patterns:
+                if re.search(pattern, page_text, re.I):
+                    logging.debug(f"Citizenship check: Found requirement pattern")
+                    return "REJECT", "US Citizenship required"
+
+        except Exception as e:
+            logging.debug(f"Citizenship check failed: {e}")
+
+        return None, None
+
+    @staticmethod
+    def _check_clearance_requirements(soup):
+        """Check for security clearance requirements"""
+        if not soup:
+            return None, None
+
+        try:
+            page_text = soup.get_text()[:15000].lower()
+
+            clearance_patterns = [
+                r"(?:security\s+)?clearance.*(?:required|preferred)",
+                r"must\s+(?:be\s+)?(?:able\s+to\s+)?(?:obtain|get|acquire).*clearance",
+                r"(?:eligible|eligibility)\s+for.*(?:security\s+)?clearance",
+                r"able\s+to\s+obtain.*clearance",
+                r"clearance\s+(?:eligibility|required|preferred)",
+                r"u\.?s\.?\s+citizen.*clearance",
+                r"citizenship.*clearance",
+                r"dod\s+(?:secret|top\s+secret)",
+                r"ts/sci",
+                r"polygraph",
+            ]
+
+            for pattern in clearance_patterns:
+                if re.search(pattern, page_text, re.I):
+                    logging.debug(f"Clearance check: Found requirement")
+                    return "REJECT", "Security clearance required"
+
+        except Exception as e:
+            logging.debug(f"Clearance check failed: {e}")
+
+        return None, None
+
+    @staticmethod
+    def _check_graduation_year_requirements(soup):
+        """Check for specific graduation year requirements"""
+        if not soup:
+            return None, None
+
+        try:
+            page_text = soup.get_text()[:15000]
+
+            # Check for flexibility phrases first
+            if re.search(
+                r"(?:graduation|graduating).*(?:or\s+later|and\s+beyond)",
+                page_text,
+                re.I,
+            ):
+                return None, None
+
+            # Remove calendar dates to avoid false positives
+            text_cleaned = re.sub(
+                r"\b(?:January|February|March|April|May|June|July|August|September|October|November|December)\s+\d{1,2},?\s+\d{4}\b",
+                "",
+                page_text,
+                flags=re.I,
+            )
+
+            graduation_years = set()
+
+            # Check for year ranges
+            range_patterns = [
+                r"(?:between\s+)?(\d{1,2})/(\d{4})\s*-\s*(\d{1,2})/(\d{4})",
+                r"between\s+(?:[A-Za-z]+\s+)?(\d{4})\s+(?:and|to)\s+(?:[A-Za-z]+\s+)?(\d{4})",
+                r"(\d{4})\s+(?:and|to|-)\s+(\d{4}).*(?:graduat|class)",
+            ]
+
+            for pattern in range_patterns:
+                for match in re.finditer(pattern, text_cleaned, re.I):
+                    years = [
+                        g for g in match.groups() if g and g.isdigit() and len(g) == 4
+                    ]
+                    for y in years:
+                        year_int = int(y)
+                        if 2020 <= year_int <= 2030:
+                            graduation_years.add(year_int)
+
+            if graduation_years:
+                min_year = min(graduation_years)
+                max_year = max(graduation_years)
+                if min_year <= 2027 <= max_year:
+                    return None, None
+
+            # Check for specific years
+            specific_patterns = [
+                r"(?:anticipated\s+)?graduation(?:\s+of)?(?:\s+date)?[:\s]+(?:in\s+)?(?:[A-Za-z]+\s+)?(\d{4})",
+                r"graduating\s+(?:in\s+)?(?:[A-Za-z]+\s+)?(\d{4})",
+                r"class\s+of\s+(\d{4})",
+                r"expected\s+graduation[:\s]+(?:[A-Za-z]+\s+)?(\d{4})",
+            ]
+
+            for pattern in specific_patterns:
+                for match in re.finditer(pattern, text_cleaned, re.I):
+                    year_str = match.group(1)
+                    if year_str and year_str.isdigit():
+                        year_int = int(year_str)
+                        if 2020 <= year_int <= 2030:
+                            graduation_years.add(year_int)
+
+            if not graduation_years:
+                return None, None
+
+            if 2027 in graduation_years:
+                return None, None
+
+            if all(year > 2027 for year in graduation_years):
+                years_str = ", ".join(str(y) for y in sorted(graduation_years))
+                logging.debug(f"Grad year: {years_str} requires future graduation")
+                return "REJECT", f"Graduation year mismatch: {years_str}"
+
+        except Exception as e:
+            logging.debug(f"Graduation year check failed: {e}")
+
+        return None, None
+
+    @staticmethod
     def validate_company_field(company, title, url):
         """ORIGINAL"""
         if not company or company == "Unknown" or not company.strip():
@@ -1393,27 +1423,12 @@ class ValidationHelper:
 
     @staticmethod
     def clean_legal_entity(company):
+        """ORIGINAL"""
         if not company:
             return company
-        import unicodedata
-
-        company = "".join(
-            c
-            for c in company
-            if c.isprintable() and unicodedata.category(c)[0] not in ["C", "So"]
-        )
-        company = company.strip()
-        if not company or len(company) < 2:
-            return "Unknown"
-        company = re.sub(r"^LE\d{4}\s+", "", company)
-        company = re.sub(r"^Company\s+\d+\s+-\s+", "", company)
         company = re.sub(r"^\d+\s+|^[A-Z]{2,4}[-\s]", "", company)
-        company = re.sub(r"\s*\([^)]*U\.S\.A\.\)", "", company)
-        company = re.sub(r"\s*[+|]\s+[^,]+$", "", company)
-        company = re.sub(r"\s+USA$", "", company)
-        company = re.sub(r"\s+ODA$", "", company)
         return re.sub(
-            r",?\s+(Inc\.?|LLC\.?|Corp\.?|Ltd\.?|Corporation)$", "", company, flags=re.I
+            r",?\s+(Inc\.?|LLC\.?|Corp\.?|Ltd\.?)$", "", company, flags=re.I
         ).strip()
 
     @staticmethod
