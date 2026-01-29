@@ -912,8 +912,7 @@ class EmailExtractor:
 
         try:
             today = datetime.now().date()
-            after_date = (today - timedelta(days=1)).strftime("%Y/%m/%d")
-
+            after_date = (today - timedelta(days=MAX_JOB_AGE_DAYS)).strftime("%Y/%m/%d")
             query = f"label:Job Hunt after:{after_date}"
 
             logging.info("[Gmail] Authenticating...")
