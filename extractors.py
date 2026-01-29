@@ -908,7 +908,7 @@ class EmailExtractor:
     def fetch_job_emails(self) -> List[Dict]:
         if not self.service:
             logging.error("[Gmail] Service not initialized")
-            return [] 
+            return []
 
         try:
             today = datetime.now().date()
