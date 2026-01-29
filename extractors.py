@@ -2414,6 +2414,6 @@ def safe_parse_html(html_content: str) -> Tuple[BeautifulSoup, str]:
     except Exception:
         try:
             soup = BeautifulSoup(html_content, "html.parser")
-            return (soup, "html.parser") 
+            return (soup, "html.parser")
         except Exception:
             return (None, "failed")
