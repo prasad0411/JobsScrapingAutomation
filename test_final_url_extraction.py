@@ -4,9 +4,15 @@ import re
 import json
 import pickle
 import requests
+import time
 from collections import defaultdict
 from datetime import datetime, timedelta
 from bs4 import BeautifulSoup
+from selenium import webdriver
+from selenium.webdriver.common.by import By
+from selenium.webdriver.support.ui import WebDriverWait
+from selenium.webdriver.support import expected_conditions as EC
+from selenium.common.exceptions import TimeoutException, NoSuchElementException
 from google.auth.transport.requests import Request
 from google_auth_oauthlib.flow import InstalledAppFlow
 from googleapiclient.discovery import build
@@ -14,9 +20,33 @@ from googleapiclient.discovery import build
 GMAIL_SCOPES = ["https://www.googleapis.com/auth/gmail.readonly"]
 GMAIL_CREDS_FILE = "gmail_credentials.json"
 GMAIL_TOKEN_FILE = "gmail_token.pickle"
-TEST_DAYS = 3
-MAX_SIMPLIFY_TEST = 30
-MAX_JOBRIGHT_TEST = 30
+TEST_DAYS = 1
+MAX_EMAILS = 3
+MAX_URLS_PER_SOURCE = 30
+
+LOG_FILE = "final_extraction_log.txt"
+
+
+class Logger:
+    def __init__(self):
+        self.log_file = open(LOG_FILE, "w")
+        self._write(f"{'='*120}")
+        self._write(
+            f"FINAL URL EXTRACTION TEST - {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
+        )
+        self._write(f"{'='*120}\n")
+
+    def log(self, msg, also_print=False):
+        self._write(msg)
+        if also_print:
+            print(msg)
+
+    def _write(self, msg):
+        self.log_file.write(msg + "\n")
+        self.log_file.flush()
+
+    def close(self):
+        self.log_file.close()
 
 
 class GmailFetcher:
@@ -45,7 +75,7 @@ class GmailFetcher:
 
         return build("gmail", "v1", credentials=creds)
 
-    def fetch_job_hunt_emails(self, max_emails=50):
+    def fetch_job_hunt_emails(self, max_emails=10):
         try:
             after_date = (datetime.now() - timedelta(days=TEST_DAYS)).strftime(
                 "%Y/%m/%d"
@@ -61,7 +91,7 @@ class GmailFetcher:
             messages = results.get("messages", [])
 
             emails = []
-            for msg in messages:
+            for msg in messages[:max_emails]:
                 msg_id = msg["id"]
                 message = (
                     self.service.users()
@@ -89,7 +119,7 @@ class GmailFetcher:
                             "subject": subject,
                             "sender": sender_type,
                             "urls": urls,
-                            "html": body,
+                            "date": headers.get("Date", ""),
                         }
                     )
 
@@ -152,18 +182,44 @@ class GmailFetcher:
 
 
 class SimplifyExtractor:
-    @staticmethod
-    def extract_final_url(simplify_url):
+    def __init__(self, logger):
+        self.logger = logger
+
+    def extract(self, url):
+        self.logger.log(f"\n{'='*100}", also_print=False)
+        self.logger.log(f"SIMPLIFY EXTRACTION", also_print=False)
+        self.logger.log(f"Input URL: {url}", also_print=False)
+
+        result = self._method_1_json_redirect(url)
+        if result:
+            return result, "M1:JSON+Redirect"
+
+        result = self._method_2_http_redirect(url)
+        if result:
+            return result, "M2:HTTP_Redirect"
+
+        self.logger.log("All methods failed", also_print=False)
+        return None, "Failed"
+
+    def _method_1_json_redirect(self, url):
         try:
-            response = requests.get(simplify_url, timeout=10)
+            self.logger.log(
+                "\n--- Method 1: JSON url field + redirect ---", also_print=False
+            )
+
+            response = requests.get(url, timeout=10)
+            self.logger.log(
+                f"HTTP response: {len(response.text)} bytes", also_print=False
+            )
+
             match = re.search(
                 r'<script id="__NEXT_DATA__" type="application/json">(.+?)</script>',
                 response.text,
                 re.DOTALL,
             )
-
             if not match:
-                return None, "No JSON"
+                self.logger.log("No __NEXT_DATA__ found", also_print=False)
+                return None
 
             data = json.loads(match.group(1))
 
@@ -176,27 +232,101 @@ class SimplifyExtractor:
 
                 if "url" in jobPosting:
                     click_url = jobPosting["url"]
+                    self.logger.log(f"Found click URL: {click_url}", also_print=False)
 
+                    self.logger.log("Following redirect...", also_print=False)
                     redirect_response = requests.get(
                         click_url, allow_redirects=True, timeout=10
                     )
                     final_url = redirect_response.url
 
+                    self.logger.log(
+                        f"Redirect final URL: {final_url}", also_print=False
+                    )
+
                     if "simplify.jobs" not in final_url.lower():
-                        return final_url, "Redirect"
+                        self.logger.log(f"✓ SUCCESS via Method 1", also_print=False)
+                        return final_url
                     else:
-                        return None, "Redirect stayed on Simplify"
+                        self.logger.log("Redirect stayed on Simplify", also_print=False)
 
-            return None, "No url field"
-
+            return None
         except Exception as e:
-            return None, f"Error: {str(e)[:30]}"
+            self.logger.log(f"Method 1 error: {e}", also_print=False)
+            return None
+
+    def _method_2_http_redirect(self, url):
+        try:
+            self.logger.log(
+                "\n--- Method 2: Direct HTTP redirect ---", also_print=False
+            )
+
+            response = requests.get(url, allow_redirects=True, timeout=10)
+            final_url = response.url
+
+            self.logger.log(f"Redirect final URL: {final_url}", also_print=False)
+
+            if "simplify.jobs" not in final_url.lower():
+                self.logger.log(f"✓ SUCCESS via Method 2", also_print=False)
+                return final_url
+
+            return None
+        except Exception as e:
+            self.logger.log(f"Method 2 error: {e}", also_print=False)
+            return None
 
 
 class JobrightExtractor:
-    @staticmethod
-    def extract_final_url(jobright_url):
+    def __init__(self, logger):
+        self.logger = logger
+        self.driver = None
+        self._init_driver()
+
+    def _init_driver(self):
         try:
+            options = webdriver.ChromeOptions()
+            options.add_argument("--headless=new")
+            options.add_argument("--no-sandbox")
+            options.add_argument("--disable-dev-shm-usage")
+            options.add_argument("--disable-blink-features=AutomationControlled")
+            options.add_experimental_option("excludeSwitches", ["enable-automation"])
+            options.add_experimental_option("useAutomationExtension", False)
+
+            self.driver = webdriver.Chrome(options=options)
+            self.driver.execute_script(
+                "Object.defineProperty(navigator, 'webdriver', {get: () => undefined})"
+            )
+        except Exception as e:
+            self.logger.log(f"Driver init failed: {e}", also_print=True)
+
+    def extract(self, url):
+        self.logger.log(f"\n{'='*100}", also_print=False)
+        self.logger.log(f"JOBRIGHT EXTRACTION", also_print=False)
+        self.logger.log(f"Input URL: {url}", also_print=False)
+
+        result = self._method_1_stealth_http(url)
+        if result:
+            return result, "M1:HTTP"
+
+        result = self._method_2_selenium_click_button(url)
+        if result:
+            return result, "M2:Selenium_Click"
+
+        result = self._method_3_selenium_raw_html(url)
+        if result:
+            return result, "M3:Selenium_Raw"
+
+        result = self._method_4_selenium_scrape(url)
+        if result:
+            return result, "M4:Selenium_Scrape"
+
+        self.logger.log("All methods failed", also_print=False)
+        return None, "Failed"
+
+    def _method_1_stealth_http(self, url):
+        try:
+            self.logger.log("\n--- Method 1: Stealth HTTP ---", also_print=False)
+
             headers = {
                 "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
                 "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
@@ -212,135 +342,512 @@ class JobrightExtractor:
                     cookies_list = json.load(f)
                     for cookie in cookies_list:
                         cookie_dict[cookie["name"]] = cookie["value"]
+                self.logger.log(f"Loaded {len(cookie_dict)} cookies", also_print=False)
             except:
-                pass
+                self.logger.log("No cookies loaded", also_print=False)
 
             response = requests.get(
-                jobright_url, headers=headers, cookies=cookie_dict, timeout=10
+                url, headers=headers, cookies=cookie_dict, timeout=10
             )
             html = response.text
+
+            self.logger.log(f"Response: {len(html)} bytes", also_print=False)
 
             url_patterns = [
                 (r'"originalUrl"\s*:\s*"([^"]+)"', "originalUrl"),
                 (r'"applyLink"\s*:\s*"([^"]+)"', "applyLink"),
                 (r'"jobUrl"\s*:\s*"([^"]+)"', "jobUrl"),
-                (r'"canonicalUrl"\s*:\s*"([^"]+)"', "canonicalUrl"),
             ]
 
             for pattern, field_name in url_patterns:
                 matches = re.findall(pattern, html)
-                for match in matches:
-                    if match and "http" in match and "jobright.ai" not in match:
-                        if not match.startswith(
-                            "https://www.linkedin.com/"
-                        ) and not match.startswith("https://linkedin.com/"):
-                            return match, field_name
+                self.logger.log(
+                    f"Field '{field_name}': {len(matches)} matches", also_print=False
+                )
 
-            return None, "No URL"
+                for match in matches:
+                    if (
+                        match
+                        and "http" in match
+                        and "jobright.ai" not in match
+                        and not match.startswith("https://www.linkedin.com/")
+                        and not match.startswith("https://linkedin.com/")
+                    ):
+                        self.logger.log(
+                            f"✓ Found via '{field_name}': {match[:80]}",
+                            also_print=False,
+                        )
+                        return match
+
+            self.logger.log("No valid URL in JSON", also_print=False)
+            return None
 
         except Exception as e:
-            return None, f"Error: {str(e)[:30]}"
+            self.logger.log(f"Method 1 error: {e}", also_print=False)
+            return None
+
+    def _method_2_selenium_click_button(self, url):
+        if not self.driver:
+            return None
+
+        try:
+            self.logger.log(
+                "\n--- Method 2: Selenium Click Original Job Post Button ---",
+                also_print=False,
+            )
+
+            self.driver.get(url)
+            time.sleep(2)
+
+            self._load_cookies()
+            self.driver.refresh()
+            time.sleep(3)
+
+            self.logger.log(f"Page loaded: {self.driver.title[:50]}", also_print=False)
+
+            button_selectors = [
+                "//a[contains(@class, 'index_origin')]",
+                "//a[contains(text(), 'Original Job Post')]",
+                "//a[contains(text(), 'Original')]",
+                "a.index_origin__7NnDG",
+                "a[href*='jobs.'][target='_blank']",
+            ]
+
+            original_window = self.driver.current_window_handle
+
+            for selector in button_selectors:
+                try:
+                    self.logger.log(f"Trying selector: {selector}", also_print=False)
+
+                    if selector.startswith("//"):
+                        elements = self.driver.find_elements(By.XPATH, selector)
+                    else:
+                        elements = self.driver.find_elements(By.CSS_SELECTOR, selector)
+
+                    self.logger.log(f"Found {len(elements)} elements", also_print=False)
+
+                    if elements:
+                        button = elements[0]
+                        href = button.get_attribute("href")
+                        self.logger.log(
+                            f"Button href: {href[:80] if href else 'None'}",
+                            also_print=False,
+                        )
+
+                        self.logger.log("Clicking button...", also_print=False)
+                        button.click()
+                        time.sleep(3)
+
+                        all_windows = self.driver.window_handles
+                        self.logger.log(
+                            f"Windows after click: {len(all_windows)}", also_print=False
+                        )
+
+                        if len(all_windows) > 1:
+                            for window in all_windows:
+                                if window != original_window:
+                                    self.driver.switch_to.window(window)
+                                    new_url = self.driver.current_url
+                                    self.logger.log(
+                                        f"New tab URL: {new_url}", also_print=False
+                                    )
+
+                                    if (
+                                        "jobright.ai" not in new_url
+                                        and not new_url.startswith(
+                                            "https://www.linkedin.com/"
+                                        )
+                                    ):
+                                        self.logger.log(
+                                            f"✓ SUCCESS via Method 2 (new tab)",
+                                            also_print=False,
+                                        )
+                                        self.driver.close()
+                                        self.driver.switch_to.window(original_window)
+                                        return new_url
+
+                                    self.driver.close()
+
+                            self.driver.switch_to.window(original_window)
+                        else:
+                            new_url = self.driver.current_url
+                            if (
+                                new_url != url
+                                and "jobright.ai" not in new_url
+                                and not new_url.startswith("https://www.linkedin.com/")
+                            ):
+                                self.logger.log(
+                                    f"✓ SUCCESS via Method 2 (navigation)",
+                                    also_print=False,
+                                )
+                                return new_url
+
+                except Exception as e:
+                    self.logger.log(
+                        f"Selector {selector} failed: {e}", also_print=False
+                    )
+                    try:
+                        self.driver.switch_to.window(original_window)
+                    except:
+                        pass
+
+            self.logger.log("No button found/clicked", also_print=False)
+            return None
+
+        except Exception as e:
+            self.logger.log(f"Method 2 error: {e}", also_print=False)
+            return None
+
+    def _method_3_selenium_raw_html(self, url):
+        if not self.driver:
+            return None
+
+        try:
+            self.logger.log("\n--- Method 3: Selenium Raw HTML ---", also_print=False)
+
+            try:
+                raw_html = self.driver.execute_script(
+                    "return document.documentElement.outerHTML"
+                )
+            except:
+                self.logger.log(
+                    "Already on page from Method 2, extracting HTML", also_print=False
+                )
+                self.driver.get(url)
+                time.sleep(2)
+                raw_html = self.driver.execute_script(
+                    "return document.documentElement.outerHTML"
+                )
+
+            self.logger.log(f"Raw HTML: {len(raw_html)} bytes", also_print=False)
+
+            url_patterns = [
+                (r'"originalUrl"\s*:\s*"([^"]+)"', "originalUrl"),
+                (r'"applyLink"\s*:\s*"([^"]+)"', "applyLink"),
+            ]
+
+            for pattern, field_name in url_patterns:
+                matches = re.findall(pattern, raw_html)
+                for match in matches:
+                    if (
+                        match
+                        and "http" in match
+                        and "jobright.ai" not in match
+                        and not match.startswith("https://www.linkedin.com/")
+                    ):
+                        self.logger.log(
+                            f"✓ SUCCESS via Method 3 '{field_name}'", also_print=False
+                        )
+                        return match
+
+            return None
+        except Exception as e:
+            self.logger.log(f"Method 3 error: {e}", also_print=False)
+            return None
+
+    def _method_4_selenium_scrape(self, url):
+        if not self.driver:
+            return None
+
+        try:
+            self.logger.log(
+                "\n--- Method 4: Selenium Link Scraping ---", also_print=False
+            )
+
+            selectors = [
+                'a[href*="workday"]',
+                'a[href*="greenhouse"]',
+                'a[href*="lever"]',
+                'a[href*="icims"]',
+                'a[href*="careers"]',
+            ]
+
+            for selector in selectors:
+                try:
+                    elements = self.driver.find_elements(By.CSS_SELECTOR, selector)
+                    for element in elements[:3]:
+                        href = element.get_attribute("href")
+                        if (
+                            href
+                            and "jobright.ai" not in href
+                            and "http" in href
+                            and not href.startswith("https://www.linkedin.com/")
+                        ):
+                            self.logger.log(
+                                f"✓ SUCCESS via Method 4 selector {selector}",
+                                also_print=False,
+                            )
+                            return href
+                except:
+                    continue
+
+            return None
+        except Exception as e:
+            self.logger.log(f"Method 4 error: {e}", also_print=False)
+            return None
+
+    def _load_cookies(self):
+        try:
+            with open("jobright_cookies.json", "r") as f:
+                cookies = json.load(f)
+                for cookie in cookies:
+                    if "sameSite" in cookie and cookie["sameSite"] not in [
+                        "Strict",
+                        "Lax",
+                        "None",
+                    ]:
+                        cookie["sameSite"] = "Lax"
+                    self.driver.add_cookie(cookie)
+            self.logger.log("Cookies loaded", also_print=False)
+        except Exception as e:
+            self.logger.log(f"Cookie loading failed: {e}", also_print=False)
+
+    def close(self):
+        if self.driver:
+            try:
+                self.driver.quit()
+            except:
+                pass
 
 
 def run_test():
+    logger = Logger()
     print("=" * 100)
-    print("FINAL URL EXTRACTION TEST")
+    print("FINAL COMPREHENSIVE URL EXTRACTION TEST")
     print("=" * 100)
 
-    print(f"\n📧 Fetching emails (last {TEST_DAYS} days)...")
+    logger.log("=" * 100, also_print=True)
+    logger.log("FETCHING EMAILS", also_print=True)
+    logger.log("=" * 100, also_print=True)
+
     fetcher = GmailFetcher()
-    emails = fetcher.fetch_job_hunt_emails(max_emails=50)
+    emails = fetcher.fetch_job_hunt_emails(max_emails=MAX_EMAILS)
 
     if not emails:
-        print("❌ No emails")
+        print("❌ No emails found")
+        logger.close()
         return
 
-    print(f"✓ Found {len(emails)} emails\n")
+    print(f"\n✓ Found {len(emails)} emails")
+    logger.log(f"\nFound {len(emails)} emails", also_print=False)
+
+    for idx, email in enumerate(emails, 1):
+        logger.log(
+            f"\nEmail {idx}: {email['sender']} - {email['subject'][:50]} - {email['date']}",
+            also_print=False,
+        )
 
     simplify_urls = []
     jobright_urls = []
 
     for email in emails:
         if email["sender"] == "SWE List":
-            simplify_urls.extend(email["urls"])
+            simplify_urls.extend(email["urls"][:MAX_URLS_PER_SOURCE])
         elif email["sender"] == "Jobright":
-            jobright_urls.extend(email["urls"])
+            jobright_urls.extend(email["urls"][:MAX_URLS_PER_SOURCE])
 
-    print(f"📊 URLs: Simplify: {len(simplify_urls)}, Jobright: {len(jobright_urls)}\n")
+    print(f"\n📊 URLs extracted:")
+    print(
+        f"   Simplify: {len(simplify_urls)} (testing {min(len(simplify_urls), MAX_URLS_PER_SOURCE)})"
+    )
+    print(
+        f"   Jobright: {len(jobright_urls)} (testing {min(len(jobright_urls), MAX_URLS_PER_SOURCE)})"
+    )
 
-    print("=" * 100)
-    print(f"SIMPLIFY ({min(len(simplify_urls), MAX_SIMPLIFY_TEST)} URLs)")
-    print("=" * 100)
-
-    simplify_success = 0
-    simplify_failed = 0
-
-    for idx, url in enumerate(simplify_urls[:MAX_SIMPLIFY_TEST], 1):
-        final_url, method = SimplifyExtractor.extract_final_url(url)
-
-        if final_url:
-            simplify_success += 1
-            try:
-                domain = final_url.split("//")[1].split("/")[0]
-                company = domain.split(".")[0].replace("-", " ").title()[:25]
-            except:
-                company = "Unknown"
-
-            print(f"  {idx:2d}. ✅ {company:25s}")
-            print(f"       → {final_url}")
-        else:
-            simplify_failed += 1
-            print(f"  {idx:2d}. ❌ {method}")
+    logger.log(f"\n📊 URL counts:", also_print=False)
+    logger.log(f"Simplify: {len(simplify_urls)}", also_print=False)
+    logger.log(f"Jobright: {len(jobright_urls)}", also_print=False)
 
     print("\n" + "=" * 100)
-    print(f"JOBRIGHT ({min(len(jobright_urls), MAX_JOBRIGHT_TEST)} URLs)")
+    print("SIMPLIFY EXTRACTION")
     print("=" * 100)
 
-    jobright_success = 0
-    jobright_failed = 0
+    logger.log(f"\n{'='*100}", also_print=False)
+    logger.log("SIMPLIFY EXTRACTION RESULTS", also_print=False)
+    logger.log(f"{'='*100}", also_print=False)
 
-    for idx, url in enumerate(jobright_urls[:MAX_JOBRIGHT_TEST], 1):
-        final_url, method = JobrightExtractor.extract_final_url(url)
+    simplify_extractor = SimplifyExtractor(logger)
+    simplify_results = {
+        "success": 0,
+        "failed": 0,
+        "methods": defaultdict(int),
+        "urls": [],
+    }
+
+    for idx, url in enumerate(simplify_urls[:MAX_URLS_PER_SOURCE], 1):
+        final_url, method = simplify_extractor.extract(url)
 
         if final_url:
-            jobright_success += 1
+            simplify_results["success"] += 1
+            simplify_results["methods"][method] += 1
+            simplify_results["urls"].append(final_url)
+
             try:
                 domain = final_url.split("//")[1].split("/")[0]
                 company = domain.split(".")[0].replace("-", " ").title()[:25]
             except:
                 company = "Unknown"
 
-            print(f"  {idx:2d}. ✅ {company:25s}")
-            print(f"       → {final_url[:100]}")
+            print(f"  {idx:2d}. ✅ {company:25s} | {method}")
+            print(f"       → {final_url[:90]}")
+
+            logger.log(f"\n[{idx}] ✅ SUCCESS", also_print=False)
+            logger.log(f"Method: {method}", also_print=False)
+            logger.log(f"Final URL: {final_url}", also_print=False)
         else:
-            jobright_failed += 1
-            print(f"  {idx:2d}. ❌ {method}")
+            simplify_results["failed"] += 1
+            print(f"  {idx:2d}. ❌ Failed | {method}")
+
+            logger.log(f"\n[{idx}] ❌ FAILED", also_print=False)
+            logger.log(f"Reason: {method}", also_print=False)
+            logger.log(f"Input URL: {url}", also_print=False)
+
+    print("\n" + "=" * 100)
+    print("JOBRIGHT EXTRACTION")
+    print("=" * 100)
+
+    logger.log(f"\n{'='*100}", also_print=False)
+    logger.log("JOBRIGHT EXTRACTION RESULTS", also_print=False)
+    logger.log(f"{'='*100}", also_print=False)
+
+    jobright_extractor = JobrightExtractor(logger)
+    jobright_results = {
+        "success": 0,
+        "failed": 0,
+        "methods": defaultdict(int),
+        "urls": [],
+    }
+
+    for idx, url in enumerate(jobright_urls[:MAX_URLS_PER_SOURCE], 1):
+        final_url, method = jobright_extractor.extract(url)
+
+        if final_url:
+            jobright_results["success"] += 1
+            jobright_results["methods"][method] += 1
+            jobright_results["urls"].append(final_url)
+
+            try:
+                domain = final_url.split("//")[1].split("/")[0]
+                company = domain.split(".")[0].replace("-", " ").title()[:25]
+            except:
+                company = "Unknown"
+
+            print(f"  {idx:2d}. ✅ {company:25s} | {method}")
+            print(f"       → {final_url[:90]}")
+
+            logger.log(f"\n[{idx}] ✅ SUCCESS", also_print=False)
+            logger.log(f"Method: {method}", also_print=False)
+            logger.log(f"Final URL: {final_url}", also_print=False)
+        else:
+            jobright_results["failed"] += 1
+            print(f"  {idx:2d}. ❌ Failed | {method}")
+
+            logger.log(f"\n[{idx}] ❌ FAILED", also_print=False)
+            logger.log(f"Reason: {method}", also_print=False)
+            logger.log(f"Input URL: {url}", also_print=False)
+
+    jobright_extractor.close()
 
     print("\n" + "=" * 100)
     print("FINAL RESULTS")
     print("=" * 100)
 
-    simplify_total = simplify_success + simplify_failed
-    jobright_total = jobright_success + jobright_failed
+    logger.log(f"\n{'='*100}", also_print=False)
+    logger.log("FINAL RESULTS", also_print=False)
+    logger.log(f"{'='*100}", also_print=False)
 
+    simplify_total = simplify_results["success"] + simplify_results["failed"]
     if simplify_total > 0:
-        rate = (simplify_success / simplify_total) * 100
-        print(f"\n🎯 Simplify: {simplify_success}/{simplify_total} ({rate:.0f}%)")
+        rate = (simplify_results["success"] / simplify_total) * 100
+        print(f"\n🎯 SIMPLIFY:")
+        print(
+            f"   Success: {simplify_results['success']}/{simplify_total} ({rate:.0f}%)"
+        )
+        print(f"   Failed: {simplify_results['failed']}")
 
+        logger.log(f"\nSIMPLIFY SUMMARY:", also_print=False)
+        logger.log(
+            f"Success: {simplify_results['success']}/{simplify_total} ({rate:.1f}%)",
+            also_print=False,
+        )
+
+        if simplify_results["methods"]:
+            print(f"\n   Methods:")
+            logger.log(f"\nMethods breakdown:", also_print=False)
+            for method, count in sorted(
+                simplify_results["methods"].items(), key=lambda x: -x[1]
+            ):
+                pct = count / simplify_total * 100
+                print(f"      • {method:20s}: {count:2d} ({pct:.0f}%)")
+                logger.log(f"  {method}: {count} ({pct:.1f}%)", also_print=False)
+
+    jobright_total = jobright_results["success"] + jobright_results["failed"]
     if jobright_total > 0:
-        rate = (jobright_success / jobright_total) * 100
-        print(f"🎯 Jobright: {jobright_success}/{jobright_total} ({rate:.0f}%)")
+        rate = (jobright_results["success"] / jobright_total) * 100
+        print(f"\n🎯 JOBRIGHT:")
+        print(
+            f"   Success: {jobright_results['success']}/{jobright_total} ({rate:.0f}%)"
+        )
+        print(f"   Failed: {jobright_results['failed']}")
+
+        logger.log(f"\nJOBRIGHT SUMMARY:", also_print=False)
+        logger.log(
+            f"Success: {jobright_results['success']}/{jobright_total} ({rate:.1f}%)",
+            also_print=False,
+        )
+
+        if jobright_results["methods"]:
+            print(f"\n   Methods:")
+            logger.log(f"\nMethods breakdown:", also_print=False)
+            for method, count in sorted(
+                jobright_results["methods"].items(), key=lambda x: -x[1]
+            ):
+                if count > 0:
+                    pct = count / jobright_total * 100
+                    print(f"      • {method:20s}: {count:2d} ({pct:.0f}%)")
+                    logger.log(f"  {method}: {count} ({pct:.1f}%)", also_print=False)
 
     print("\n" + "=" * 100)
+    print("VERDICT")
+    print("=" * 100)
+
+    if simplify_total > 0:
+        if rate >= 90:
+            verdict = "✅ EXCELLENT - Ready for production"
+        elif rate >= 70:
+            verdict = "✅ GOOD - Minor improvements possible"
+        else:
+            verdict = "⚠️ NEEDS WORK"
+        print(f"\nSimplify: {verdict}")
+
+    if jobright_total > 0:
+        rate = (jobright_results["success"] / jobright_total) * 100
+        if rate >= 80:
+            verdict = "✅ EXCELLENT - Ready for production"
+        elif rate >= 60:
+            verdict = "✅ GOOD - Usable but can improve"
+        elif rate >= 40:
+            verdict = "⚠️ PARTIAL - Needs Selenium fallbacks"
+        else:
+            verdict = "❌ BROKEN - Major issues"
+        print(f"Jobright: {verdict}")
+
+    print(f"\n📝 Detailed logs saved to: {LOG_FILE}")
+    print("=" * 100)
+
+    logger.log(f"\n{'='*100}", also_print=False)
+    logger.log("TEST COMPLETE", also_print=False)
+    logger.log(f"{'='*100}", also_print=False)
+    logger.close()
 
 
 if __name__ == "__main__":
     try:
         run_test()
     except KeyboardInterrupt:
-        print("\n\n⚠️ Interrupted")
+        print("\n\n⚠️ Test interrupted")
     except Exception as e:
-        print(f"\n\n❌ Failed: {e}")
+        print(f"\n\n❌ Test failed: {e}")
         import traceback
 
         traceback.print_exc()
