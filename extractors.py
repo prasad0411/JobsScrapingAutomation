@@ -87,7 +87,14 @@ class PageParser:
             page_text = soup.get_text()[:5000]
 
             patterns = [
-                (r"Posted\s+(\d+)\s+days?\s+ago", lambda m: int(m.group(1))),
+                (
+                    r"Posted\s+(\d+)\+?\s+days?\s+ago",
+                    lambda m: int(m.group(1)),
+                ),  # Handles "30+ days ago"
+                (
+                    r"Posted\s+>(\d+)\s+days?",
+                    lambda m: int(m.group(1)),
+                ),  # Handles ">30 days"
                 (r"Posted\s+(\d+)d\s+ago", lambda m: int(m.group(1))),
                 (r"(\d+)\s+days?\s+ago", lambda m: int(m.group(1))),
                 (r"Posted:\s*(\d+)\s+day", lambda m: int(m.group(1))),
@@ -96,7 +103,7 @@ class PageParser:
             ]
 
             for pattern, extractor in patterns:
-                match = re.search(pattern, page_text, re.I)
+                match = re.search(pattern, page_text, re.I)  # Case-insensitive
                 if match:
                     days = extractor(match)
                     if 0 <= days <= MAX_JOB_AGE_DAYS * 10:
@@ -913,6 +920,7 @@ class EmailExtractor:
         try:
             today = datetime.now().date()
             after_date = (today - timedelta(days=MAX_JOB_AGE_DAYS)).strftime("%Y/%m/%d")
+
             query = f"label:Job Hunt after:{after_date}"
 
             logging.info("[Gmail] Authenticating...")
@@ -1605,7 +1613,6 @@ class PageFetcher:
         # ============================================================================
         result = self._jobright_method_1_stealth_http(jobright_url)
         if result:
-            print(f"    → FINAL URL: {result[:70]}")
             logging.info(f"Jobright: ✅ SUCCESS via Method 1 (Stealth HTTP)")
             logging.info(f"Jobright: FINAL URL: {result}")
             return result
@@ -1615,7 +1622,6 @@ class PageFetcher:
         # ============================================================================
         result = self._jobright_method_2_selenium_raw_html(jobright_url)
         if result:
-            print(f"    → FINAL URL: {result[:70]}")
             logging.info(f"Jobright: ✅ SUCCESS via Method 2 (Selenium Raw HTML)")
             logging.info(f"Jobright: FINAL URL: {result}")
             return result
@@ -1625,7 +1631,6 @@ class PageFetcher:
         # ============================================================================
         result = self._jobright_method_3_selenium_comprehensive(jobright_url)
         if result:
-            print(f"    → FINAL URL: {result[:70]}")
             logging.info(f"Jobright: ✅ SUCCESS via Method 3 (Selenium Comprehensive)")
             logging.info(f"Jobright: FINAL URL: {result}")
             return result
@@ -1635,7 +1640,6 @@ class PageFetcher:
         # ============================================================================
         result = self._jobright_method_4_selenium_click(jobright_url)
         if result:
-            print(f"    → FINAL URL: {result[:70]}")
             logging.info(f"Jobright: ✅ SUCCESS via Method 4 (Selenium Click)")
             logging.info(f"Jobright: FINAL URL: {result}")
             return result
