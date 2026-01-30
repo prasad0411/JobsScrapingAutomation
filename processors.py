@@ -1383,7 +1383,7 @@ class ValidationHelper:
                 return None, None
 
             if 2027 in graduation_years:
-                return None, None
+                return None, None 
 
             if all(year > 2027 for year in graduation_years):
                 years_str = ", ".join(str(y) for y in sorted(graduation_years))
