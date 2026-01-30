@@ -1390,7 +1390,7 @@ class ValidationHelper:
                 logging.debug(f"Grad year: {years_str} requires future graduation")
                 return "REJECT", f"Graduation year mismatch: {years_str}"
 
-        except Exception as e:
+        except Exception as e: 
             logging.debug(f"Graduation year check failed: {e}")
 
         return None, None
