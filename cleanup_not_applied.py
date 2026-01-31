@@ -3,12 +3,17 @@
 """
 Automatic cleanup script - moves 'Not Applied' jobs to Reviewed sheet.
 Production-optimized with dynamic column sizing and auto-run.
+ENHANCED: Includes automatic cleanup of unwanted files (cache, old logs).
 """
 
 import gspread
 from oauth2client.service_account import ServiceAccountCredentials
 import datetime
 import time
+import os
+import shutil
+import glob
+from pathlib import Path
 
 SHEET_NAME = "H1B visa"
 WORKSHEET_NAME = "Valid Entries"
@@ -480,7 +485,178 @@ class ManualCleanup:
         """Format current date/time."""
         return datetime.datetime.now().strftime("%d %B, %I:%M %p")
 
+    # ========================================================================
+    # FILE CLEANUP METHODS (NEW)
+    # ========================================================================
+
+    def clean_unwanted_files(self, delete_old_logs=False):
+        """
+        Clean unwanted files from project directory.
+
+        Removes:
+        - Python cache (__pycache__, *.pyc)
+        - Backup files (*_BACKUP*.py)
+        - Old log files (optional, if delete_old_logs=True)
+
+        NEVER removes:
+        - credentials.json, gmail_credentials.json
+        - config.py, extractors.py, processors.py, etc.
+        - jobright_cookies.json, nu_cookies.json
+        - Current skipped_jobs.log
+        """
+        print("\n" + "=" * 80)
+        print("FILE CLEANUP: Removing cache and temporary files")
+        print("=" * 80)
+
+        deleted_count = 0
+        freed_bytes = 0
+
+        try:
+            # Get current directory
+            current_dir = os.getcwd()
+
+            # ============================================================
+            # 1. Remove __pycache__ directories
+            # ============================================================
+            pycache_dirs = glob.glob("**/__pycache__", recursive=True)
+            for pycache_dir in pycache_dirs:
+                try:
+                    size = self._get_dir_size(pycache_dir)
+                    shutil.rmtree(pycache_dir)
+                    deleted_count += 1
+                    freed_bytes += size
+                    print(f"  ✓ Removed: {pycache_dir}/ ({self._format_size(size)})")
+                except Exception as e:
+                    print(f"  ✗ Failed to remove {pycache_dir}: {e}")
+
+            # ============================================================
+            # 2. Remove .pyc files
+            # ============================================================
+            pyc_files = glob.glob("**/*.pyc", recursive=True)
+            for pyc_file in pyc_files:
+                try:
+                    size = os.path.getsize(pyc_file)
+                    os.remove(pyc_file)
+                    deleted_count += 1
+                    freed_bytes += size
+                    print(f"  ✓ Removed: {pyc_file} ({self._format_size(size)})")
+                except Exception as e:
+                    print(f"  ✗ Failed to remove {pyc_file}: {e}")
+
+            # ============================================================
+            # 3. Remove backup files (*_BACKUP*.py)
+            # ============================================================
+            backup_patterns = ["*_BACKUP*.py", "*_backup*.py", "*.bak"]
+            for pattern in backup_patterns:
+                backup_files = glob.glob(pattern)
+                for backup_file in backup_files:
+                    try:
+                        size = os.path.getsize(backup_file)
+                        os.remove(backup_file)
+                        deleted_count += 1
+                        freed_bytes += size
+                        print(f"  ✓ Removed: {backup_file} ({self._format_size(size)})")
+                    except Exception as e:
+                        print(f"  ✗ Failed to remove {backup_file}: {e}")
+
+            # ============================================================
+            # 4. Remove old log files (OPTIONAL)
+            # ============================================================
+            if delete_old_logs:
+                # Keep current skipped_jobs.log, remove only dated backups
+                old_log_patterns = [
+                    "cleanup.log",
+                    "*_log_*.txt",
+                    "*.log.old",
+                    "*.log.bak",
+                ]
+
+                for pattern in old_log_patterns:
+                    old_logs = glob.glob(pattern)
+                    for log_file in old_logs:
+                        # Safety: Never delete current skipped_jobs.log or nu_monitor logs
+                        if log_file in [
+                            "skipped_jobs.log",
+                            "nu_monitor.log",
+                            "nu_monitor_boston.log",
+                        ]:
+                            continue
+
+                        try:
+                            size = os.path.getsize(log_file)
+                            os.remove(log_file)
+                            deleted_count += 1
+                            freed_bytes += size
+                            print(
+                                f"  ✓ Removed: {log_file} ({self._format_size(size)})"
+                            )
+                        except Exception as e:
+                            print(f"  ✗ Failed to remove {log_file}: {e}")
+
+            # ============================================================
+            # 5. Remove temporary test files
+            # ============================================================
+            temp_patterns = ["debug_*.html", "test_*.py", "temp_*.json"]
+            for pattern in temp_patterns:
+                temp_files = glob.glob(pattern)
+                for temp_file in temp_files:
+                    try:
+                        size = os.path.getsize(temp_file)
+                        os.remove(temp_file)
+                        deleted_count += 1
+                        freed_bytes += size
+                        print(f"  ✓ Removed: {temp_file} ({self._format_size(size)})")
+                    except Exception as e:
+                        print(f"  ✗ Failed to remove {temp_file}: {e}")
+
+            # ============================================================
+            # Summary
+            # ============================================================
+            if deleted_count > 0:
+                print(
+                    f"\n✅ Cleanup complete: {deleted_count} items removed, {self._format_size(freed_bytes)} freed"
+                )
+            else:
+                print("\n✅ No unwanted files found - directory is clean")
+
+            print("=" * 80)
+
+        except Exception as e:
+            print(f"\n✗ File cleanup error: {e}")
+            print("=" * 80)
+
+    def _get_dir_size(self, directory):
+        """Calculate total size of directory."""
+        total_size = 0
+        try:
+            for dirpath, dirnames, filenames in os.walk(directory):
+                for filename in filenames:
+                    filepath = os.path.join(dirpath, filename)
+                    if os.path.exists(filepath):
+                        total_size += os.path.getsize(filepath)
+        except:
+            pass
+        return total_size
+
+    def _format_size(self, bytes_size):
+        """Format bytes to human-readable size."""
+        for unit in ["B", "KB", "MB", "GB"]:
+            if bytes_size < 1024.0:
+                return f"{bytes_size:.1f} {unit}"
+            bytes_size /= 1024.0
+        return f"{bytes_size:.1f} TB"
+
 
 if __name__ == "__main__":
+    # Configuration: Set to True to enable automatic file cleanup
+    ENABLE_FILE_CLEANUP = True  # Set to False to disable
+    DELETE_OLD_LOGS = False  # Set to True to also remove old log files
+
     cleaner = ManualCleanup()
+
+    # Main job cleanup (always runs)
     cleaner.cleanup()
+
+    # File cleanup (optional - controlled by flag above)
+    if ENABLE_FILE_CLEANUP:
+        cleaner.clean_unwanted_files(delete_old_logs=DELETE_OLD_LOGS)
