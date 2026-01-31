@@ -31,6 +31,67 @@ from config import (
 from utils import DateParser
 
 
+# ============================================================================
+# GLOBAL RATE LIMITER (NEW)
+# ============================================================================
+
+
+class RateLimiter:
+    """
+    NEW: Global rate limiter to prevent IP blocking
+    Singleton pattern - shared across all extractors
+    """
+
+    _instance = None
+    _domain_times = {}
+
+    def __new__(cls):
+        if cls._instance is None:
+            cls._instance = super().__new__(cls)
+        return cls._instance
+
+    @classmethod
+    def enforce(cls, url: str, min_delay: float = 2.0):
+        """
+        Enforce minimum delay between requests to same domain
+        Gracefully handles failures - never crashes
+        """
+        if not url:
+            return
+
+        try:
+            from urllib.parse import urlparse
+
+            parsed = urlparse(url)
+            hostname = parsed.hostname
+
+            if not hostname:
+                return
+
+            # Group subdomains: wd1.myworkdayjobs.com → myworkdayjobs.com
+            parts = hostname.split(".")
+            base_domain = ".".join(parts[-2:]) if len(parts) >= 2 else hostname
+
+            # Check last request time
+            if base_domain in cls._domain_times:
+                elapsed = time.time() - cls._domain_times[base_domain]
+
+                if elapsed < min_delay:
+                    sleep_time = min_delay - elapsed
+                    logging.debug(
+                        f"Rate limit: Waiting {sleep_time:.1f}s for {base_domain}"
+                    )
+                    time.sleep(sleep_time)
+
+            # Update timestamp
+            cls._domain_times[base_domain] = time.time()
+
+        except Exception as e:
+            # Graceful degradation - if fails, continue without rate limiting
+            logging.debug(f"Rate limiting skipped for {url}: {e}")
+            pass
+
+
 class FakeResponse:
     def __init__(self, text, url, status_code=200):
         self.text = text
@@ -203,6 +264,8 @@ class SimplifyRedirectResolver:
     def _method_0_tracked_obj(cls, url):
         try:
             logging.debug("Simplify Method 0: Extract url field and follow redirect")
+
+            RateLimiter.enforce(url)  # NEW: Rate limiting
             response = requests.get(url, timeout=10)
 
             match = re.search(
@@ -229,6 +292,7 @@ class SimplifyRedirectResolver:
                         f"Simplify Method 0: Found click URL: {click_url[:60]}"
                     )
 
+                    RateLimiter.enforce(click_url)  # NEW: Rate limiting
                     redirect_response = requests.get(
                         click_url, allow_redirects=True, timeout=10
                     )
@@ -254,6 +318,8 @@ class SimplifyRedirectResolver:
     def _method_1_http_redirect(cls, url):
         try:
             logging.debug("Simplify Method 1: HTTP redirect")
+
+            RateLimiter.enforce(url)  # NEW: Rate limiting
             response = requests.get(url, allow_redirects=True, timeout=5)
             final_url = response.url
             if (
@@ -271,6 +337,8 @@ class SimplifyRedirectResolver:
     def _method_2_parse_page(cls, url):
         try:
             logging.debug("Simplify Method 2: Parse page")
+
+            RateLimiter.enforce(url)  # NEW: Rate limiting
             response = requests.get(url, timeout=5)
             soup = BeautifulSoup(response.text, "lxml")
 
@@ -940,8 +1008,10 @@ class EmailExtractor:
             logging.info(f"Found {len(messages)} labeled emails")
 
             email_data = []
+
             for msg in messages:
                 msg_id = msg["id"]
+
                 message = (
                     self.service.users()
                     .messages()
@@ -1169,6 +1239,8 @@ class PageFetcher:
 
     def check_url_health(self, url: str) -> Tuple[bool, Optional[int]]:
         try:
+            RateLimiter.enforce(url)  # Rate limiting using global singleton
+
             response = requests.head(url, timeout=10, allow_redirects=True)
             status_code = response.status_code
             if status_code in [200, 301, 302, 303, 307, 308]:
@@ -1690,6 +1762,8 @@ class PageFetcher:
 
             # Step 3: Make stealth HTTP request
             logging.info("Jobright Method 1: Making stealth HTTP request...")
+
+            RateLimiter.enforce(url)  # NEW: Rate limiting
             response = requests.get(
                 url, headers=headers, cookies=cookie_dict, timeout=10
             )

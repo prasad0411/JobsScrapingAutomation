@@ -9,6 +9,7 @@ from config import (
     CANADA_PROVINCES,
     CANADA_PROVINCE_NAMES,
     MAJOR_CANADIAN_CITIES,
+    US_STATES_FALLBACK,
     CANADIAN_COMPANIES,
     PLATFORM_CONFIGS,
     JOB_ID_PATTERNS,
@@ -831,8 +832,8 @@ class LocationProcessor:
         return True
 
     @staticmethod
-    def extract_remote_status_enhanced(soup, location, url):
-        """ORIGINAL: Full remote status extraction"""
+    def extract_remote_status_enhanced(soup, location, url, description=""):
+        """FIXED: Added description parameter to match job_aggregator.py calls"""
         if not soup:
             return "Unknown"
 
@@ -843,6 +844,16 @@ class LocationProcessor:
                     return "Remote"
                 if "hybrid" in location_lower:
                     return "Hybrid"
+
+            # NEW: Check description first if provided
+            if description:
+                desc_lower = description.lower()
+                if "100% remote" in desc_lower or "fully remote" in desc_lower:
+                    return "Remote"
+                if "hybrid" in desc_lower:
+                    return "Hybrid"
+                if "on-site" in desc_lower or "onsite" in desc_lower:
+                    return "On Site"
 
             page_text = soup.get_text()[:2000].lower()
 
@@ -1343,7 +1354,7 @@ class ValidationHelper:
             # Check for year ranges
             range_patterns = [
                 r"(?:between\s+)?(\d{1,2})/(\d{4})\s*-\s*(\d{1,2})/(\d{4})",
-                r"between\s+(?:[A-Za-z]+\s+)?(\d{4})\s+(?:and|to)\s+(?:[A-Za-z]+\s+)?(\d{4})",
+                r"between\s+(?:[A-Za-z]+\s+)?(\d{4})\s+(?:and|to)\s+(?:[A-Za-z]+\s+)?(\d{4})",  # FIXED: Handles month names
                 r"(\d{4})\s+(?:and|to|-)\s+(\d{4}).*(?:graduat|class)",
             ]
 
@@ -1383,14 +1394,16 @@ class ValidationHelper:
                 return None, None
 
             if 2027 in graduation_years:
-                return None, None 
+                return None, None
 
+            # FIXED: Reject ONLY if ALL years are > 2027 (wanting future grads only)
+            # Accept if ANY year is ≤ 2027 (includes your May 2027 graduation)
             if all(year > 2027 for year in graduation_years):
                 years_str = ", ".join(str(y) for y in sorted(graduation_years))
                 logging.debug(f"Grad year: {years_str} requires future graduation")
                 return "REJECT", f"Graduation year mismatch: {years_str}"
 
-        except Exception as e: 
+        except Exception as e:
             logging.debug(f"Graduation year check failed: {e}")
 
         return None, None
