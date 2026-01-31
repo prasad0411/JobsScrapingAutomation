@@ -111,9 +111,9 @@ class SheetsManager:
                 ):
                     existing["job_ids"].add(job_id.lower())
 
-        print(
-            f"Loaded: {len(existing['jobs'])} jobs, {len(existing['urls'])} URLs, {len(existing['job_ids'])} IDs"
-        )
+        # print(
+        #     f"Loaded: {len(existing['jobs'])} jobs, {len(existing['urls'])} URLs, {len(existing['job_ids'])} IDs"
+        # )
         return existing
 
     def get_next_row_numbers(self):

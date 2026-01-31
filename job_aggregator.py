@@ -69,22 +69,22 @@ class UnifiedJobAggregator:
         self.discarded_jobs = []
         self.duplicate_jobs = []
         self.outcomes = defaultdict(int)
-        print(f"Loaded {len(self.existing_jobs)} jobs from sheets")
+        # print(f"Loaded {len(self.existing_jobs)} jobs from sheets")
         logging.info(f"Loaded {len(self.existing_jobs)} existing jobs")
 
     def run(self):
         if not self.jobright_auth.cookies:
             self.jobright_auth.login_interactive()
-        print("Scraping GitHub repositories...")
+        # print("Scraping GitHub repositories...")
         self._scrape_simplify_github()
-        print("\nProcessing email jobs...")
+        # print("\nProcessing email jobs...")
         try:
             emails_data = self.email_extractor.fetch_job_emails()
             if emails_data:
                 total_urls = sum(len(email["urls"]) for email in emails_data)
-                print(
-                    f"Processing {total_urls} URLs from {len(emails_data)} emails...\n"
-                )
+                # print(
+                #     f"Processing {total_urls} URLs from {len(emails_data)} emails...\n"
+                # )
                 self._process_emails_grouped(emails_data)
             else:
                 print("No email jobs found")
@@ -105,11 +105,13 @@ class UnifiedJobAggregator:
         logging.info(f"SUMMARY: {added_valid} valid, {added_discarded} discarded")
 
     def _scrape_simplify_github(self):
+        print("SimplifyJobs")
         simplify_jobs = self._safe_scrape(SIMPLIFY_URL, "SimplifyJobs")
+        print("vanshb03")
         vanshb03_jobs = self._safe_scrape(VANSHB03_URL, "vanshb03")
-        print(
-            f"  Total: {len(simplify_jobs)} SimplifyJobs + {len(vanshb03_jobs)} vanshb03\n"
-        )
+        # print(
+        #     f"  Total: {len(simplify_jobs)} SimplifyJobs + {len(vanshb03_jobs)} vanshb03\n"
+        # )
         logging.info(f"GitHub: {len(simplify_jobs)} + {len(vanshb03_jobs)}")
         for i, job in enumerate(simplify_jobs):
             try:
@@ -138,7 +140,7 @@ class UnifiedJobAggregator:
         github_valid = sum(
             1 for j in self.valid_jobs if j["source"] in ["SimplifyJobs", "vanshb03"]
         )
-        print(f"  GitHub summary: {github_valid} valid jobs\n")
+        # print(f"  GitHub summary: {github_valid} valid jobs\n")
 
     def _process_single_github_job(self, job):
         age_days = self._parse_github_age(job["age"])
@@ -375,7 +377,7 @@ class UnifiedJobAggregator:
             sender = email["sender"]
             url_count = len(email["urls"])
             print(f'\nEmail {email_idx}/{len(emails_data)}: "{subject}" ({sender})')
-            print(f"  {url_count} URLs from this email...\n")
+            # print(f"  {url_count} URLs from this email...\n")
             for url in email["urls"]:
                 try:
                     if "simplify.jobs/p/" in url.lower():
