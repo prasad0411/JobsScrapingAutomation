@@ -210,11 +210,16 @@ class UnifiedJobAggregator:
         is_valid, invalid_reason = TitleProcessor.is_valid_job_title(title)
         if not is_valid:
             print(f"  {job['company'][:30]}: ✗ {invalid_reason}")
-            logging.info(f"REJECTED | {job['company']} | {invalid_reason}")
+            logging.info(
+                f"REJECTED | {job['company']} | {invalid_reason} | Title: '{title}' | URL: {job['url'][:60]}"
+            )
             return
         is_intern, intern_reason = TitleProcessor.is_internship_role(title)
         if not is_intern:
             print(f"  {job['company'][:30]}: ✗ {intern_reason}")
+            logging.info(
+                f"REJECTED | {job['company']} | {intern_reason} | Title: '{title}' | Has intern: {'intern' in title.lower()} | Has co-op: {'co-op' in title.lower()} | Has apprentice: {'apprentice' in title.lower()}"
+            )
             self.outcomes["skipped_senior_role"] += 1
             return
         if job["is_closed"]:
@@ -232,7 +237,11 @@ class UnifiedJobAggregator:
             )
             return
         if not TitleProcessor.is_cs_engineering_role(title):
+            matched_kw = [kw for kw in TECHNICAL_ROLE_KEYWORDS if kw in title.lower()]
             print(f"  {job['company'][:30]}: ✗ Non-CS")
+            logging.info(
+                f"REJECTED | {job['company']} | Non-CS | Title: '{title}' | Matched keywords: {matched_kw} | Tech count: {len(matched_kw)}"
+            )
             self._add_to_discarded(
                 job["company"],
                 title,
@@ -392,6 +401,9 @@ class UnifiedJobAggregator:
             )
             if decision == "REJECT" and restriction:
                 print(f"  {company[:30]}: ✗ {restriction}")
+                logging.info(
+                    f"REJECTED | {company} | {restriction} | Title: '{title}' | Source: {source} | URL: {final_url[:60]}"
+                )
                 self._add_to_discarded(
                     company,
                     title,
@@ -427,6 +439,9 @@ class UnifiedJobAggregator:
             )
             if intl_check:
                 print(f"  {company[:30]}: ✗ {intl_check}")
+                logging.info(
+                    f"REJECTED | {company} | {intl_check} | Title: '{title}' | Location: {location_formatted} | Source: {source}"
+                )
                 self._add_to_discarded(
                     company,
                     title,
@@ -745,6 +760,9 @@ class UnifiedJobAggregator:
             is_intern, intern_reason = TitleProcessor.is_internship_role(title)
             if not is_intern:
                 print(f"    {company[:28]}: ✗ {intern_reason}")
+                logging.info(
+                    f"REJECTED | {company} | {intern_reason} | Title: '{title}' | Source: {sender} | URL: {final_url[:60]}"
+                )
                 self.outcomes["skipped_senior_role"] += 1
                 return self._create_discard_result(
                     {"company": company, "title": title, "url": final_url},
@@ -752,7 +770,13 @@ class UnifiedJobAggregator:
                     sender,
                 )
             if not TitleProcessor.is_cs_engineering_role(title):
+                matched_kw = [
+                    kw for kw in TECHNICAL_ROLE_KEYWORDS if kw in title.lower()
+                ]
                 print(f"    {company[:28]}: ✗ Non-CS")
+                logging.info(
+                    f"REJECTED | {company} | Non-CS | Title: '{title}' | Matched keywords: {matched_kw} | Source: {sender}"
+                )
                 return self._create_discard_result(
                     {"company": company, "title": title, "url": final_url},
                     "Non-CS role",
@@ -845,9 +869,16 @@ class UnifiedJobAggregator:
         title = TitleProcessor.clean_title_aggressive(job_data["title"])
         is_intern, intern_reason = TitleProcessor.is_internship_role(title)
         if not is_intern:
+            logging.info(
+                f"REJECTED | {job_data['company']} | {intern_reason} | Title: '{title}' | Source: {sender} | URL: {job_data.get('url', '')[:60]}"
+            )
             self.outcomes["skipped_senior_role"] += 1
             return self._create_discard_result(job_data, intern_reason, sender)
         if not TitleProcessor.is_cs_engineering_role(title):
+            matched_kw = [kw for kw in TECHNICAL_ROLE_KEYWORDS if kw in title.lower()]
+            logging.info(
+                f"REJECTED | {job_data['company']} | Non-CS | Title: '{title}' | Matched keywords: {matched_kw} | Source: {sender}"
+            )
             return self._create_discard_result(job_data, "Non-CS role", sender)
         is_valid_co, fixed_co, co_reason = ValidationHelper.validate_company_field(
             job_data["company"], title, job_data["url"]

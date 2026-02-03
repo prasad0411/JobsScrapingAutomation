@@ -465,6 +465,43 @@ class JobrightAuthenticator:
             )
             actual_url = job_result.get("applyLink") or job_result.get("originalUrl")
             is_company_site = job_result.get("isCompanySiteLink", False)
+
+            if not actual_url or "jobright.ai" in actual_url:
+                try:
+                    origin_link = soup.find("a", class_=re.compile(r"index_origin"))
+
+                    if not origin_link:
+                        origin_link = soup.find(
+                            "a", string=re.compile(r"original\s+job\s+post", re.I)
+                        )
+
+                    if not origin_link:
+                        for link in soup.find_all("a", href=True):
+                            link_text = link.get_text().strip().lower()
+                            if link_text and (
+                                "original" in link_text or "job post" in link_text
+                            ):
+                                href = link.get("href")
+                                if href and "jobright.ai" not in href:
+                                    origin_link = link
+                                    break
+
+                    if origin_link:
+                        html_url = origin_link.get("href")
+                        if (
+                            html_url
+                            and html_url.startswith("http")
+                            and "jobright.ai" not in html_url
+                        ):
+                            actual_url = html_url
+                            is_company_site = True
+                            logging.info(
+                                f"Resolved Jobright URL via HTML to {actual_url[:70]}"
+                            )
+
+                except Exception as html_error:
+                    logging.debug(f"HTML URL extraction failed: {html_error}")
+
             if actual_url and "jobright.ai" not in actual_url:
                 logging.info(f"Resolved Jobright URL to {actual_url[:70]}")
                 return actual_url, is_company_site
@@ -686,7 +723,7 @@ class PageFetcher:
             return _URL_HEALTH_CACHE[url]
         response = retry_request(url, method="HEAD", max_retries=2)
         if response:
-            is_healthy = response.status_code == 200
+            is_healthy = 200 <= response.status_code < 300
             _URL_HEALTH_CACHE[url] = (is_healthy, response.status_code)
             return is_healthy, response.status_code
         _URL_HEALTH_CACHE[url] = (False, 0)

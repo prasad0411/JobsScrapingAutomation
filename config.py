@@ -195,6 +195,32 @@ GARBAGE_LOCATION_PATTERNS = [
     "multiple locations",
 ]
 
+INTERNSHIP_INDICATORS = [
+    "intern",
+    "co-op",
+    "coop",
+    "apprentice",
+    "apprenticeship",
+    "emerging talent",
+    "fellowship",
+    "trainee",
+    "student program",
+    "early career program",
+    "rotational program",
+]
+
+GUARANTEED_TECHNICAL_PHRASES = [
+    "computer science",
+    "software engineer",
+    "software developer",
+    "software intern",
+    "data scientist",
+    "data engineer",
+    "machine learning engineer",
+    "ml engineer",
+    "ai engineer",
+]
+
 ENHANCED_REMOTE_PATTERNS = [
     "work from home",
     "wfh",
@@ -973,6 +999,9 @@ TECHNICAL_ROLE_KEYWORDS = {
     "natural language",
     "natural language processing",
     "computer vision",
+    "computer science",
+    "computer",
+    "cs",
     "deep learning",
     "neural network",
     "generative ai",

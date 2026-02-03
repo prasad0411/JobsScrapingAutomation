@@ -104,15 +104,38 @@ class TitleProcessor:
         if not title or len(title) < 5:
             return False, "Title too short"
 
-        excluded = {"application", "click here", "apply now", "view job", "submit your"}
-        if any(phrase in title.lower() for phrase in excluded):
-            return False, "Invalid title pattern"
+        title_lower = title.lower()
+
+        spam_patterns = [
+            r"^application$",
+            r"^apply\s",
+            r"click\s+here",
+            r"apply\s+now",
+            r"view\s+job",
+            r"submit\s+your",
+            r"^join\s",
+        ]
+
+        for pattern in spam_patterns:
+            if re.search(pattern, title_lower):
+                return False, "Invalid title pattern"
 
         return True, None
 
     @staticmethod
     @lru_cache(maxsize=256)
     def is_cs_engineering_role(title, description=""):
+        title_lower = title.lower()
+
+        try:
+            from config import GUARANTEED_TECHNICAL_PHRASES
+
+            for phrase in GUARANTEED_TECHNICAL_PHRASES:
+                if phrase in title_lower:
+                    return True
+        except (ImportError, AttributeError):
+            pass
+
         combined_text = (title + " " + description).lower()
 
         if any(kw in combined_text for kw in TECHNICAL_ROLE_KEYWORDS):
@@ -135,10 +158,53 @@ class TitleProcessor:
 
     @staticmethod
     @lru_cache(maxsize=256)
-    def is_internship_role(title):
+    def is_internship_role(title, job_type=""):
+        try:
+            if job_type in ["Internship", "Co-op", "Fellowship", "Apprenticeship"]:
+                title_lower = title.lower()
+                excluded = {
+                    "senior",
+                    "sr.",
+                    "sr ",
+                    "staff",
+                    "principal",
+                    "lead",
+                    "architect",
+                    "director",
+                    "manager",
+                }
+                for level in excluded:
+                    if level in title_lower:
+                        return False, f"Senior/experienced role: contains '{level}'"
+                return True, None
+        except Exception:
+            pass
+
         title_lower = title.lower()
 
         if not any(kw in title_lower for kw in ["intern", "co-op", "coop"]):
+            try:
+                from config import INTERNSHIP_INDICATORS
+
+                if any(kw in title_lower for kw in INTERNSHIP_INDICATORS):
+                    excluded = {
+                        "senior",
+                        "sr.",
+                        "sr ",
+                        "staff",
+                        "principal",
+                        "lead",
+                        "architect",
+                        "director",
+                        "manager",
+                    }
+                    for level in excluded:
+                        if level in title_lower:
+                            return False, f"Senior/experienced role: contains '{level}'"
+                    return True, None
+            except (ImportError, AttributeError):
+                pass
+
             return False, "Not internship/co-op role"
 
         excluded = {
