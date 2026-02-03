@@ -33,3 +33,7 @@ Thumbs.db
 *_session.pkl
 handshake_session.pkl
 capture_handshake_session.py
+
+# Local output files
+failed_simplify_urls.json
+processed_emails.json
