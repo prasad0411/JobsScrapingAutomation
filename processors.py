@@ -9,7 +9,6 @@ from config import (
     CANADA_PROVINCES,
     CANADA_PROVINCE_NAMES,
     MAJOR_CANADIAN_CITIES,
-    US_STATES_FALLBACK,
     CANADIAN_COMPANIES,
     PLATFORM_CONFIGS,
     JOB_ID_PATTERNS,
@@ -32,6 +31,7 @@ from config import (
     normalize_unicode,
     extract_domain_and_subdomain,
     FULL_STATE_NAMES,
+    US_STATES_FALLBACK,
     CITY_ABBREVIATIONS,
     LOCATION_SUFFIXES,
     AMBIGUOUS_CITIES,
@@ -293,6 +293,8 @@ class JobIDExtractor:
             return False
         if not re.match(r"^[A-Z0-9\-_]+$", job_id, re.I):
             return False
+        if not any(c.isdigit() for c in job_id):
+            return False
         return job_id.upper() not in {
             "APPLY",
             "NOW",
@@ -321,10 +323,12 @@ class JobIDExtractor:
         if best_result:
             return best_result.value
 
-        # Fallback: Generate hash-based ID
-        import hashlib
+        try:
+            from config import JOB_ID_PREFERENCES
 
-        return f"HASH_{hashlib.md5(url.encode()).hexdigest()[:10]}"
+            return JOB_ID_PREFERENCES.get("fallback_value", "N/A")
+        except (ImportError, AttributeError):
+            return "N/A"
 
 
 # ============================================================================
@@ -1164,13 +1168,6 @@ class ValidationHelper:
             if year_decision == "REJECT":
                 return year_decision, year_reason, []
 
-            page_text = soup.get_text()[:15000].lower()
-
-            # Check 6: Sponsorship patterns
-            for pattern in _COMPILED_SPONSORSHIP_PATTERNS:
-                if pattern.search(page_text):
-                    return "REJECT", "Sponsorship not available", []
-
         except Exception as e:
             logging.debug(f"Page restrictions check failed: {e}")
 
@@ -1226,6 +1223,27 @@ class ValidationHelper:
                 r"enrolled\s+in\s+(?:an?\s+)?undergraduate\s+program",
                 r"currently\s+pursuing\s+(?:a\s+)?bachelor",
                 r"must\s+be\s+(?:an?\s+)?undergraduate\s+student",
+                r"(?:must\s+be\s+)?(?:a\s+)?rising\s+(?:junior|senior)",
+                r"entering\s+(?:third|fourth)\s+year",
+                r"(?:sophomore|junior|senior)\s+status",
+                r"bachelor'?s?\s+candidates?\s+only",
+                r"pursuing\s+(?:bs|ba)\s+degree",
+                r"current\s+(?:bs|ba)\s+student",
+                r"enrolled\s+(?:bs|ba)\s+program",
+                r"undergraduate\s+enrollment\s+required",
+                r"must\s+be\s+enrolled\s+in\s+bachelor",
+                r"bachelor'?s?\s+program\s+enrollment",
+                r"(?:junior|senior)\s+year\s+standing",
+                r"class\s+standing:\s*(?:junior|senior)",
+                r"pursuing\s+undergraduate\s+degree",
+                r"current\s+undergraduate\s+status",
+                r"undergraduate\s+student\s+status",
+                r"bachelor'?s?\s+level\s+student",
+                r"undergraduate\s+program\s+student",
+                r"enrolled\s+in\s+(?:a\s+)?4-year\s+(?:bachelor|undergraduate)",
+                r"pursuing\s+(?:a\s+)?4-year\s+degree",
+                r"(?:must|should)\s+be\s+pursuing\s+(?:their|a)\s+bachelor",
+                r"target(?:ed)?\s+majors?.*bachelor",
             ]
 
             for pattern in undergraduate_patterns:
@@ -1380,6 +1398,7 @@ class ValidationHelper:
                 r"graduating\s+(?:in\s+)?(?:[A-Za-z]+\s+)?(\d{4})",
                 r"class\s+of\s+(\d{4})",
                 r"expected\s+graduation[:\s]+(?:[A-Za-z]+\s+)?(\d{4})",
+                r"not\s+graduating\s+(?:prior\s+to|before)\s+(?:[A-Za-z]+\s+)?(\d{4})",
             ]
 
             for pattern in specific_patterns:
