@@ -861,6 +861,18 @@ class LocationProcessor:
 
             page_text = soup.get_text()[:2000].lower()
 
+            try:
+                from config import ENHANCED_REMOTE_PATTERNS
+
+                for pattern in ENHANCED_REMOTE_PATTERNS:
+                    if pattern in page_text[:500]:
+                        if "hybrid" in pattern:
+                            return "Hybrid"
+                        else:
+                            return "Remote"
+            except (ImportError, AttributeError):
+                pass
+
             if "100% remote" in page_text or "fully remote" in page_text:
                 return "Remote"
             if "remote" in page_text[:500]:

@@ -435,7 +435,7 @@ class SheetsManager:
     @staticmethod
     @lru_cache(maxsize=2048)
     def _clean_url(url):
-        if not url: 
+        if not url:
             return ""
         if "jobright.ai/jobs/info/" in url.lower():
             match = re.search(r"(jobright\.ai/jobs/info/[a-f0-9]+)", url, re.I)

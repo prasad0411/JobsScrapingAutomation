@@ -162,6 +162,33 @@ FIELD_PREFIXES_TO_REMOVE = [
     "Position:",
     "Role:",
     "Job:",
+    "locations",
+    "location ",
+]
+
+GARBAGE_LOCATION_PATTERNS = [
+    "experience, and",
+    "experience and",
+    "salary",
+    "compensation",
+    "nearest major market",
+    "multiple locations",
+]
+
+ENHANCED_REMOTE_PATTERNS = [
+    "work from home",
+    "wfh",
+    "telecommute",
+    "distributed",
+    "remote-first",
+    "remote friendly",
+    "location: remote",
+    "anywhere in",
+    "work anywhere",
+    "fully remote",
+    "100% remote",
+    "remote work",
+    "remote position",
 ]
 
 US_STATES_FALLBACK = {

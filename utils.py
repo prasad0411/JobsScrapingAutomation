@@ -641,7 +641,10 @@ class DataSanitizer:
             if DATA_SANITIZATION_PREFERENCES.get("trim_whitespace", True):
                 text = re.sub(r"\s+", " ", text).strip()
 
-            return text if text else "Unknown"
+            if not text or len(text) < 2:
+                return "Unknown"
+
+            return text
 
         except Exception as e:
             logging.debug(f"Company sanitization failed: {e}")
@@ -680,6 +683,9 @@ class DataSanitizer:
 
             if DATA_SANITIZATION_PREFERENCES.get("trim_whitespace", True):
                 text = re.sub(r"\s+", " ", text).strip()
+
+            if text and len(text) > 15 and not re.search(r"[,\s-]", text):
+                return "Unknown"
 
             if DATA_SANITIZATION_PREFERENCES.get("validate_garbage_locations", True):
                 if cls._is_garbage_location(text):
@@ -783,7 +789,19 @@ class DataSanitizer:
         if not text or text == "Unknown":
             return False
 
-        text_lower = text.lower().strip()
+        text_clean = text.strip()
+        text_lower = text_clean.lower()
+
+        if text_clean.startswith(","):
+            return True
+
+        try:
+            from config import US_STATES_FALLBACK
+
+            if text_clean.upper() in US_STATES_FALLBACK and len(text_clean) == 2:
+                return True
+        except (ImportError, AttributeError):
+            pass
 
         if re.match(r"^\d+", text):
             return True
@@ -797,12 +815,19 @@ class DataSanitizer:
         if len(text) > 100:
             return True
 
+        try:
+            from config import GARBAGE_LOCATION_PATTERNS
+
+            if any(phrase in text_lower for phrase in GARBAGE_LOCATION_PATTERNS):
+                return True
+        except (ImportError, AttributeError):
+            pass
+
         garbage_phrases = [
             "as well as",
             "in accordance with",
             "equal opportunity",
             "without regard to",
-            "nearest major market",
             "more search options",
         ]
         if any(phrase in text_lower for phrase in garbage_phrases):
@@ -861,6 +886,12 @@ class DataSanitizer:
             from config import validate_us_state_code, FULL_STATE_NAMES
 
             text = location.strip()
+
+            text = re.sub(r"^locations?\s*", "", text, flags=re.I)
+            text = re.sub(r"^location\s+", "", text, flags=re.I)
+
+            text = re.sub(r"\.{2,}", ".", text)
+            text = re.sub(r"\s*\.\s*", ", ", text)
 
             text = re.sub(r"\s*-\s*", ", ", text)
 

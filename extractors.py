@@ -139,6 +139,9 @@ def retry_request(url, method="GET", max_retries=MAX_RETRIES, **kwargs):
 
 
 class SimplifyRedirectResolver:
+    _github_readme_cache = None
+    _github_readme_fetch_time = None
+
     @staticmethod
     def load_failed_cache():
         if os.path.exists(FAILED_SIMPLIFY_CACHE):
@@ -171,17 +174,37 @@ class SimplifyRedirectResolver:
         if job_id in failed_cache and failed_cache[job_id] == today:
             return simplify_url, False
         click_url = f"https://simplify.jobs/jobs/click/{job_id}"
+
         actual_url = SimplifyRedirectResolver._method_1_http_redirect(click_url)
         if actual_url:
             logging.info(f"Simplify HTTP: {actual_url[:70]}")
             return actual_url, True
+
         actual_url = SimplifyRedirectResolver._method_2_selenium_click(click_url)
         if actual_url:
             logging.info(f"Simplify Selenium: {actual_url[:70]}")
             return actual_url, True
+
+        actual_url = SimplifyRedirectResolver._method_3_api_fetch(job_id)
+        if actual_url:
+            logging.info(f"Simplify API: {actual_url[:70]}")
+            return actual_url, True
+
+        actual_url = SimplifyRedirectResolver._method_4_github_lookup(job_id)
+        if actual_url:
+            logging.info(f"Simplify GitHub: {actual_url[:70]}")
+            return actual_url, True
+
         failed_cache[job_id] = today
         SimplifyRedirectResolver.save_failed_cache(failed_cache)
-        logging.warning(f"All methods failed: {simplify_url[:60]}")
+
+        try:
+            with open("simplify_manual_review.txt", "a") as f:
+                f.write(f"{job_id}\t{simplify_url}\t{today}\n")
+        except Exception:
+            pass
+
+        logging.warning(f"All 4 methods failed: {simplify_url[:60]}")
         return simplify_url, False
 
     @staticmethod
@@ -190,12 +213,37 @@ class SimplifyRedirectResolver:
             response = requests.get(
                 click_url,
                 allow_redirects=True,
-                timeout=10,
+                timeout=15,
                 headers={"User-Agent": USER_AGENTS[0]},
             )
+
             if response and response.url != click_url:
                 if SimplifyRedirectResolver._is_valid_job_url(response.url):
                     return response.url
+
+            if response and response.status_code == 200:
+                from extractors import safe_parse_html
+
+                soup, _ = safe_parse_html(response.text)
+                if soup:
+                    meta_refresh = soup.find("meta", {"http-equiv": "refresh"})
+                    if meta_refresh:
+                        content = meta_refresh.get("content", "")
+                        match = re.search(r"url=(.+)", content, re.I)
+                        if match:
+                            redirect_url = match.group(1).strip().strip('"').strip("'")
+                            if SimplifyRedirectResolver._is_valid_job_url(redirect_url):
+                                return redirect_url
+
+            if response and response.status_code == 200:
+                js_match = re.search(
+                    r'window\.location(?:\.href)?\s*=\s*["\']([^"\']+)', response.text
+                )
+                if js_match:
+                    redirect_url = js_match.group(1)
+                    if SimplifyRedirectResolver._is_valid_job_url(redirect_url):
+                        return redirect_url
+
         except:
             pass
         return None
@@ -217,14 +265,21 @@ class SimplifyRedirectResolver:
             )
             service = Service(ChromeDriverManager().install())
             driver = webdriver.Chrome(service=service, options=chrome_options)
-            driver.set_page_load_timeout(15)
+            driver.set_page_load_timeout(20)
             driver.get(click_url)
-            time.sleep(3)
-            current_url = driver.current_url
-            if current_url != click_url and SimplifyRedirectResolver._is_valid_job_url(
-                current_url
-            ):
-                return current_url
+
+            for wait_time in [3, 2, 2]:
+                time.sleep(wait_time)
+                current_url = driver.current_url
+
+                if current_url != click_url:
+                    if SimplifyRedirectResolver._is_valid_job_url(current_url):
+                        return current_url
+
+                if "simplify.jobs" not in current_url:
+                    if SimplifyRedirectResolver._is_valid_job_url(current_url):
+                        return current_url
+
         except:
             pass
         finally:
@@ -271,6 +326,70 @@ class SimplifyRedirectResolver:
                     if not any(pattern in url_lower for pattern in reject):
                         return True
         return False
+
+    @staticmethod
+    def _method_3_api_fetch(job_id):
+        try:
+            api_url = f"https://simplify.jobs/api/jobs/{job_id}"
+            response = requests.get(
+                api_url,
+                timeout=10,
+                headers={"User-Agent": USER_AGENTS[0]},
+            )
+
+            if response and response.status_code == 200:
+                try:
+                    data = response.json()
+                    if "url" in data or "jobUrl" in data or "link" in data:
+                        actual_url = (
+                            data.get("url") or data.get("jobUrl") or data.get("link")
+                        )
+                        if SimplifyRedirectResolver._is_valid_job_url(actual_url):
+                            return actual_url
+                except:
+                    pass
+
+        except:
+            pass
+        return None
+
+    @staticmethod
+    def _method_4_github_lookup(job_id):
+        try:
+            import time
+
+            current_time = time.time()
+
+            if (
+                SimplifyRedirectResolver._github_readme_cache is None
+                or SimplifyRedirectResolver._github_readme_fetch_time is None
+                or current_time - SimplifyRedirectResolver._github_readme_fetch_time
+                > 600
+            ):
+
+                readme_url = "https://raw.githubusercontent.com/SimplifyJobs/Summer2026-Internships/master/README.md"
+                response = requests.get(readme_url, timeout=15)
+
+                if response and response.status_code == 200:
+                    SimplifyRedirectResolver._github_readme_cache = response.text
+                    SimplifyRedirectResolver._github_readme_fetch_time = current_time
+                else:
+                    return None
+
+            readme_text = SimplifyRedirectResolver._github_readme_cache
+            if readme_text and job_id in readme_text:
+                lines = readme_text.split("\n")
+                for line in lines:
+                    if job_id in line:
+                        match = re.search(r"https?://[^\s\)]+", line)
+                        if match:
+                            url = match.group(0)
+                            if "simplify.jobs" not in url and job_id not in url:
+                                if SimplifyRedirectResolver._is_valid_job_url(url):
+                                    return url
+        except:
+            pass
+        return None
 
 
 class JobrightAuthenticator:

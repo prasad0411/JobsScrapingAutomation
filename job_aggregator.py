@@ -390,7 +390,7 @@ class UnifiedJobAggregator:
             intl_check = LocationProcessor.check_if_international(
                 location_formatted, soup, final_url, title
             )
-            if intl_check and "Canada" in str(intl_check):
+            if intl_check:
                 print(f"  {company[:30]}: ✗ {intl_check}")
                 self._add_to_discarded(
                     company,
@@ -614,7 +614,7 @@ class UnifiedJobAggregator:
                                     final_url,
                                     job_data.get("title", ""),
                                 )
-                                if intl_check and "Canada" in str(intl_check):
+                                if intl_check:
                                     return self._create_discard_result(
                                         job_data, intl_check, sender
                                     )
@@ -726,7 +726,7 @@ class UnifiedJobAggregator:
             intl_check = LocationProcessor.check_if_international(
                 location_formatted, soup, final_url, title
             )
-            if intl_check and "Canada" in str(intl_check):
+            if intl_check:
                 print(f"    {company[:28]}: ✗ {intl_check}")
                 return self._create_discard_result(
                     {
@@ -811,7 +811,7 @@ class UnifiedJobAggregator:
             job_data.get("url"),
             job_data.get("title", ""),
         )
-        if intl_check and "Canada" in str(intl_check):
+        if intl_check:
             return self._create_discard_result(job_data, intl_check, sender)
         location_formatted = LocationProcessor.format_location_clean(
             job_data.get("location", "Unknown")
