@@ -137,6 +137,26 @@ PLATFORM_BLACKLIST = [".icims.com"]
 
 PLATFORM_BLACKLIST_REASONS = {".icims.com": "User preference: ICIMS platform excluded"}
 
+COMPANY_BLACKLIST = [
+    "RTX",
+    "Raytheon",
+    "Raytheon Technologies",
+    "Northrop Grumman",
+    "Lockheed Martin",
+]
+
+COMPANY_BLACKLIST_REASONS = {
+    "RTX": "Company always requires security clearance",
+    "Raytheon": "Company always requires security clearance",
+    "Raytheon Technologies": "Company always requires security clearance",
+    "Northrop Grumman": "Company always requires security clearance",
+    "Lockheed Martin": "Company always requires security clearance",
+}
+
+VERBOSE_OUTPUT = False
+SHOW_LOADING_STATS = False
+SHOW_GITHUB_COUNTS = False
+
 JOB_ID_PREFERENCES = {
     "hash_fallback_enabled": False,
     "fallback_value": "N/A",
@@ -897,14 +917,26 @@ ROLE_CATEGORIES = {
         "action": "ACCEPT",
         "alert": "✅ DATA/AI",
     },
+    "Product Management": {
+        "keywords": ["product management", "product manager"],
+        "exclude": [],
+        "action": "ACCEPT",
+        "alert": "🔍 PRODUCT MANAGEMENT",
+    },
 }
 
 TECHNICAL_ROLE_KEYWORDS = {
     "software",
     "engineer",
+    "engineering",
     "developer",
+    "development",
+    "developing",
     "programmer",
+    "programming",
     "coding",
+    "code",
+    "coder",
     "data",
     "ml",
     "ai",
@@ -922,6 +954,7 @@ TECHNICAL_ROLE_KEYWORDS = {
     "security",
     "qa",
     "test",
+    "testing",
     "automation",
     "technology",
     "technical",
@@ -937,6 +970,8 @@ TECHNICAL_ROLE_KEYWORDS = {
     "r&d",
     "llm",
     "nlp",
+    "natural language",
+    "natural language processing",
     "computer vision",
     "deep learning",
     "neural network",
@@ -974,7 +1009,20 @@ TECHNICAL_ROLE_KEYWORDS = {
     "ran",
     "baseband",
     "wireless",
+    "product management",
+    "product manager",
+    "application",
 }
+
+TECHNICAL_PATTERNS = [
+    r"\bprogramm(er|ing)\b",
+    r"\bdevelop(er|ment|ing)\b",
+    r"\bengineer(ing)?\b",
+    r"\bnatural\s+language\b",
+    r"\bsoftware\s+\w+",
+    r"\bapplication\s+\w*develop",
+    r"\bproduct\s+manag(er|ement)\b",
+]
 
 NON_TECHNICAL_PURE = {
     "marketing analyst",

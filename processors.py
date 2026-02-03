@@ -113,18 +113,23 @@ class TitleProcessor:
     @staticmethod
     @lru_cache(maxsize=256)
     def is_cs_engineering_role(title, description=""):
-        """ENHANCED: Expanded keywords + description scanning"""
         combined_text = (title + " " + description).lower()
 
-        # Check expanded technical keywords
         if any(kw in combined_text for kw in TECHNICAL_ROLE_KEYWORDS):
-            # Context check for ambiguous keywords
             non_tech_pure = sum(1 for kw in NON_TECHNICAL_PURE if kw in combined_text)
             tech_count = sum(1 for kw in TECHNICAL_ROLE_KEYWORDS if kw in combined_text)
 
-            # If more technical signals than non-technical, accept
             if tech_count > non_tech_pure:
                 return True
+
+        try:
+            from config import TECHNICAL_PATTERNS
+
+            for pattern in TECHNICAL_PATTERNS:
+                if re.search(pattern, combined_text):
+                    return True
+        except (ImportError, AttributeError):
+            pass
 
         return False
 
@@ -157,26 +162,20 @@ class TitleProcessor:
     def check_season_requirement(title, page_text=""):
         combined = (title + " " + page_text).lower()
 
-        if re.search(r"(spring.*summer|summer.*spring|spring/summer)", combined, re.I):
+        years_found = []
+        for match in re.finditer(r"\b(202[4-9]|203[0-9])\b", combined):
+            year = int(match.group(1))
+            years_found.append(year)
+
+        if not years_found:
             return True, ""
 
-        wrong_patterns = [
-            (r"fall\s*20\d{2}", "Fall"),
-            (r"winter\s*20\d{2}", "Winter"),
-            (r"spring\s*20(?:2[0-5])", "Spring"),
-        ]
+        if any(year >= 2026 for year in years_found):
+            return True, ""
 
-        for pattern, season_name in wrong_patterns:
-            if re.search(pattern, combined, re.I):
-                if "winter" in season_name.lower() and re.search(
-                    r"winter.*2025/2026", combined, re.I
-                ):
-                    return True, ""
-                if "spring" in season_name.lower() and re.search(
-                    r"summer", combined, re.I
-                ):
-                    return True, ""
-                return False, f"Wrong season: {season_name}"
+        max_year = max(years_found)
+        if max_year < 2026:
+            return False, f"Wrong season: {max_year}"
 
         return True, ""
 

@@ -117,7 +117,6 @@ class UnifiedJobAggregator:
         self.discarded_jobs = []
         self.duplicate_jobs = []
         self.outcomes = defaultdict(int)
-        print(f"Loaded {len(self.existing_jobs)} jobs from sheets")
         logging.info(f"Loaded {len(self.existing_jobs)} existing jobs")
 
     def run(self):
@@ -153,11 +152,19 @@ class UnifiedJobAggregator:
         logging.info(f"SUMMARY: {added_valid} valid, {added_discarded} discarded")
 
     def _scrape_simplify_github(self):
+        from config import SHOW_GITHUB_COUNTS
+
+        print("Processing SimplifyJobs repository...")
         simplify_jobs = self._safe_scrape(SIMPLIFY_URL, "SimplifyJobs")
+
+        print("Processing vanshb03 repository...")
         vanshb03_jobs = self._safe_scrape(VANSHB03_URL, "vanshb03")
-        print(
-            f"  Total: {len(simplify_jobs)} SimplifyJobs + {len(vanshb03_jobs)} vanshb03\n"
-        )
+
+        if SHOW_GITHUB_COUNTS:
+            print(
+                f"  Total: {len(simplify_jobs)} SimplifyJobs + {len(vanshb03_jobs)} vanshb03\n"
+            )
+
         logging.info(f"GitHub: {len(simplify_jobs)} + {len(vanshb03_jobs)}")
         for i, job in enumerate(simplify_jobs):
             try:
@@ -186,7 +193,7 @@ class UnifiedJobAggregator:
         github_valid = sum(
             1 for j in self.valid_jobs if j["source"] in ["SimplifyJobs", "vanshb03"]
         )
-        print(f"  GitHub summary: {github_valid} valid jobs\n")
+        print(f"GitHub: {github_valid} valid jobs\n")
 
     def _process_single_github_job(self, job):
         age_days = self._parse_github_age(job["age"])
@@ -262,6 +269,34 @@ class UnifiedJobAggregator:
         )
 
     def _process_github_job(self, company, title, location, url, source="GitHub"):
+        try:
+            from config import COMPANY_BLACKLIST, COMPANY_BLACKLIST_REASONS
+
+            company_upper = company.upper()
+            for blacklisted in COMPANY_BLACKLIST:
+                if blacklisted.upper() in company_upper:
+                    reason = COMPANY_BLACKLIST_REASONS.get(
+                        blacklisted, f"Blacklisted company: {blacklisted}"
+                    )
+                    print(f"  {company[:30]}: ✗ {reason}")
+                    self._add_to_discarded(
+                        company,
+                        title,
+                        location,
+                        "Unknown",
+                        url,
+                        "N/A",
+                        reason,
+                        source,
+                        "Unknown",
+                    )
+                    self.outcomes["skipped_blacklisted_company"] = (
+                        self.outcomes.get("skipped_blacklisted_company", 0) + 1
+                    )
+                    return
+        except (ImportError, AttributeError):
+            pass
+
         try:
             from config import PLATFORM_BLACKLIST, PLATFORM_BLACKLIST_REASONS
 
@@ -653,6 +688,28 @@ class UnifiedJobAggregator:
                 return None
             platform = PlatformDetector.detect(final_url)
             company = CompanyExtractor.extract_all_methods(final_url, soup)
+
+            try:
+                from config import COMPANY_BLACKLIST, COMPANY_BLACKLIST_REASONS
+
+                company_upper = company.upper()
+                for blacklisted in COMPANY_BLACKLIST:
+                    if blacklisted.upper() in company_upper:
+                        reason = COMPANY_BLACKLIST_REASONS.get(
+                            blacklisted, f"Blacklisted company: {blacklisted}"
+                        )
+                        print(f"    {company[:28]}: ✗ {reason}")
+                        self.outcomes["skipped_blacklisted_company"] = (
+                            self.outcomes.get("skipped_blacklisted_company", 0) + 1
+                        )
+                        return self._create_discard_result(
+                            {"company": company, "title": "Unknown", "url": final_url},
+                            reason,
+                            sender,
+                        )
+            except (ImportError, AttributeError):
+                pass
+
             title_raw = PageParser.extract_title(soup)
             if not title_raw or title_raw == "Unknown":
                 return None
