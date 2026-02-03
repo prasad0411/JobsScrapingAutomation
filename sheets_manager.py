@@ -111,9 +111,9 @@ class SheetsManager:
                 ):
                     existing["job_ids"].add(job_id.lower())
 
-        # print(
-        #     f"Loaded: {len(existing['jobs'])} jobs, {len(existing['urls'])} URLs, {len(existing['job_ids'])} IDs"
-        # )
+        print(
+            f"Loaded: {len(existing['jobs'])} jobs, {len(existing['urls'])} URLs, {len(existing['job_ids'])} IDs"
+        )
         return existing
 
     def get_next_row_numbers(self):
@@ -135,6 +135,10 @@ class SheetsManager:
         if not jobs:
             return 0
 
+        from utils import DataSanitizer
+
+        sanitized_jobs = [DataSanitizer.sanitize_all_fields(job) for job in jobs]
+
         rows = [
             [
                 start_sr_no + idx,
@@ -151,7 +155,7 @@ class SheetsManager:
                 job["source"],
                 job.get("sponsorship", "Unknown"),
             ]
-            for idx, job in enumerate(jobs)
+            for idx, job in enumerate(sanitized_jobs)
         ]
 
         self._batch_write(self.valid_sheet, start_row, rows, is_valid_sheet=True)
@@ -161,6 +165,10 @@ class SheetsManager:
     def add_discarded_jobs(self, jobs, start_row, start_sr_no):
         if not jobs:
             return 0
+
+        from utils import DataSanitizer
+
+        sanitized_jobs = [DataSanitizer.sanitize_all_fields(job) for job in jobs]
 
         rows = [
             [
@@ -178,7 +186,7 @@ class SheetsManager:
                 job["source"],
                 job.get("sponsorship", "Unknown"),
             ]
-            for idx, job in enumerate(jobs)
+            for idx, job in enumerate(sanitized_jobs)
         ]
 
         self._batch_write(self.discarded_entries, start_row, rows, is_valid_sheet=False)
