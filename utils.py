@@ -525,3 +525,367 @@ class QualityScorer:
     @staticmethod
     def is_acceptable_quality(score, min_score=4):
         return score >= min_score
+
+
+class DataSanitizer:
+    _EMOJI_PATTERN = re.compile(
+        "["
+        "\U0001f600-\U0001f64f"
+        "\U0001f300-\U0001f5ff"
+        "\U0001f680-\U0001f6ff"
+        "\U0001f1e0-\U0001f1ff"
+        "\U0001f900-\U0001f9ff"
+        "\U0001fa00-\U0001fa6f"
+        "\U00002600-\U000026ff"
+        "\U00002700-\U000027bf"
+        "\U00002702-\U000027b0"
+        "\U000024c2-\U0001f251"
+        "]+",
+        flags=re.UNICODE,
+    )
+
+    _HTML_ENTITIES = {
+        "&amp;": "&",
+        "&nbsp;": " ",
+        "&quot;": '"',
+        "&apos;": "'",
+        "&lt;": "<",
+        "&gt;": ">",
+        "&#39;": "'",
+        "&#x27;": "'",
+    }
+
+    @classmethod
+    def sanitize_all_fields(cls, job_data):
+        sanitized = {}
+
+        sanitized["company"] = cls.sanitize_company(job_data.get("company", "Unknown"))
+        sanitized["title"] = cls.sanitize_title(job_data.get("title", "Unknown"))
+        sanitized["location"] = cls.sanitize_location(
+            job_data.get("location", "Unknown")
+        )
+        sanitized["remote"] = job_data.get("remote", "Unknown")
+        sanitized["url"] = job_data.get("url", "")
+        sanitized["job_id"] = cls.sanitize_job_id(job_data.get("job_id", "N/A"))
+        sanitized["sponsorship"] = cls.sanitize_sponsorship(
+            job_data.get("sponsorship", "Unknown")
+        )
+        sanitized["job_type"] = job_data.get("job_type", "Internship")
+        sanitized["entry_date"] = job_data.get("entry_date", "")
+        sanitized["source"] = job_data.get("source", "Unknown")
+
+        if "reason" in job_data:
+            sanitized["reason"] = job_data["reason"]
+
+        return sanitized
+
+    @classmethod
+    def sanitize_title(cls, title):
+        if not title or title == "Unknown":
+            return title
+
+        try:
+            text = str(title)
+
+            from config import DATA_SANITIZATION_PREFERENCES, FIELD_PREFIXES_TO_REMOVE
+
+            if DATA_SANITIZATION_PREFERENCES.get("remove_emojis", True):
+                text = cls._remove_emojis(text)
+
+            if DATA_SANITIZATION_PREFERENCES.get("normalize_unicode", True):
+                text = cls._normalize_unicode(text)
+
+            if DATA_SANITIZATION_PREFERENCES.get("decode_html_entities", True):
+                text = cls._decode_html_entities(text)
+
+            if DATA_SANITIZATION_PREFERENCES.get("strip_field_prefixes", True):
+                for prefix in FIELD_PREFIXES_TO_REMOVE:
+                    if text.startswith(prefix):
+                        text = text[len(prefix) :].strip()
+                        break
+
+            if DATA_SANITIZATION_PREFERENCES.get("trim_whitespace", True):
+                text = re.sub(r"\s+", " ", text).strip()
+
+            return text if text else "Unknown"
+
+        except Exception as e:
+            logging.debug(f"Title sanitization failed: {e}")
+            return title
+
+    @classmethod
+    def sanitize_company(cls, company):
+        if not company or company == "Unknown":
+            return company
+
+        try:
+            text = str(company)
+
+            from config import DATA_SANITIZATION_PREFERENCES, FIELD_PREFIXES_TO_REMOVE
+
+            if DATA_SANITIZATION_PREFERENCES.get("remove_emojis", True):
+                text = cls._remove_emojis(text)
+
+            if DATA_SANITIZATION_PREFERENCES.get("normalize_unicode", True):
+                text = cls._normalize_unicode(text)
+
+            if DATA_SANITIZATION_PREFERENCES.get("decode_html_entities", True):
+                text = cls._decode_html_entities(text)
+
+            if DATA_SANITIZATION_PREFERENCES.get("strip_field_prefixes", True):
+                for prefix in FIELD_PREFIXES_TO_REMOVE:
+                    if text.startswith(prefix):
+                        text = text[len(prefix) :].strip()
+                        break
+
+            if DATA_SANITIZATION_PREFERENCES.get("trim_whitespace", True):
+                text = re.sub(r"\s+", " ", text).strip()
+
+            return text if text else "Unknown"
+
+        except Exception as e:
+            logging.debug(f"Company sanitization failed: {e}")
+            return company
+
+    @classmethod
+    def sanitize_location(cls, location):
+        if not location or location == "Unknown":
+            return "Unknown"
+
+        try:
+            text = str(location)
+
+            from config import (
+                DATA_SANITIZATION_PREFERENCES,
+                FIELD_PREFIXES_TO_REMOVE,
+                FULL_STATE_NAMES,
+                CITY_TO_STATE_FALLBACK,
+                validate_us_state_code,
+            )
+
+            if DATA_SANITIZATION_PREFERENCES.get("remove_emojis", True):
+                text = cls._remove_emojis(text)
+
+            if DATA_SANITIZATION_PREFERENCES.get("normalize_unicode", True):
+                text = cls._normalize_unicode(text)
+
+            if DATA_SANITIZATION_PREFERENCES.get("decode_html_entities", True):
+                text = cls._decode_html_entities(text)
+
+            if DATA_SANITIZATION_PREFERENCES.get("strip_field_prefixes", True):
+                for prefix in FIELD_PREFIXES_TO_REMOVE:
+                    if text.startswith(prefix):
+                        text = text[len(prefix) :].strip()
+                        break
+
+            if DATA_SANITIZATION_PREFERENCES.get("trim_whitespace", True):
+                text = re.sub(r"\s+", " ", text).strip()
+
+            if DATA_SANITIZATION_PREFERENCES.get("validate_garbage_locations", True):
+                if cls._is_garbage_location(text):
+                    return "Unknown"
+
+            if "," in text and text.count(",") > 1:
+                text = cls._parse_multi_location(text)
+
+            if DATA_SANITIZATION_PREFERENCES.get("standardize_location_format", True):
+                text = cls._standardize_location_format(text)
+
+            return text if text else "Unknown"
+
+        except Exception as e:
+            logging.debug(f"Location sanitization failed: {e}")
+            return location
+
+    @classmethod
+    def sanitize_job_id(cls, job_id):
+        if not job_id:
+            return "N/A"
+
+        try:
+            text = str(job_id).strip()
+
+            from config import JOB_ID_PREFERENCES
+
+            if text.startswith("HASH_"):
+                if not JOB_ID_PREFERENCES.get("hash_fallback_enabled", False):
+                    return JOB_ID_PREFERENCES.get("fallback_value", "N/A")
+
+            return text if text else "N/A"
+
+        except Exception as e:
+            logging.debug(f"Job ID sanitization failed: {e}")
+            return job_id
+
+    @classmethod
+    def sanitize_sponsorship(cls, sponsorship):
+        if not sponsorship:
+            return "Unknown"
+
+        try:
+            text = str(sponsorship).strip()
+
+            from config import DATA_SANITIZATION_PREFERENCES
+
+            if DATA_SANITIZATION_PREFERENCES.get("normalize_sponsorship_values", True):
+                if "unknown" in text.lower():
+                    return "Unknown"
+                if text.lower() in ["yes", "no"]:
+                    return text.capitalize()
+
+            return text if text else "Unknown"
+
+        except Exception as e:
+            logging.debug(f"Sponsorship sanitization failed: {e}")
+            return sponsorship
+
+    @classmethod
+    def _remove_emojis(cls, text):
+        if not text:
+            return text
+        return cls._EMOJI_PATTERN.sub("", text)
+
+    @classmethod
+    def _normalize_unicode(cls, text):
+        if not text:
+            return text
+
+        try:
+            import unicodedata
+
+            nfd = unicodedata.normalize("NFD", text)
+            ascii_text = "".join(
+                char for char in nfd if unicodedata.category(char) != "Mn"
+            )
+            return ascii_text
+        except Exception:
+            return text
+
+    @classmethod
+    def _decode_html_entities(cls, text):
+        if not text:
+            return text
+
+        try:
+            import html
+
+            text = html.unescape(text)
+
+            for entity, replacement in cls._HTML_ENTITIES.items():
+                text = text.replace(entity, replacement)
+
+            return text
+        except Exception:
+            return text
+
+    @classmethod
+    def _is_garbage_location(cls, text):
+        if not text or text == "Unknown":
+            return False
+
+        text_lower = text.lower().strip()
+
+        if re.match(r"^\d+", text):
+            return True
+
+        if any(
+            word in text_lower
+            for word in ["hospital", "patient", "office building", "headquarters only"]
+        ):
+            return True
+
+        if len(text) > 100:
+            return True
+
+        garbage_phrases = [
+            "as well as",
+            "in accordance with",
+            "equal opportunity",
+            "without regard to",
+            "nearest major market",
+            "more search options",
+        ]
+        if any(phrase in text_lower for phrase in garbage_phrases):
+            return True
+
+        return False
+
+    @classmethod
+    def _parse_multi_location(cls, location_text):
+        if not location_text or "," not in location_text:
+            return location_text
+
+        try:
+            from config import (
+                CITY_TO_STATE_FALLBACK,
+                FULL_STATE_NAMES,
+                validate_us_state_code,
+            )
+
+            segments = [s.strip() for s in location_text.split(",")]
+
+            for i in range(len(segments) - 1):
+                city = segments[i]
+                state_candidate = segments[i + 1]
+
+                if len(state_candidate) == 2 and validate_us_state_code(
+                    state_candidate
+                ):
+                    return f"{city}, {state_candidate.upper()}"
+
+            for segment in segments:
+                segment_lower = segment.lower()
+
+                if segment_lower in CITY_TO_STATE_FALLBACK:
+                    state = CITY_TO_STATE_FALLBACK[segment_lower]
+                    return f"{segment.title()}, {state}"
+
+                if segment_lower in FULL_STATE_NAMES:
+                    state_code = FULL_STATE_NAMES[segment_lower]
+                    if i > 0:
+                        potential_city = segments[i - 1]
+                        return f"{potential_city}, {state_code}"
+
+            return location_text
+
+        except Exception as e:
+            logging.debug(f"Multi-location parsing failed: {e}")
+            return location_text
+
+    @classmethod
+    def _standardize_location_format(cls, location):
+        if not location or location in ["Unknown", "Remote", "Hybrid"]:
+            return location
+
+        try:
+            from config import validate_us_state_code, FULL_STATE_NAMES
+
+            text = location.strip()
+
+            text = re.sub(r"\s*-\s*", ", ", text)
+
+            match = re.search(r"^([A-Z]{2})\s*[,-]\s*(.+)$", text)
+            if match:
+                state, city = match.groups()
+                if validate_us_state_code(state):
+                    text = f"{city.strip()}, {state}"
+
+            match = re.search(r"(.+?)\s*,\s*([A-Z]{2})(?:\s|$)", text)
+            if match:
+                city, state = match.groups()
+                if validate_us_state_code(state):
+                    return f"{city.strip()}, {state.upper()}"
+
+            for full_name, code in FULL_STATE_NAMES.items():
+                pattern = rf"\b{full_name}\b"
+                if re.search(pattern, text, re.I):
+                    text = re.sub(pattern, code, text, flags=re.I)
+                    break
+
+            text = re.sub(r"\s+", " ", text).strip()
+
+            return text
+
+        except Exception as e:
+            logging.debug(f"Location standardization failed: {e}")
+            return location
