@@ -366,7 +366,6 @@ class SimplifyRedirectResolver:
                 or current_time - SimplifyRedirectResolver._github_readme_fetch_time
                 > 600
             ):
-
                 readme_url = "https://raw.githubusercontent.com/SimplifyJobs/Summer2026-Internships/master/README.md"
                 response = requests.get(readme_url, timeout=15)
 
