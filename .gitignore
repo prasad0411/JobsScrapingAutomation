@@ -37,3 +37,4 @@ capture_handshake_session.py
 # Local output files
 failed_simplify_urls.json
 processed_emails.json
+simplify_manual_review.txt
