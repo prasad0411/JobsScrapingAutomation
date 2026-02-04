@@ -1020,6 +1020,139 @@ class PageParser:
             return None
 
 
+class JobTypeExtractor:
+    @staticmethod
+    def extract_all_methods(soup, url, title):
+        if not soup:
+            return "Unknown"
+
+        results = []
+
+        results.append(JobTypeExtractor.extract_from_json_ld(soup))
+        results.append(JobTypeExtractor.extract_from_meta(soup))
+        results.append(JobTypeExtractor.extract_from_selectors(soup))
+        results.append(JobTypeExtractor.extract_from_page_text(soup))
+        results.append(JobTypeExtractor.extract_from_url(url))
+
+        valid_results = [r for r in results if r and r != "Unknown"]
+
+        if not valid_results:
+            return "Unknown"
+
+        from collections import Counter
+
+        counts = Counter(valid_results)
+        most_common = counts.most_common(1)[0][0]
+
+        return most_common
+
+    @staticmethod
+    def extract_from_json_ld(soup):
+        try:
+            script = soup.find("script", type="application/ld+json")
+            if script:
+                data = json.loads(script.string)
+                emp_type = data.get("employmentType", "")
+                return JobTypeExtractor._normalize_type(emp_type)
+        except:
+            pass
+        return "Unknown"
+
+    @staticmethod
+    def extract_from_meta(soup):
+        try:
+            for prop in ["og:job:type", "job:type", "employmentType"]:
+                meta = soup.find("meta", {"property": prop})
+                if meta and meta.get("content"):
+                    return JobTypeExtractor._normalize_type(meta.get("content"))
+
+            for name in ["job-type", "employment-type", "jobType"]:
+                meta = soup.find("meta", {"name": name})
+                if meta and meta.get("content"):
+                    return JobTypeExtractor._normalize_type(meta.get("content"))
+        except:
+            pass
+        return "Unknown"
+
+    @staticmethod
+    def extract_from_selectors(soup):
+        try:
+            selectors = [
+                ("span", {"class": "job-type"}),
+                ("div", {"class": "employment-type"}),
+                ("dd", {"class": "job-classification"}),
+                ("span", {"class": re.compile(r"job.*type", re.I)}),
+                ("div", {"class": re.compile(r"employment.*type", re.I)}),
+            ]
+
+            for tag, attrs in selectors:
+                elem = soup.find(tag, attrs)
+                if elem:
+                    text = elem.get_text().strip()
+                    normalized = JobTypeExtractor._normalize_type(text)
+                    if normalized != "Unknown":
+                        return normalized
+        except:
+            pass
+        return "Unknown"
+
+    @staticmethod
+    def extract_from_page_text(soup):
+        try:
+            text = soup.get_text()[:2000]
+
+            patterns = [
+                (r"(?:job|employment)\s+type:?\s*(intern(?:ship)?|co-?op)", 1),
+                (r"time\s+type:?\s*((?:full|part)[\s-]time)", 1),
+            ]
+
+            for pattern, group in patterns:
+                match = re.search(pattern, text, re.I)
+                if match:
+                    return JobTypeExtractor._normalize_type(match.group(group))
+        except:
+            pass
+        return "Unknown"
+
+    @staticmethod
+    def extract_from_url(url):
+        try:
+            url_lower = url.lower()
+            if "/internship/" in url_lower or "/intern/" in url_lower:
+                return "Internship"
+            if "/co-op/" in url_lower or "/coop/" in url_lower:
+                return "Co-op"
+            if "/fellowship/" in url_lower:
+                return "Fellowship"
+        except:
+            pass
+        return "Unknown"
+
+    @staticmethod
+    def _normalize_type(text):
+        if not text:
+            return "Unknown"
+
+        text_lower = text.lower().strip()
+
+        if text_lower in ["intern", "internship", "intern/co-op", "summer intern"]:
+            return "Internship"
+        if text_lower in ["co-op", "coop", "cooperative", "co-operative"]:
+            return "Co-op"
+        if text_lower in ["fellowship", "fellow"]:
+            return "Fellowship"
+        if text_lower in ["apprentice", "apprenticeship"]:
+            return "Apprenticeship"
+        if text_lower in ["trainee", "training program"]:
+            return "Trainee"
+        if text_lower in ["full time", "full-time", "fulltime"]:
+            return "Full Time"
+        if text_lower in ["part time", "part-time", "parttime"]:
+            return "Part Time"
+
+        return "Unknown"
+
+
 class SourceParsers:
     @staticmethod
     def parse_jobright_email(soup, url, jobright_auth):

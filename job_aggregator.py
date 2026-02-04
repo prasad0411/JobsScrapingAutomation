@@ -16,6 +16,8 @@ from config import (
     CANADA_PROVINCES,
     PROCESSED_EMAILS_FILE,
     EMAIL_TRACKING_RETENTION_DAYS,
+    TECHNICAL_ROLE_KEYWORDS,
+    NON_TECHNICAL_PURE,
 )
 from processors import (
     TitleProcessor,
@@ -34,6 +36,7 @@ from extractors import (
     JobrightAuthenticator,
     SimplifyGitHubScraper,
     SimplifyRedirectResolver,
+    JobTypeExtractor,
     safe_parse_html,
 )
 from sheets_manager import SheetsManager
@@ -156,14 +159,11 @@ class UnifiedJobAggregator:
 
         print("Processing SimplifyJobs repository...")
         simplify_jobs = self._safe_scrape(SIMPLIFY_URL, "SimplifyJobs")
+        print(f"  SimplifyJobs: {len(simplify_jobs)} jobs found")
 
         print("Processing vanshb03 repository...")
         vanshb03_jobs = self._safe_scrape(VANSHB03_URL, "vanshb03")
-
-        if SHOW_GITHUB_COUNTS:
-            print(
-                f"  Total: {len(simplify_jobs)} SimplifyJobs + {len(vanshb03_jobs)} vanshb03\n"
-            )
+        print(f"  vanshb03: {len(vanshb03_jobs)} jobs found\n")
 
         logging.info(f"GitHub: {len(simplify_jobs)} + {len(vanshb03_jobs)}")
         for i, job in enumerate(simplify_jobs):
@@ -214,7 +214,7 @@ class UnifiedJobAggregator:
                 f"REJECTED | {job['company']} | {invalid_reason} | Title: '{title}' | URL: {job['url'][:60]}"
             )
             return
-        is_intern, intern_reason = TitleProcessor.is_internship_role(title)
+        is_intern, intern_reason = TitleProcessor.is_internship_role(title, "", "")
         if not is_intern:
             print(f"  {job['company'][:30]}: ✗ {intern_reason}")
             logging.info(
@@ -757,7 +757,21 @@ class UnifiedJobAggregator:
                 print(f"    {company[:28]}: ✗ {season_reason}")
                 self.outcomes["skipped_wrong_season"] += 1
                 return None
-            is_intern, intern_reason = TitleProcessor.is_internship_role(title)
+
+            extracted_job_type = JobTypeExtractor.extract_all_methods(
+                soup, final_url, title
+            )
+            page_text = soup.get_text()[:5000]
+            is_intern, intern_reason = TitleProcessor.is_internship_role(
+                title, extracted_job_type, page_text
+            )
+
+            if (
+                isinstance(intern_reason, str)
+                and "CONFLICTING SIGNALS" in intern_reason
+            ):
+                print(f"    {company[:28]}: ✓ {intern_reason}")
+
             if not is_intern:
                 print(f"    {company[:28]}: ✗ {intern_reason}")
                 logging.info(
@@ -867,7 +881,17 @@ class UnifiedJobAggregator:
 
     def _validate_parsed_job(self, job_data, sender):
         title = TitleProcessor.clean_title_aggressive(job_data["title"])
-        is_intern, intern_reason = TitleProcessor.is_internship_role(title)
+        extracted_job_type = job_data.get("job_type", "")
+        is_intern, intern_reason = TitleProcessor.is_internship_role(
+            title, extracted_job_type, ""
+        )
+
+        if isinstance(intern_reason, str) and "CONFLICTING SIGNALS" in intern_reason:
+            if "review_flags" not in job_data:
+                job_data["review_flags"] = []
+            if isinstance(job_data["review_flags"], list):
+                job_data["review_flags"].append(intern_reason)
+
         if not is_intern:
             logging.info(
                 f"REJECTED | {job_data['company']} | {intern_reason} | Title: '{title}' | Source: {sender} | URL: {job_data.get('url', '')[:60]}"
@@ -955,6 +979,10 @@ class UnifiedJobAggregator:
         )
         page_job_id = JobIDExtractor.extract_all_methods(final_url, soup, platform)
         page_company = CompanyExtractor.extract_all_methods(final_url, soup)
+        page_job_type = JobTypeExtractor.extract_all_methods(
+            soup, final_url, job_data.get("title", "")
+        )
+
         if page_location_formatted != "Unknown":
             job_data["location"] = page_location_formatted
         if page_remote != "Unknown":
@@ -967,6 +995,8 @@ class UnifiedJobAggregator:
             and not self._looks_like_title(page_company)
         ):
             job_data["company"] = page_company
+        if page_job_type != "Unknown":
+            job_data["job_type"] = page_job_type
 
     def _create_discard_result(self, job_data, reason, sender):
         return {

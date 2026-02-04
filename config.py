@@ -143,6 +143,8 @@ COMPANY_BLACKLIST = [
     "Raytheon Technologies",
     "Northrop Grumman",
     "Lockheed Martin",
+    "Leidos",
+    "Leidos Defense Systems",
 ]
 
 COMPANY_BLACKLIST_REASONS = {
@@ -151,6 +153,8 @@ COMPANY_BLACKLIST_REASONS = {
     "Raytheon Technologies": "Company always requires security clearance",
     "Northrop Grumman": "Company always requires security clearance",
     "Lockheed Martin": "Company always requires security clearance",
+    "Leidos": "Company always requires security clearance",
+    "Leidos Defense Systems": "Company always requires security clearance",
 }
 
 VERBOSE_OUTPUT = False
@@ -207,6 +211,55 @@ INTERNSHIP_INDICATORS = [
     "student program",
     "early career program",
     "rotational program",
+]
+
+VALID_INTERNSHIP_TYPES = [
+    "Internship",
+    "Co-op",
+    "Fellowship",
+    "Apprenticeship",
+    "Trainee",
+]
+
+GRADUATE_PROGRAM_PATTERNS = [
+    r"graduate.*202[6-9]",
+    r"graduate.*program.*(?:intern|summer)",
+    r"graduate.*(?:intern|co-op)",
+    r"(?:masters|ms).*202[6-9]",
+    r"(?:ms|master).*(?:intern|graduate)",
+]
+
+DURATION_INTERNSHIP_PATTERNS = [
+    r"\b(?:10|12|8)\s*[-–]?\s*week",
+    r"\b(?:3|6|12)\s*[-–]?\s*month",
+    r"june\s*(?:through|to|-|–)\s*august",
+    r"may\s*(?:through|to|-|–)\s*august",
+    r"summer\s*202[6-9]",
+    r"(?:start|begin).*(?:june|may|august)\s*202[6-9]",
+    r"(?:temporary|fixed[\s-]term)\s*position",
+    r"internship\s+(?:duration|program|period)",
+]
+
+ENROLLMENT_PATTERNS = [
+    r"must\s+be\s+(?:currently\s+)?enrolled",
+    r"currently\s+pursuing.*degree",
+    r"(?:pursuing|enrolled\s+in).*(?:bachelor|master|degree)",
+    r"graduating.*202[6-9]",
+    r"expected\s+graduation.*202[6-9]",
+    r"graduation\s+date.*202[6-9]",
+]
+
+CONFLICTING_SIGNAL_PATTERNS = [
+    r"full[\s-]time\s+(?:position|role|opportunity|employee)",
+    r"permanent\s+(?:position|role)",
+    r"(?:new|recent)\s+grad(?:uate)?s?\s+(?:welcome|encouraged)",
+]
+
+ASSOCIATE_BACHELOR_ONLY_PATTERNS = [
+    r"(?:associate|associates|aa|as)\s+(?:or|and)\s+bachelor",
+    r"(?:associate|aa)\s+degree.*only",
+    r"no\s+(?:prior\s+)?experience.*bachelor",
+    r"bachelor.*program\s+(?:required|only)",
 ]
 
 GUARANTEED_TECHNICAL_PHRASES = [

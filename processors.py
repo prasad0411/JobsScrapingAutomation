@@ -157,55 +157,35 @@ class TitleProcessor:
         return False
 
     @staticmethod
-    @lru_cache(maxsize=256)
-    def is_internship_role(title, job_type=""):
+    def is_internship_role(title, job_type="", page_text=""):
         try:
-            if job_type in ["Internship", "Co-op", "Fellowship", "Apprenticeship"]:
-                title_lower = title.lower()
-                excluded = {
-                    "senior",
-                    "sr.",
-                    "sr ",
-                    "staff",
-                    "principal",
-                    "lead",
-                    "architect",
-                    "director",
-                    "manager",
-                }
-                for level in excluded:
-                    if level in title_lower:
-                        return False, f"Senior/experienced role: contains '{level}'"
-                return True, None
-        except Exception:
-            pass
+            from config import (
+                VALID_INTERNSHIP_TYPES,
+                INTERNSHIP_INDICATORS,
+                GRADUATE_PROGRAM_PATTERNS,
+                DURATION_INTERNSHIP_PATTERNS,
+                ENROLLMENT_PATTERNS,
+                CONFLICTING_SIGNAL_PATTERNS,
+            )
+        except (ImportError, AttributeError):
+            VALID_INTERNSHIP_TYPES = [
+                "Internship",
+                "Co-op",
+                "Fellowship",
+                "Apprenticeship",
+            ]
+            INTERNSHIP_INDICATORS = [
+                "apprentice",
+                "fellowship",
+                "trainee",
+                "emerging talent",
+            ]
+            GRADUATE_PROGRAM_PATTERNS = []
+            DURATION_INTERNSHIP_PATTERNS = []
+            ENROLLMENT_PATTERNS = []
+            CONFLICTING_SIGNAL_PATTERNS = []
 
         title_lower = title.lower()
-
-        if not any(kw in title_lower for kw in ["intern", "co-op", "coop"]):
-            try:
-                from config import INTERNSHIP_INDICATORS
-
-                if any(kw in title_lower for kw in INTERNSHIP_INDICATORS):
-                    excluded = {
-                        "senior",
-                        "sr.",
-                        "sr ",
-                        "staff",
-                        "principal",
-                        "lead",
-                        "architect",
-                        "director",
-                        "manager",
-                    }
-                    for level in excluded:
-                        if level in title_lower:
-                            return False, f"Senior/experienced role: contains '{level}'"
-                    return True, None
-            except (ImportError, AttributeError):
-                pass
-
-            return False, "Not internship/co-op role"
 
         excluded = {
             "senior",
@@ -216,13 +196,64 @@ class TitleProcessor:
             "lead",
             "architect",
             "director",
-            "manager",
         }
-        for level in excluded:
-            if level in title_lower:
-                return False, f"Senior/experienced role: contains '{level}'"
 
-        return True, None
+        if job_type in VALID_INTERNSHIP_TYPES:
+            for level in excluded:
+                if level in title_lower:
+                    if level == "manager" and "product manager" in title_lower:
+                        continue
+                    return False, f"Senior/experienced role: contains '{level}'"
+            return True, None
+
+        if any(kw in title_lower for kw in ["intern", "co-op", "coop"]):
+            if re.search(r"\(intern\)", title_lower):
+                return True, None
+            for level in excluded:
+                if level in title_lower:
+                    if level == "manager" and "product manager" in title_lower:
+                        continue
+                    return False, f"Senior/experienced role: contains '{level}'"
+            for level in ["manager"]:
+                if level in title_lower:
+                    if (
+                        "product manager" in title_lower
+                        or "program manager" in title_lower
+                    ):
+                        continue
+                    return False, f"Senior/experienced role: contains '{level}'"
+            return True, None
+
+        if any(kw in title_lower for kw in INTERNSHIP_INDICATORS):
+            for level in excluded:
+                if level in title_lower:
+                    return False, f"Senior/experienced role: contains '{level}'"
+            return True, None
+
+        if "graduate" in title_lower:
+            for pattern in GRADUATE_PROGRAM_PATTERNS:
+                if re.search(pattern, title_lower):
+                    return True, None
+
+            if page_text:
+                page_lower = page_text[:5000].lower()
+
+                has_duration = any(
+                    re.search(p, page_lower) for p in DURATION_INTERNSHIP_PATTERNS
+                )
+                has_enrollment = any(
+                    re.search(p, page_lower) for p in ENROLLMENT_PATTERNS
+                )
+                has_conflicting = any(
+                    re.search(p, page_lower) for p in CONFLICTING_SIGNAL_PATTERNS
+                )
+
+                if has_duration or has_enrollment:
+                    if has_conflicting:
+                        return True, "⚠️ GRADUATE - CONFLICTING SIGNALS"
+                    return True, None
+
+        return False, "Not internship/co-op role"
 
     @staticmethod
     def check_season_requirement(title, page_text=""):
@@ -1217,7 +1248,12 @@ class ValidationHelper:
             if clearance_decision == "REJECT":
                 return clearance_decision, clearance_reason, []
 
-            # Check 2: US Citizenship requirements
+            phd_decision, phd_reason = ValidationHelper._check_phd_only_requirements(
+                soup
+            )
+            if phd_decision == "REJECT":
+                return phd_decision, phd_reason, []
+
             citizenship_decision, citizenship_reason = (
                 ValidationHelper._check_citizenship_requirements(soup)
             )
@@ -1321,6 +1357,9 @@ class ValidationHelper:
                 r"pursuing\s+(?:a\s+)?4-year\s+degree",
                 r"(?:must|should)\s+be\s+pursuing\s+(?:their|a)\s+bachelor",
                 r"target(?:ed)?\s+majors?.*bachelor",
+                r"(?:associate|associates|aa|as)\s+(?:or|and)\s+bachelor",
+                r"(?:associate|aa)\s+degree.*only",
+                r"no\s+(?:prior\s+)?experience.*bachelor.*program",
             ]
 
             for pattern in undergraduate_patterns:
@@ -1354,6 +1393,51 @@ class ValidationHelper:
 
         except Exception as e:
             logging.debug(f"Undergraduate-only check failed: {e}")
+
+        return None, None
+
+    @staticmethod
+    def _check_phd_only_requirements(soup):
+        if not soup:
+            return None, None
+
+        try:
+            page_text = soup.get_text()[:15000].lower()
+
+            phd_only_patterns = [
+                r"\bphd\s+(?:intern|student|candidate|only|required)",
+                r"doctoral\s+(?:intern|student|candidate|only)",
+                r"(?:pursuing|enrolled\s+in|candidates?\s+in).*\bphd\s+(?:degree|program)",
+                r"phd-only",
+                r"phd\s+internship",
+            ]
+
+            for pattern in phd_only_patterns:
+                match = re.search(pattern, page_text)
+                if match:
+                    context = page_text[
+                        max(0, match.start() - 250) : min(
+                            len(page_text), match.end() + 250
+                        )
+                    ]
+
+                    if not any(
+                        kw in context
+                        for kw in [
+                            "master",
+                            " ms ",
+                            "graduate students",
+                            "or master",
+                            "ms/phd",
+                        ]
+                    ):
+                        logging.debug(
+                            f"PhD-only check: Found '{pattern}' without MS flexibility"
+                        )
+                        return "REJECT", "PhD students only (MS students not eligible)"
+
+        except Exception as e:
+            logging.debug(f"PhD check failed: {e}")
 
         return None, None
 

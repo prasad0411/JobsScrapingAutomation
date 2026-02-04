@@ -419,7 +419,7 @@ class ExtractionVoter:
 
 
 class DateParser:
-    _RELATIVE_PATTERN = re.compile(r"(\d+)\s*d(?:ays?)?\s*ago", re.I)
+    _RELATIVE_PATTERN = re.compile(r"(\d+)\+?\s*d(?:ays?)?\s*ago", re.I)
     _HOURS_PATTERN = re.compile(r"(\d+)\s*h(?:ours?)?\s*ago", re.I)
     _TODAY_PATTERN = re.compile(r"\b(today|just\s+now)\b", re.I)
     _YESTERDAY_PATTERN = re.compile(r"\byesterday\b", re.I)
