@@ -110,17 +110,23 @@ class UnifiedJobAggregator:
         self.email_extractor = EmailExtractor()
         self.page_fetcher = PageFetcher()
         self.jobright_auth = JobrightAuthenticator()
-        existing = self.sheets.load_existing_jobs()
-        self.existing_jobs = existing["jobs"]
-        self.existing_urls = existing["urls"]
-        self.existing_job_ids = existing["job_ids"]
-        self.processed_cache = existing["cache"]
+
+        self.existing_urls = self.sheets.load_urls_only()
+        self.existing_company_titles = self.sheets.load_company_titles_only()
+        self.existing_job_ids = self.sheets.load_job_ids_only()
+        self.existing_jobs = self.existing_company_titles
+
         self.processing_lock = set()
         self.valid_jobs = []
         self.discarded_jobs = []
         self.duplicate_jobs = []
         self.outcomes = defaultdict(int)
-        logging.info(f"Loaded {len(self.existing_jobs)} existing jobs")
+        self.jobs_processed_count = 0
+        self.page_text_cache = {}
+
+        logging.info(
+            f"Loaded {len(self.existing_urls)} existing URLs, {len(self.existing_company_titles)} company+title pairs, {len(self.existing_job_ids)} job IDs"
+        )
 
     def run(self):
         if not self.jobright_auth.cookies:
@@ -737,7 +743,7 @@ class UnifiedJobAggregator:
                 )
                 self.outcomes["skipped_duplicate_url"] += 1
                 return None
-            normalized_key = URLCleaner.normalize_text(f"{company}_{title}")
+            normalized_key = URLCleaner.normalize_text(f"{company}|{title}")
             if normalized_key in self.existing_jobs:
                 print(f"    {company[:28]}: ⊘ Duplicate job")
                 self.duplicate_jobs.append(
@@ -910,7 +916,7 @@ class UnifiedJobAggregator:
         if not is_valid_co:
             return self._create_discard_result(job_data, co_reason, sender)
         job_data["company"] = fixed_co
-        normalized_key = URLCleaner.normalize_text(f"{fixed_co}_{title}")
+        normalized_key = URLCleaner.normalize_text(f"{fixed_co}|{title}")
         if normalized_key in self.existing_jobs:
             self.duplicate_jobs.append(
                 {"company": fixed_co, "title": title, "url": job_data["url"]}
@@ -1112,23 +1118,50 @@ class UnifiedJobAggregator:
         self.outcomes["discarded"] += 1
 
     def _update_tracking(self, company, title, url, job_id):
-        key = URLCleaner.normalize_text(f"{company}_{title}")
+        key = URLCleaner.normalize_text(f"{company}|{title}")
         self.existing_jobs.add(key)
         self.existing_urls.add(URLCleaner.clean_url(url))
         if job_id != "N/A" and not job_id.startswith("HASH_"):
             self.existing_job_ids.add(job_id.lower())
 
     def _is_duplicate(self, company, title, url, job_id="N/A"):
-        key = URLCleaner.normalize_text(f"{company}_{title}")
-        return (
-            key in self.existing_jobs
-            or URLCleaner.clean_url(url) in self.existing_urls
-            or (
-                job_id != "N/A"
-                and not job_id.startswith("HASH_")
-                and job_id.lower() in self.existing_job_ids
-            )
-        )
+        self.jobs_processed_count += 1
+
+        if self.jobs_processed_count % 100 == 0:
+            self._reload_existing_data()
+
+        cleaned_url = URLCleaner.clean_url(url)
+        company_title_key = URLCleaner.normalize_text(f"{company}|{title}")
+
+        if cleaned_url in self.existing_urls:
+            return True
+
+        if company_title_key in self.existing_company_titles:
+            return True
+
+        if job_id and job_id != "N/A" and not job_id.startswith("HASH_"):
+            if job_id.lower() in self.existing_job_ids:
+                return True
+
+        if cleaned_url in self.processing_lock:
+            return True
+
+        return False
+
+    def _reload_existing_data(self):
+        try:
+            new_urls = self.sheets.load_urls_only()
+            new_company_titles = self.sheets.load_company_titles_only()
+            new_job_ids = self.sheets.load_job_ids_only()
+
+            self.existing_urls.update(new_urls)
+            self.existing_company_titles.update(new_company_titles)
+            self.existing_job_ids.update(new_job_ids)
+            self.existing_jobs = self.existing_company_titles
+
+            logging.debug(f"Reloaded existing data at job #{self.jobs_processed_count}")
+        except Exception as e:
+            logging.debug(f"Mid-run reload failed: {e}")
 
     def _ensure_mutual_exclusion(self):
         if not self.valid_jobs or not self.discarded_jobs:

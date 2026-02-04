@@ -9,6 +9,7 @@ import time
 import random
 import re
 import logging
+import atexit
 from functools import lru_cache
 from contextlib import contextmanager
 from bs4 import BeautifulSoup
@@ -65,6 +66,24 @@ from processors import (
 _SESSION = requests.Session()
 _SESSION.headers.update({"User-Agent": USER_AGENTS[0]})
 _URL_HEALTH_CACHE = {}
+_HTTP_RESPONSE_CACHE = {}
+_SELENIUM_DRIVER = None
+_SELENIUM_LAST_USED = None
+
+
+def _cleanup_selenium_driver():
+    global _SELENIUM_DRIVER
+    if _SELENIUM_DRIVER:
+        try:
+            _SELENIUM_DRIVER.quit()
+            logging.info("Selenium driver cleaned up")
+        except:
+            pass
+        _SELENIUM_DRIVER = None
+
+
+atexit.register(_cleanup_selenium_driver)
+
 _EMOJI_PATTERN = re.compile(
     r"[\U0001f600-\U0001f64f\U0001f300-\U0001f5ff\U0001f680-\U0001f6ff\U0001f1e0-\U0001f1ff]+",
     re.UNICODE,
@@ -366,6 +385,7 @@ class SimplifyRedirectResolver:
                 or current_time - SimplifyRedirectResolver._github_readme_fetch_time
                 > 600
             ):
+
                 readme_url = "https://raw.githubusercontent.com/SimplifyJobs/Summer2026-Internships/master/README.md"
                 response = requests.get(readme_url, timeout=15)
 
@@ -729,30 +749,57 @@ class PageFetcher:
         return False, 0
 
     def fetch_page(self, url):
+        if url in _HTTP_RESPONSE_CACHE:
+            cached = _HTTP_RESPONSE_CACHE[url]
+            return cached["response"], cached["final_url"], cached["page_source"]
+
         is_healthy, status = self.check_url_health(url)
         if not is_healthy and status in [404, 403, 405]:
             logging.info(f"Skipping unhealthy URL: {url} (status {status})")
+            _HTTP_RESPONSE_CACHE[url] = {
+                "response": None,
+                "final_url": None,
+                "page_source": None,
+            }
             return None, None, None
+
         if self._is_js_heavy_platform(url):
             html, final_url, page_source = self._try_selenium(url)
             if html:
-                return (
-                    self._create_mock_response(html, final_url),
-                    final_url,
-                    page_source,
-                )
+                response = self._create_mock_response(html, final_url)
+                _HTTP_RESPONSE_CACHE[url] = {
+                    "response": response,
+                    "final_url": final_url,
+                    "page_source": page_source,
+                }
+                return response, final_url, page_source
+
         response = retry_request(url)
         if response and response.status_code == 200:
+            _HTTP_RESPONSE_CACHE[url] = {
+                "response": response,
+                "final_url": response.url,
+                "page_source": response.text,
+            }
             return response, response.url, response.text
+
         if SELENIUM_AVAILABLE:
             logging.info(f"Standard request failed, trying Selenium for {url}")
             html, final_url, page_source = self._try_selenium(url)
             if html:
-                return (
-                    self._create_mock_response(html, final_url),
-                    final_url,
-                    page_source,
-                )
+                response = self._create_mock_response(html, final_url)
+                _HTTP_RESPONSE_CACHE[url] = {
+                    "response": response,
+                    "final_url": final_url,
+                    "page_source": page_source,
+                }
+                return response, final_url, page_source
+
+        _HTTP_RESPONSE_CACHE[url] = {
+            "response": None,
+            "final_url": None,
+            "page_source": None,
+        }
         return None, None, None
 
     @staticmethod
@@ -771,28 +818,39 @@ class PageFetcher:
 
     @staticmethod
     def _try_selenium(url):
+        global _SELENIUM_DRIVER, _SELENIUM_LAST_USED
+
         if not SELENIUM_AVAILABLE:
             return None, None, None
-        driver = None
+
         try:
-            chrome_options = Options()
-            chrome_options.add_argument("--headless")
-            chrome_options.add_argument("--disable-blink-features=AutomationControlled")
-            chrome_options.add_argument("--no-sandbox")
-            chrome_options.add_argument("--disable-dev-shm-usage")
-            chrome_options.add_argument(f"user-agent={USER_AGENTS[0]}")
-            chrome_options.add_experimental_option(
-                "excludeSwitches", ["enable-logging"]
-            )
-            service = Service(ChromeDriverManager().install())
-            driver = webdriver.Chrome(service=service, options=chrome_options)
-            driver.set_page_load_timeout(30)
-            driver.get(url)
+            if _SELENIUM_DRIVER is None:
+                chrome_options = Options()
+                chrome_options.add_argument("--headless")
+                chrome_options.add_argument(
+                    "--disable-blink-features=AutomationControlled"
+                )
+                chrome_options.add_argument("--no-sandbox")
+                chrome_options.add_argument("--disable-dev-shm-usage")
+                chrome_options.add_argument(f"user-agent={USER_AGENTS[0]}")
+                chrome_options.add_experimental_option(
+                    "excludeSwitches", ["enable-logging"]
+                )
+                service = Service(ChromeDriverManager().install())
+                _SELENIUM_DRIVER = webdriver.Chrome(
+                    service=service, options=chrome_options
+                )
+                _SELENIUM_DRIVER.set_page_load_timeout(30)
+                logging.info("Selenium driver initialized (will be reused)")
+
+            _SELENIUM_DRIVER.get(url)
+            _SELENIUM_LAST_USED = time.time()
+
             url_lower = url.lower()
             if "oracle" in url_lower or "oraclecloud" in url_lower:
                 time.sleep(15)
                 try:
-                    WebDriverWait(driver, 10).until(
+                    WebDriverWait(_SELENIUM_DRIVER, 10).until(
                         EC.presence_of_element_located((By.TAG_NAME, "h1"))
                     )
                 except:
@@ -805,20 +863,27 @@ class PageFetcher:
                 time.sleep(6)
             else:
                 time.sleep(3)
-            driver.execute_script("window.scrollTo(0, document.body.scrollHeight);")
+
+            _SELENIUM_DRIVER.execute_script(
+                "window.scrollTo(0, document.body.scrollHeight);"
+            )
             time.sleep(2)
-            page_source = driver.page_source
-            current_url = driver.current_url
+            page_source = _SELENIUM_DRIVER.page_source
+            current_url = _SELENIUM_DRIVER.current_url
+
             return page_source, current_url, page_source
+
         except Exception as e:
             logging.error(f"Selenium failed for {url}: {e}")
-            return None, None, None
-        finally:
-            if driver:
+
+            if _SELENIUM_DRIVER:
                 try:
-                    driver.quit()
+                    _SELENIUM_DRIVER.quit()
                 except:
                     pass
+                _SELENIUM_DRIVER = None
+
+            return None, None, None
 
     @staticmethod
     def _create_mock_response(html, url):

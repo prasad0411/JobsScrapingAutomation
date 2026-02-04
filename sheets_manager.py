@@ -119,6 +119,54 @@ class SheetsManager:
             )
         return existing
 
+    def load_urls_only(self):
+        urls = set()
+        for sheet in [
+            self.valid_sheet,
+            self.discarded_entries,
+            self.reviewed___not_applied,
+        ]:
+            for row in sheet.get_all_values()[1:]:
+                if len(row) > 5:
+                    url = row[5].strip()
+                    if url and "http" in url:
+                        urls.add(self._clean_url(url))
+        return urls
+
+    def load_company_titles_only(self):
+        company_titles = set()
+        for sheet in [
+            self.valid_sheet,
+            self.discarded_entries,
+            self.reviewed___not_applied,
+        ]:
+            for row in sheet.get_all_values()[1:]:
+                if len(row) > 3:
+                    company = row[2].strip()
+                    title = row[3].strip()
+                    if company and title:
+                        key = self._normalize(f"{company}|{title}")
+                        company_titles.add(key)
+        return company_titles
+
+    def load_job_ids_only(self):
+        job_ids = set()
+        for sheet in [
+            self.valid_sheet,
+            self.discarded_entries,
+            self.reviewed___not_applied,
+        ]:
+            for row in sheet.get_all_values()[1:]:
+                if len(row) > 6:
+                    job_id = row[6].strip()
+                    if (
+                        job_id
+                        and job_id not in ["N/A", ""]
+                        and not job_id.startswith("HASH_")
+                    ):
+                        job_ids.add(job_id.lower())
+        return job_ids
+
     def get_next_row_numbers(self):
         return {
             "valid": self._find_next_row(self.valid_sheet)["row"],

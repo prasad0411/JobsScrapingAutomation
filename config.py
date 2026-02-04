@@ -161,6 +161,12 @@ VERBOSE_OUTPUT = False
 SHOW_LOADING_STATS = False
 SHOW_GITHUB_COUNTS = False
 
+USER_LOCATION = "Boston"
+
+PAGE_TEXT_QUICK_SCAN = 2000
+PAGE_TEXT_STANDARD_SCAN = 5000
+PAGE_TEXT_FULL_SCAN = 15000
+
 JOB_ID_PREFERENCES = {
     "hash_fallback_enabled": False,
     "fallback_value": "N/A",
@@ -258,9 +264,57 @@ CONFLICTING_SIGNAL_PATTERNS = [
 ASSOCIATE_BACHELOR_ONLY_PATTERNS = [
     r"(?:associate|associates|aa|as)\s+(?:or|and)\s+bachelor",
     r"(?:associate|aa)\s+degree.*only",
-    r"no\s+(?:prior\s+)?experience.*bachelor",
+    r"no\s+(?:prior\s+)?experience.*bachelor.*program",
     r"bachelor.*program\s+(?:required|only)",
+    r"entering.*(?:junior|senior)\s+year",
+    r"(?:junior|senior)\s+year\s+(?:preferred|required|students?)",
+    r"(?:sophomore|junior)\s+(?:or|and)\s+(?:junior|senior)",
+    r"at\s+least\s+(?:a\s+)?(?:sophomore|junior)",
+    r"minimum.*sophomore",
+    r"completed.*sophomore\s+year",
+    r"(?:rising|entering)\s+(?:junior|senior)",
+    r"graduate.*202[67].*between.*(?:junior|senior)",
+    r"summer\s+between.*(?:junior|senior)\s+year",
+    r"currently\s+enrolled.*pursuing.*bachelor'?s?\s+degree",
+    r"enrolled.*bachelor'?s?\s+(?:degree\s+)?program",
+    r"actively\s+enrolled.*bachelor'?s?\s+program",
+    r"student\s+pursuing.*bachelor'?s?",
+    r"pursuit\s+of.*bachelor'?s?\s+degree",
+    r"bachelor'?s?\s+degree\s+program.*enrollment",
 ]
+
+CPT_OPT_EXCLUSION_PATTERNS = [
+    r"will\s+not\s+(?:provide|offer).*(?:cpt|opt|curricular\s+practical|optional\s+practical)",
+    r"(?:does\s+not|doesn't|cannot)\s+(?:support|sponsor|provide).*(?:cpt|opt)",
+    r"not\s+eligible.*(?:cpt|opt)",
+    r"no.*(?:assistance|support|documentation).*(?:cpt|opt)",
+    r"will\s+not.*sign.*documentation.*(?:cpt|opt)",
+    r"(?:cpt|opt).*not\s+(?:available|supported|provided)",
+]
+
+GEOGRAPHIC_ENROLLMENT_PATTERNS = [
+    r"enrolled\s+at.*(?:college|university).*in\s+(?:the\s+)?([A-Za-z\s/]+)\s+area",
+    r"must\s+be\s+enrolled.*in\s+([A-Za-z\s/]+).*to\s+be\s+considered",
+    r"attend.*(?:college|university).*(?:within|in)\s+([A-Za-z\s/]+)",
+    r"(?:college|university).*in\s+the\s+([A-Za-z\s/]+).*(?:area|region)",
+]
+
+PORTAL_NAME_INDICATORS = [
+    "Agency Contractor",
+    "Preferential Rehire",
+    "Job Site",
+    "External Career",
+    "External Job",
+    "Career Portal",
+]
+
+WORKDAY_ABBREVIATIONS = {
+    "bcbsmn": "Blue Cross and Blue Shield of Minnesota",
+    "hp": "HP Inc.",
+    "cat": "Caterpillar",
+    "bmo": "Bank of Montreal",
+    "cibc": "Canadian Imperial Bank of Commerce",
+}
 
 GUARANTEED_TECHNICAL_PHRASES = [
     "computer science",

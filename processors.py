@@ -1260,14 +1260,24 @@ class ValidationHelper:
             if citizenship_decision == "REJECT":
                 return citizenship_decision, citizenship_reason, []
 
-            # Check 3: Undergraduate-only requirements (NEW)
+            cpt_decision, cpt_reason = ValidationHelper._check_cpt_opt_restrictions(
+                soup
+            )
+            if cpt_decision == "REJECT":
+                return cpt_decision, cpt_reason, []
+
             undergrad_decision, undergrad_reason = (
                 ValidationHelper._check_undergraduate_only_requirements(soup)
             )
             if undergrad_decision == "REJECT":
                 return undergrad_decision, undergrad_reason, []
 
-            # Check 4: Degree requirements (Bachelor's only)
+            geographic_decision, geographic_reason = (
+                ValidationHelper._check_geographic_enrollment_restrictions(soup)
+            )
+            if geographic_decision == "REJECT":
+                return geographic_decision, geographic_reason, []
+
             degree_decision, degree_reason = (
                 ValidationHelper._check_degree_requirements_strict(soup)
             )
@@ -1468,6 +1478,74 @@ class ValidationHelper:
 
         except Exception as e:
             logging.debug(f"Citizenship check failed: {e}")
+
+        return None, None
+
+    @staticmethod
+    def _check_cpt_opt_restrictions(soup):
+        if not soup:
+            return None, None
+
+        try:
+            from config import CPT_OPT_EXCLUSION_PATTERNS, PAGE_TEXT_FULL_SCAN
+        except (ImportError, AttributeError):
+            return None, None
+
+        try:
+            page_text = soup.get_text()[:PAGE_TEXT_FULL_SCAN].lower()
+
+            for pattern in CPT_OPT_EXCLUSION_PATTERNS:
+                if re.search(pattern, page_text):
+                    logging.debug(f"CPT/OPT exclusion found: {pattern}")
+                    return (
+                        "REJECT",
+                        "Company does not support CPT/OPT (F-1 students not eligible)",
+                    )
+
+        except Exception as e:
+            logging.debug(f"CPT/OPT check failed: {e}")
+
+        return None, None
+
+    @staticmethod
+    def _check_geographic_enrollment_restrictions(soup):
+        if not soup:
+            return None, None
+
+        try:
+            from config import (
+                GEOGRAPHIC_ENROLLMENT_PATTERNS,
+                PAGE_TEXT_FULL_SCAN,
+                USER_LOCATION,
+            )
+        except (ImportError, AttributeError):
+            return None, None
+
+        try:
+            page_text = soup.get_text()[:PAGE_TEXT_FULL_SCAN].lower()
+
+            for pattern in GEOGRAPHIC_ENROLLMENT_PATTERNS:
+                match = re.search(pattern, page_text)
+                if match:
+                    required_location = (
+                        match.group(1).strip() if match.lastindex >= 1 else ""
+                    )
+
+                    if required_location:
+                        required_normalized = (
+                            required_location.lower()
+                            .replace("/", " ")
+                            .replace("-", " ")
+                        )
+
+                        if USER_LOCATION.lower() not in required_normalized:
+                            return (
+                                "REJECT",
+                                f"Geographic enrollment required: {required_location}",
+                            )
+
+        except Exception as e:
+            logging.debug(f"Geographic enrollment check failed: {e}")
 
         return None, None
 
@@ -1812,6 +1890,88 @@ class CompanyExtractor:
         return ExtractionResult(None, 0.0, "subdomain")
 
     @staticmethod
+    def extract_from_workday(url, soup):
+        if not soup or "myworkdayjobs.com" not in url:
+            return ExtractionResult(None, 0.0, "workday")
+
+        try:
+            title_tag = soup.find("title")
+            if title_tag:
+                title_text = title_tag.get_text().strip()
+
+                if " - " in title_text:
+                    parts = title_text.split(" - ")
+                    if len(parts) >= 2:
+                        company_part = parts[-1]
+                        company_part = re.sub(
+                            r"\s*(?:Careers?|Career Site|Jobs?)\s*$",
+                            "",
+                            company_part,
+                            flags=re.I,
+                        )
+                        company_part = company_part.strip()
+
+                        if (
+                            company_part
+                            and len(company_part) > 2
+                            and len(company_part) < 100
+                        ):
+                            cleaned = CompanyExtractor.clean_company_name(company_part)
+                            if cleaned and cleaned != "Unknown":
+                                return ExtractionResult(cleaned, 0.92, "workday_title")
+
+            json_ld = soup.find("script", type="application/ld+json")
+            if json_ld:
+                data = json.loads(json_ld.string)
+                org = (
+                    data.get("hiringOrganization", {}) if isinstance(data, dict) else {}
+                )
+                if isinstance(org, dict) and org.get("name"):
+                    name = org["name"]
+                    if len(name) < 100:
+                        cleaned = CompanyExtractor.clean_company_name(name)
+                        if cleaned and cleaned != "Unknown":
+                            return ExtractionResult(cleaned, 0.91, "workday_json")
+
+        except Exception as e:
+            logging.debug(f"Workday company extraction failed: {e}")
+
+        return ExtractionResult(None, 0.0, "workday")
+
+    @staticmethod
+    def clean_company_name(name):
+        if not name or name == "Unknown":
+            return name
+
+        try:
+            from config import PORTAL_NAME_INDICATORS
+        except (ImportError, AttributeError):
+            PORTAL_NAME_INDICATORS = []
+
+        name = re.sub(
+            r"[,_]\s*(?:United States|U\.S\.A\.?|USA|US)$", "", name, flags=re.I
+        )
+        name = re.sub(r"^\d{2}-\d{7}\s+", "", name)
+
+        for indicator in PORTAL_NAME_INDICATORS:
+            if indicator in name:
+                return "Unknown"
+
+        normalizations = {
+            "The Charles Stark Draper Laboratory": "Draper",
+            "Bose Corporation, U.S.A": "Bose Corporation",
+            "On Location X": "TKO Group Holdings",
+            "On Location": "TKO Group Holdings",
+        }
+
+        name = normalizations.get(name, name)
+
+        if "myworkdayjobs.com" in (name or ""):
+            return "Unknown"
+
+        return name.strip()
+
+    @staticmethod
     @lru_cache(maxsize=256)
     def _looks_like_title(text):
         """ORIGINAL"""
@@ -1831,10 +1991,12 @@ class CompanyExtractor:
 
     @staticmethod
     def extract_all_methods(url, soup):
-        """ORIGINAL: ALL 6 methods"""
         platform = PlatformDetector.detect(url)
 
+        workday_result = CompanyExtractor.extract_from_workday(url, soup)
+
         results = [
+            workday_result,
             CompanyExtractor.extract_from_url_mapping(url),
             CompanyExtractor.extract_from_json_ld(soup),
             CompanyExtractor.extract_from_meta_tags(soup),
@@ -1843,14 +2005,26 @@ class CompanyExtractor:
             CompanyExtractor.extract_from_subdomain(url),
         ]
 
+        valid_results = [r for r in results if r.value and r.value != "Unknown"]
+
+        if valid_results:
+            valid_results.sort(key=lambda r: r.confidence, reverse=True)
+
+            for result in valid_results:
+                cleaned = CompanyExtractor.clean_company_name(result.value)
+                if cleaned and cleaned != "Unknown":
+                    return cleaned
+
         best_result = ExtractionVoter.vote(
             results, min_confidence=MIN_CONFIDENCE_COMPANY
         )
-        return (
-            best_result.value
-            if best_result
-            else ValidationHelper.extract_company_from_domain(url)
-        )
+
+        if best_result and best_result.value:
+            cleaned = CompanyExtractor.clean_company_name(best_result.value)
+            if cleaned and cleaned != "Unknown":
+                return cleaned
+
+        return ValidationHelper.extract_company_from_domain(url)
 
 
 # ============================================================================
