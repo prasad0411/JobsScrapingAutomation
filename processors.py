@@ -1266,6 +1266,12 @@ class ValidationHelper:
             if cpt_decision == "REJECT":
                 return cpt_decision, cpt_reason, []
 
+            us_person_decision, us_person_reason = (
+                ValidationHelper._check_us_person_dod_requirements(soup)
+            )
+            if us_person_decision == "REJECT":
+                return us_person_decision, us_person_reason, []
+
             undergrad_decision, undergrad_reason = (
                 ValidationHelper._check_undergraduate_only_requirements(soup)
             )
@@ -1412,7 +1418,18 @@ class ValidationHelper:
             return None, None
 
         try:
-            page_text = soup.get_text()[:15000].lower()
+            from config import (
+                ENHANCED_PHD_PATTERNS,
+                PHD_MS_FLEXIBILITY_KEYWORDS,
+                PAGE_TEXT_FULL_SCAN,
+            )
+        except (ImportError, AttributeError):
+            ENHANCED_PHD_PATTERNS = []
+            PHD_MS_FLEXIBILITY_KEYWORDS = ["master", " ms ", "ms/phd"]
+            PAGE_TEXT_FULL_SCAN = 15000
+
+        try:
+            page_text = soup.get_text()[:PAGE_TEXT_FULL_SCAN].lower()
 
             phd_only_patterns = [
                 r"\bphd\s+(?:intern|student|candidate|only|required)",
@@ -1422,25 +1439,31 @@ class ValidationHelper:
                 r"phd\s+internship",
             ]
 
+            phd_only_patterns.extend(ENHANCED_PHD_PATTERNS)
+
             for pattern in phd_only_patterns:
                 match = re.search(pattern, page_text)
                 if match:
                     context = page_text[
-                        max(0, match.start() - 250) : min(
-                            len(page_text), match.end() + 250
+                        max(0, match.start() - 500) : min(
+                            len(page_text), match.end() + 500
                         )
                     ]
 
-                    if not any(
-                        kw in context
-                        for kw in [
-                            "master",
-                            " ms ",
-                            "graduate students",
-                            "or master",
-                            "ms/phd",
-                        ]
-                    ):
+                    if not any(kw in context for kw in PHD_MS_FLEXIBILITY_KEYWORDS):
+                        requirements_start = page_text.find("qualification")
+                        requirements_section = (
+                            page_text[requirements_start : requirements_start + 2000]
+                            if requirements_start != -1
+                            else ""
+                        )
+
+                        if requirements_section and any(
+                            kw in requirements_section
+                            for kw in PHD_MS_FLEXIBILITY_KEYWORDS
+                        ):
+                            continue
+
                         logging.debug(
                             f"PhD-only check: Found '{pattern}' without MS flexibility"
                         )
@@ -1504,6 +1527,29 @@ class ValidationHelper:
 
         except Exception as e:
             logging.debug(f"CPT/OPT check failed: {e}")
+
+        return None, None
+
+    @staticmethod
+    def _check_us_person_dod_requirements(soup):
+        if not soup:
+            return None, None
+
+        try:
+            from config import US_PERSON_DOD_PATTERNS, PAGE_TEXT_FULL_SCAN
+        except (ImportError, AttributeError):
+            return None, None
+
+        try:
+            page_text = soup.get_text()[:PAGE_TEXT_FULL_SCAN].lower()
+
+            for pattern in US_PERSON_DOD_PATTERNS:
+                if re.search(pattern, page_text):
+                    logging.debug(f"US Person/DoD requirement found: {pattern}")
+                    return "REJECT", "US Person or DoD contract requirement"
+
+        except Exception as e:
+            logging.debug(f"US Person/DoD check failed: {e}")
 
         return None, None
 

@@ -299,6 +299,41 @@ GEOGRAPHIC_ENROLLMENT_PATTERNS = [
     r"(?:college|university).*in\s+the\s+([A-Za-z\s/]+).*(?:area|region)",
 ]
 
+US_PERSON_DOD_PATTERNS = [
+    r"\bus\s+person\b",
+    r"u\.s\.\s+person",
+    r"united\s+states\s+person",
+    r"\bdod\b",
+    r"department\s+of\s+defense",
+    r"dod\s+contract",
+    r"defense\s+contract",
+]
+
+ENHANCED_PHD_PATTERNS = [
+    r"current\s+phd\s+student",
+    r"currently.*phd\s+student",
+    r"active\s+phd\s+candidate",
+    r"must\s+be\s+pursuing.*phd.*\(enrolled",
+    r"criteria:?.*pursuing.*phd",
+    r"one\s+of.*following.*phd",
+    r"enrolled.*phd\s+student",
+    r"phd-level\s+student",
+]
+
+PHD_MS_FLEXIBILITY_KEYWORDS = [
+    "master",
+    " ms ",
+    "ms/phd",
+    "or master",
+    "master's",
+    "graduate students",
+    "advanced degree students",
+    "masters",
+    "m.s.",
+    "ms degree",
+    "ms students",
+]
+
 PORTAL_NAME_INDICATORS = [
     "Agency Contractor",
     "Preferential Rehire",
