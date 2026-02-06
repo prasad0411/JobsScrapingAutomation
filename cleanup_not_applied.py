@@ -1,14 +1,38 @@
 #!/usr/bin/env python3
+# cSpell:disable
+"""
+Automatic cleanup script - moves 'Not Applied' jobs to Reviewed sheet.
+ENHANCED: Includes automatic 7-day backup to private GitHub repo.
+"""
 
 import gspread
 from oauth2client.service_account import ServiceAccountCredentials
 import datetime
 import time
+import os
+import shutil
+import subprocess
+from pathlib import Path
 
 SHEET_NAME = "H1B visa"
 WORKSHEET_NAME = "Valid Entries"
 REVIEWED_WORKSHEET = "Reviewed - Not Applied"
 CREDS_FILE = "credentials.json"
+
+BACKUP_FOLDER = "../job-tracker-secrets"
+BACKUP_TRACKING_FILE = "last_backup_date.txt"
+BACKUP_INTERVAL_DAYS = 7
+
+FILES_TO_BACKUP = [
+    "credentials.json",
+    "gmail_credentials.json",
+    "gmail_token.pickle",
+    "jobright_cookies.json",
+    "nu_cookies.json",
+    "processed_emails.json",
+    "workday_mapping.json",
+    ".env",
+]
 
 
 class ManualCleanup:
@@ -113,20 +137,18 @@ class ManualCleanup:
                 if self._get_cell(row, 1) and self._get_cell(row, 1) != "Not Applied"
             ]
 
-            if not not_applied_rows:
-                print("No 'Not Applied' jobs found")
-                return
-
-            print(f"Moving {len(not_applied_rows)} jobs, keeping {len(remaining_rows)}")
-
             if not_applied_rows:
+                print(
+                    f"Moving {len(not_applied_rows)} jobs, keeping {len(remaining_rows)}"
+                )
                 self._move_to_reviewed(not_applied_rows)
+                self._repopulate_main_sheet(all_data, remaining_rows)
+                print(
+                    f"✓ Moved {len(not_applied_rows)} jobs, {len(remaining_rows)} remaining"
+                )
+            else:
+                print("No 'Not Applied' jobs found")
 
-            self._repopulate_main_sheet(all_data, remaining_rows)
-
-            print(
-                f"✓ Moved {len(not_applied_rows)} jobs, {len(remaining_rows)} remaining"
-            )
             print("=" * 80 + "\n")
 
         except Exception as e:
@@ -336,6 +358,128 @@ class ManualCleanup:
         return datetime.datetime.now().strftime("%d %B, %I:%M %p")
 
 
+def check_if_backup_needed():
+    """Check if 7 days have passed since last backup."""
+    if not os.path.exists(BACKUP_TRACKING_FILE):
+        return True
+
+    try:
+        with open(BACKUP_TRACKING_FILE, "r") as f:
+            last_backup_str = f.read().strip()
+
+        last_backup = datetime.datetime.strptime(last_backup_str, "%Y-%m-%d")
+        days_since = (datetime.datetime.now() - last_backup).days
+
+        if days_since >= BACKUP_INTERVAL_DAYS:
+            return True
+        else:
+            print(f"\nℹ️  Backup not needed (last backup {days_since} days ago)")
+            return False
+    except:
+        return True
+
+
+def backup_to_private_repo():
+    """Automated backup of secret files to private GitHub repo."""
+    print("\n" + "=" * 80)
+    print("AUTOMATED BACKUP TO PRIVATE REPO")
+    print("=" * 80)
+
+    project_dir = Path(__file__).parent
+    backup_dir = project_dir / BACKUP_FOLDER
+
+    if not backup_dir.exists():
+        print(f"⚠️  Backup directory not found: {backup_dir}")
+        print(f"   Run setup: See BACKUP_AUTOMATION_COMPLETE_GUIDE.md")
+        return False
+
+    backed_up = []
+    missing = []
+
+    for filename in FILES_TO_BACKUP:
+        source = project_dir / filename
+        destination = backup_dir / filename
+
+        if source.exists():
+            try:
+                shutil.copy2(source, destination)
+                backed_up.append(filename)
+                print(f"  ✓ Backed up: {filename}")
+            except Exception as e:
+                print(f"  ✗ Failed: {filename} - {e}")
+        else:
+            missing.append(filename)
+
+    timestamp_file = backup_dir / "last_backup.txt"
+    with open(timestamp_file, "w") as f:
+        f.write(
+            f"Last backup: {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n"
+        )
+        f.write(f"Files backed up: {len(backed_up)}\n")
+        f.write(f"Files: {', '.join(backed_up)}\n")
+
+    print(f"\n  Backed up {len(backed_up)} files")
+    if missing:
+        print(f"  Skipped {len(missing)} missing: {', '.join(missing)}")
+
+    try:
+        original_dir = os.getcwd()
+        os.chdir(backup_dir)
+
+        subprocess.run(["git", "add", "."], check=True, capture_output=True)
+
+        commit_msg = f"Auto-backup {datetime.datetime.now().strftime('%Y-%m-%d %H:%M')}"
+        result = subprocess.run(
+            ["git", "commit", "-m", commit_msg], capture_output=True, text=True
+        )
+
+        if "nothing to commit" in result.stdout:
+            print(f"\n  ℹ️  No changes since last backup")
+            os.chdir(original_dir)
+
+            with open(BACKUP_TRACKING_FILE, "w") as f:
+                f.write(datetime.datetime.now().strftime("%Y-%m-%d"))
+
+            print("=" * 80)
+            return True
+
+        push_result = subprocess.run(
+            ["git", "push", "origin", "main"],
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+
+        os.chdir(original_dir)
+
+        with open(BACKUP_TRACKING_FILE, "w") as f:
+            f.write(datetime.datetime.now().strftime("%Y-%m-%d"))
+
+        print(f"\n  ✅ Pushed to private GitHub repo")
+        print(
+            f"  Next backup: {(datetime.datetime.now() + datetime.timedelta(days=BACKUP_INTERVAL_DAYS)).strftime('%Y-%m-%d')}"
+        )
+        print("=" * 80)
+        return True
+
+    except subprocess.CalledProcessError as e:
+        os.chdir(original_dir)
+        print(f"\n  ✗ Git error: {e}")
+        print(f"  Check GitHub authentication")
+        print("=" * 80)
+        return False
+    except Exception as e:
+        os.chdir(original_dir)
+        print(f"\n  ✗ Backup failed: {e}")
+        print("=" * 80)
+        return False
+
+
 if __name__ == "__main__":
     cleaner = ManualCleanup()
     cleaner.cleanup()
+
+    if check_if_backup_needed():
+        backup_to_private_repo()
+
+    print()

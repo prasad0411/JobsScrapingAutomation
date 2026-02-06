@@ -10,6 +10,14 @@ processed_emails.json
 failed_simplify_urls.json
 simplify_manual_review.txt
 workday_mapping.json
+last_backup_date.txt
+
+# Backup files
+*_backup.zip
+job_tracker_*.zip
+secrets_*.zip
+backup.log
+backup_cron.log
 
 # Log files
 *.log
@@ -43,10 +51,10 @@ Thumbs.db
 handshake_session.pkl
 capture_handshake_session.py
 
-# Backup files
-*_BACKUP*.py
-*.bak
-*.old
-
 # Environment variables
 .env
+
+# Secret logic files (if you create them)
+secret_patterns.py
+validation_rules.py
+proprietary_logic.py
