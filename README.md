@@ -158,7 +158,7 @@ python3 job_aggregator.py
 MS Computer Science | Northeastern University | May 2027  
 Seeking Summer 2026 SDE Internships
 
-📧 kanade.pr@northeastern.edu  
+📧 kanade.pra@northeastern.edu  
 💼 [LinkedIn](https://linkedin.com/in/prasad-kanade-)  
 🐙 [GitHub](https://github.com/prasad0411)
 
