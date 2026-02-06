@@ -1,11 +1,20 @@
-# Credentials and tokens (IMPORTANT!)
+# Credentials and tokens (CRITICAL!)
 credentials.json
 gmail_credentials.json
 gmail_token.pickle
+jobright_cookies.json
+nu_cookies.json
+
+# Data tracking files
+processed_emails.json
+failed_simplify_urls.json
+simplify_manual_review.txt
+workday_mapping.json
 
 # Log files
 *.log
 job_scraper.log
+skipped_jobs.log
 
 # Python cache
 __pycache__/
@@ -34,7 +43,10 @@ Thumbs.db
 handshake_session.pkl
 capture_handshake_session.py
 
-# Local output files
-failed_simplify_urls.json
-processed_emails.json
-simplify_manual_review.txt
+# Backup files
+*_BACKUP*.py
+*.bak
+*.old
+
+# Environment variables
+.env
