@@ -1,62 +1,53 @@
 #!/usr/bin/env python3
 
 import gspread
-from oauth2client.service_account import ServiceAccountCredentials
-import datetime
 import time
+import re
+from functools import lru_cache
+from oauth2client.service_account import ServiceAccountCredentials
 
-SHEET_NAME = "H1B visa"
-WORKSHEET_NAME = "Valid Entries"
-REVIEWED_WORKSHEET = "Reviewed - Not Applied"
-CREDS_FILE = "credentials.json"
+from config import (
+    SHEET_NAME,
+    WORKSHEET_NAME,
+    DISCARDED_WORKSHEET,
+    REVIEWED_WORKSHEET,
+    SHEETS_CREDS_FILE,
+    STATUS_COLORS,
+)
 
 
-class ManualCleanup:
-    STATUS_COLORS = {
-        "Not Applied": {"red": 0.6, "green": 0.76, "blue": 1.0},
-        "Applied": {"red": 0.58, "green": 0.93, "blue": 0.31},
-        "Rejected": {"red": 0.97, "green": 0.42, "blue": 0.42},
-        "OA Round 1": {"red": 1.0, "green": 0.95, "blue": 0.4},
-        "OA Round 2": {"red": 1.0, "green": 0.95, "blue": 0.4},
-        "Interview 1": {"red": 0.82, "green": 0.93, "blue": 0.94},
-        "Offer accepted": {"red": 0.16, "green": 0.65, "blue": 0.27},
-        "Assessment": {"red": 0.89, "green": 0.89, "blue": 0.89},
-    }
-
-    STATUS_VALUES = list(STATUS_COLORS.keys())
-
+class SheetsManager:
     def __init__(self):
         scope = [
             "https://spreadsheets.google.com/feeds",
             "https://www.googleapis.com/auth/drive",
         ]
-        creds = ServiceAccountCredentials.from_json_keyfile_name(CREDS_FILE, scope)
+        creds = ServiceAccountCredentials.from_json_keyfile_name(
+            SHEETS_CREDS_FILE, scope
+        )
         client = gspread.authorize(creds)
-
         self.spreadsheet = client.open(SHEET_NAME)
-        self.sheet = self.spreadsheet.worksheet(WORKSHEET_NAME)
-        self._init_reviewed_sheet()
+        self.valid_sheet = self.spreadsheet.worksheet(WORKSHEET_NAME)
+        self._initialize_sheets()
 
-    def _init_reviewed_sheet(self):
-        try:
-            self.reviewed_sheet = self.spreadsheet.worksheet(REVIEWED_WORKSHEET)
-
-            current_cols = len(self.reviewed_sheet.row_values(1))
-            if current_cols < 12:
-                self.reviewed_sheet.resize(rows=1000, cols=12)
-                time.sleep(2)
-
-            headers = self.reviewed_sheet.row_values(1)
-            if "Sponsorship" not in headers:
-                self.reviewed_sheet.update_cell(1, 12, "Sponsorship")
-                time.sleep(1)
-                self._format_headers(self.reviewed_sheet)
-
-        except gspread.exceptions.WorksheetNotFound:
-            self.reviewed_sheet = self.spreadsheet.add_worksheet(
-                title=REVIEWED_WORKSHEET, rows=1000, cols=12
-            )
-            headers = [
+    def _initialize_sheets(self):
+        sheet_configs = {
+            DISCARDED_WORKSHEET: [
+                "Sr. No.",
+                "Discard Reason",
+                "Company",
+                "Title",
+                "Date Applied",
+                "Job URL",
+                "Job ID",
+                "Job Type",
+                "Location",
+                "Remote?",
+                "Entry Date",
+                "Source",
+                "Sponsorship",
+            ],
+            REVIEWED_WORKSHEET: [
                 "Sr. No.",
                 "Reason",
                 "Company",
@@ -69,180 +60,252 @@ class ManualCleanup:
                 "Moved Date",
                 "Source",
                 "Sponsorship",
-            ]
-            self.reviewed_sheet.append_row(headers)
-            self._format_headers(self.reviewed_sheet)
+            ],
+        }
 
-    def _format_headers(self, sheet):
-        try:
-            sheet.format(
-                "A1:L1",
-                {
-                    "horizontalAlignment": "CENTER",
-                    "verticalAlignment": "MIDDLE",
-                    "textFormat": {
-                        "fontFamily": "Times New Roman",
-                        "fontSize": 14,
-                        "bold": True,
-                        "foregroundColor": {"red": 0, "green": 0, "blue": 0},
-                    },
-                    "backgroundColor": {"red": 0.7, "green": 0.9, "blue": 0.7},
-                },
-            )
-        except:
-            pass
+        for sheet_name, headers in sheet_configs.items():
+            try:
+                sheet = self.spreadsheet.worksheet(sheet_name)
+            except:
+                sheet = self.spreadsheet.add_worksheet(
+                    title=sheet_name, rows=1000, cols=len(headers)
+                )
+                sheet.append_row(headers)
+                self._format_headers(sheet, len(headers))
 
-    def cleanup(self):
-        print("=" * 80)
-        print("CLEANUP: Moving 'Not Applied' jobs")
-        print("=" * 80)
+            setattr(self, sheet_name.lower().replace(" ", "_").replace("-", "_"), sheet)
 
-        try:
-            all_data = self.sheet.get_all_values()
+    def load_existing_jobs(self):
+        existing = {"jobs": set(), "urls": set(), "job_ids": set(), "cache": {}}
 
-            if len(all_data) <= 1:
-                print("No jobs to clean")
-                return
+        for sheet in [
+            self.valid_sheet,
+            self.discarded_entries,
+            self.reviewed___not_applied,
+        ]:
+            for row in sheet.get_all_values()[1:]:
+                if len(row) <= 5:
+                    continue
 
-            not_applied_rows = [
-                row for row in all_data[1:] if self._get_cell(row, 1) == "Not Applied"
-            ]
-            remaining_rows = [
-                row
-                for row in all_data[1:]
-                if self._get_cell(row, 1) and self._get_cell(row, 1) != "Not Applied"
-            ]
+                company, title = row[2].strip(), row[3].strip()
+                url = row[5].strip() if len(row) > 5 else ""
+                job_id = row[6].strip() if len(row) > 6 else ""
 
-            if not not_applied_rows:
-                print("No 'Not Applied' jobs found")
-                return
+                if company and title:
+                    key = self._normalize(f"{company}_{title}")
+                    existing["jobs"].add(key)
+                    existing["cache"][key] = {
+                        "company": company,
+                        "title": title,
+                        "job_id": job_id,
+                        "url": url,
+                    }
 
-            print(f"Moving {len(not_applied_rows)} jobs, keeping {len(remaining_rows)}")
+                if url and "http" in url:
+                    existing["urls"].add(self._clean_url(url))
 
-            if not_applied_rows:
-                self._move_to_reviewed(not_applied_rows)
+                if (
+                    job_id
+                    and job_id not in ["N/A", ""]
+                    and not job_id.startswith("HASH_")
+                ):
+                    existing["job_ids"].add(job_id.lower())
 
-            self._repopulate_main_sheet(all_data, remaining_rows)
+        from config import SHOW_LOADING_STATS
 
+        if SHOW_LOADING_STATS:
             print(
-                f"✓ Moved {len(not_applied_rows)} jobs, {len(remaining_rows)} remaining"
+                f"Loaded: {len(existing['jobs'])} jobs, {len(existing['urls'])} URLs, {len(existing['job_ids'])} IDs"
             )
-            print("=" * 80 + "\n")
+        return existing
 
-        except Exception as e:
-            print(f"✗ Cleanup error: {e}")
+    def load_urls_only(self):
+        urls = set()
+        for sheet in [
+            self.valid_sheet,
+            self.discarded_entries,
+            self.reviewed___not_applied,
+        ]:
+            for row in sheet.get_all_values()[1:]:
+                if len(row) > 5:
+                    url = row[5].strip()
+                    if url and "http" in url:
+                        urls.add(self._clean_url(url))
+        return urls
 
-    def _move_to_reviewed(self, not_applied_rows):
-        reviewed_data = self.reviewed_sheet.get_all_values()
-        next_row = len(reviewed_data) + 1
+    def load_company_titles_only(self):
+        company_titles = set()
+        for sheet in [
+            self.valid_sheet,
+            self.discarded_entries,
+            self.reviewed___not_applied,
+        ]:
+            for row in sheet.get_all_values()[1:]:
+                if len(row) > 3:
+                    company = row[2].strip()
+                    title = row[3].strip()
+                    if company and title:
+                        key = self._normalize(f"{company}|{title}")
+                        company_titles.add(key)
+        return company_titles
 
-        reviewed_rows = [
+    def load_job_ids_only(self):
+        job_ids = set()
+        for sheet in [
+            self.valid_sheet,
+            self.discarded_entries,
+            self.reviewed___not_applied,
+        ]:
+            for row in sheet.get_all_values()[1:]:
+                if len(row) > 6:
+                    job_id = row[6].strip()
+                    if (
+                        job_id
+                        and job_id not in ["N/A", ""]
+                        and not job_id.startswith("HASH_")
+                    ):
+                        job_ids.add(job_id.lower())
+        return job_ids
+
+    def get_next_row_numbers(self):
+        return {
+            "valid": self._find_next_row(self.valid_sheet)["row"],
+            "valid_sr_no": self._find_next_row(self.valid_sheet)["sr_no"],
+            "discarded": self._find_next_row(self.discarded_entries)["row"],
+            "discarded_sr_no": self._find_next_row(self.discarded_entries)["sr_no"],
+        }
+
+    def _find_next_row(self, sheet):
+        data = sheet.get_all_values()
+        for idx, row in enumerate(data[1:], start=2):
+            if len(row) <= 2 or not (row[2].strip() or row[3].strip()):
+                return {"row": idx, "sr_no": idx - 1}
+        return {"row": len(data) + 1, "sr_no": len(data)}
+
+    def add_valid_jobs(self, jobs, start_row, start_sr_no):
+        if not jobs:
+            return 0
+
+        from utils import DataSanitizer
+
+        sanitized_jobs = [DataSanitizer.sanitize_all_fields(job) for job in jobs]
+
+        rows = [
             [
-                next_row - 1 + idx,
-                "Does not match profile",
-                self._get_cell(row, 2),
-                self._get_cell(row, 3),
-                self._get_cell(row, 5),
-                self._get_cell(row, 6),
-                self._get_cell(row, 7),
-                self._get_cell(row, 8),
-                self._get_cell(row, 9),
-                self._format_date(),
-                self._get_cell(row, 11, "GitHub"),
-                self._get_cell(row, 12, "Unknown"),
+                start_sr_no + idx,
+                "Not Applied",
+                job["company"],
+                job["title"],
+                "N/A",
+                job["url"],
+                job["job_id"],
+                job["job_type"],
+                job["location"],
+                job["remote"],
+                job["entry_date"],
+                job["source"],
+                job.get("sponsorship", "Unknown"),
             ]
-            for idx, row in enumerate(not_applied_rows)
+            for idx, job in enumerate(sanitized_jobs)
         ]
 
-        range_name = f"A{next_row}:L{next_row + len(reviewed_rows) - 1}"
-        self.reviewed_sheet.update(
-            values=reviewed_rows, range_name=range_name, value_input_option="RAW"
-        )
-        time.sleep(2)
+        self._batch_write(self.valid_sheet, start_row, rows, is_valid_sheet=True)
+        self._auto_resize_columns(self.valid_sheet, 13)
+        return len(jobs)
 
-        self.reviewed_sheet.format(
-            range_name,
-            {
-                "horizontalAlignment": "CENTER",
-                "verticalAlignment": "MIDDLE",
-                "textFormat": {"fontFamily": "Times New Roman", "fontSize": 13},
-            },
-        )
+    def add_discarded_jobs(self, jobs, start_row, start_sr_no):
+        if not jobs:
+            return 0
 
-    def _repopulate_main_sheet(self, all_data, remaining_rows):
-        if len(all_data) > 1:
-            self.sheet.delete_rows(2, len(all_data))
-            time.sleep(2)
+        from utils import DataSanitizer
 
-        if not remaining_rows:
+        sanitized_jobs = [DataSanitizer.sanitize_all_fields(job) for job in jobs]
+
+        rows = [
+            [
+                start_sr_no + idx,
+                job.get("reason", "Filtered"),
+                job["company"],
+                job["title"],
+                "N/A",
+                job["url"],
+                job.get("job_id", "N/A"),
+                job["job_type"],
+                job["location"],
+                job["remote"],
+                job["entry_date"],
+                job["source"],
+                job.get("sponsorship", "Unknown"),
+            ]
+            for idx, job in enumerate(sanitized_jobs)
+        ]
+
+        self._batch_write(self.discarded_entries, start_row, rows, is_valid_sheet=False)
+        self._auto_resize_columns(self.discarded_entries, 13)
+        return len(jobs)
+
+    def _batch_write(self, sheet, start_row, rows_data, is_valid_sheet):
+        if not rows_data:
             return
 
-        renumbered_rows = []
-        for idx, row in enumerate(remaining_rows, start=1):
-            padded_row = (row + [""] * 13)[:13]
-            new_row = [idx] + padded_row[1:13]
-            renumbered_rows.append(new_row)
-
-        range_name = f"A2:M{1 + len(renumbered_rows)}"
-        self.sheet.update(
-            values=renumbered_rows, range_name=range_name, value_input_option="RAW"
+        end_row = start_row + len(rows_data) - 1
+        sheet.update(
+            values=rows_data,
+            range_name=f"A{start_row}:M{end_row}",
+            value_input_option="RAW",
         )
-        time.sleep(2)
+        time.sleep(1)
 
-        self.sheet.format(
-            range_name,
+        sheet.format(
+            f"A{start_row}:M{end_row}",
             {
                 "horizontalAlignment": "CENTER",
                 "verticalAlignment": "MIDDLE",
                 "textFormat": {"fontFamily": "Times New Roman", "fontSize": 13},
             },
         )
-        time.sleep(2)
+        time.sleep(1)
 
-        self._add_hyperlinks(self.sheet, renumbered_rows, 2, url_col_idx=5)
-        self._add_status_dropdowns(self.sheet, 2, len(renumbered_rows))
-        self._apply_status_colors(self.sheet, 2, 2 + len(renumbered_rows))
-
-    def _add_hyperlinks(self, sheet, rows_data, start_row, url_col_idx):
-        url_requests = []
-
-        for idx, row_data in enumerate(rows_data):
-            url = self._get_cell(row_data, url_col_idx)
-
-            if url and url.startswith("http"):
-                url_requests.append(
-                    {
-                        "updateCells": {
-                            "range": {
-                                "sheetId": sheet.id,
-                                "startRowIndex": start_row + idx - 1,
-                                "endRowIndex": start_row + idx,
-                                "startColumnIndex": url_col_idx,
-                                "endColumnIndex": url_col_idx + 1,
-                            },
-                            "rows": [
+        url_requests = [
+            {
+                "updateCells": {
+                    "range": {
+                        "sheetId": sheet.id,
+                        "startRowIndex": start_row + idx - 1,
+                        "endRowIndex": start_row + idx,
+                        "startColumnIndex": 5,
+                        "endColumnIndex": 6,
+                    },
+                    "rows": [
+                        {
+                            "values": [
                                 {
-                                    "values": [
-                                        {
-                                            "userEnteredValue": {"stringValue": url},
-                                            "textFormatRuns": [
-                                                {"format": {"link": {"uri": url}}}
-                                            ],
-                                        }
-                                    ]
+                                    "userEnteredValue": {"stringValue": row[5]},
+                                    "textFormatRuns": [
+                                        {"format": {"link": {"uri": row[5]}}}
+                                    ],
                                 }
-                            ],
-                            "fields": "userEnteredValue,textFormatRuns",
+                            ]
                         }
-                    }
-                )
+                    ],
+                    "fields": "userEnteredValue,textFormatRuns",
+                }
+            }
+            for idx, row in enumerate(rows_data)
+            if row[5] and row[5].startswith("http")
+        ]
 
         if url_requests:
-            self.spreadsheet.batch_update({"requests": url_requests})
-            time.sleep(2)
+            for i in range(0, len(url_requests), 100):
+                self.spreadsheet.batch_update({"requests": url_requests[i : i + 100]})
+                time.sleep(1)
+
+        if is_valid_sheet:
+            self._add_status_dropdowns(sheet, start_row, len(rows_data))
+            self._apply_status_colors(sheet, start_row, end_row)
 
     def _add_status_dropdowns(self, sheet, start_row, num_rows):
-        dropdown_requests = [
+        requests = [
             {
                 "setDataValidation": {
                     "range": {
@@ -257,7 +320,7 @@ class ManualCleanup:
                             "type": "ONE_OF_LIST",
                             "values": [
                                 {"userEnteredValue": status}
-                                for status in self.STATUS_VALUES
+                                for status in STATUS_COLORS.keys()
                             ],
                         },
                         "showCustomUi": True,
@@ -268,9 +331,10 @@ class ManualCleanup:
             for idx in range(num_rows)
         ]
 
-        if dropdown_requests:
-            self.spreadsheet.batch_update({"requests": dropdown_requests})
-            time.sleep(2)
+        if requests:
+            for i in range(0, len(requests), 100):
+                self.spreadsheet.batch_update({"requests": requests[i : i + 100]})
+                time.sleep(1)
 
     def _apply_status_colors(self, sheet, start_row, end_row):
         try:
@@ -278,11 +342,11 @@ class ManualCleanup:
             color_requests = []
 
             for row_idx in range(start_row - 1, min(end_row, len(all_data))):
-                if row_idx < 1 or row_idx >= len(all_data):
+                if row_idx < 1 or len(all_data[row_idx]) < 2:
                     continue
 
-                status = self._get_cell(all_data[row_idx], 1)
-                color = self.STATUS_COLORS.get(status)
+                status = all_data[row_idx][1].strip()
+                color = STATUS_COLORS.get(status)
 
                 if color:
                     text_color = (
@@ -318,24 +382,114 @@ class ManualCleanup:
                         }
                     )
 
-            for i in range(0, len(color_requests), 20):
-                batch = color_requests[i : i + 20]
-                self.spreadsheet.batch_update({"requests": batch})
+            if color_requests:
+                for i in range(0, len(color_requests), 100):
+                    self.spreadsheet.batch_update(
+                        {"requests": color_requests[i : i + 100]}
+                    )
+                    time.sleep(1)
+
+        except Exception as e:
+            print(f"Color application error: {e}")
+
+    def _auto_resize_columns(self, sheet, total_columns):
+        try:
+            all_data = sheet.get_all_values()
+            if len(all_data) < 2:
+                return
+
+            column_limits = {
+                0: 80,
+                1: 400,
+                2: 350,
+                3: 500,
+                4: 150,
+                5: 115,
+                6: 120,
+                7: 120,
+                8: 220,
+                9: 100,
+                10: 190,
+                11: 130,
+                12: 150,
+            }
+
+            widths = []
+            for col_idx in range(total_columns):
+                max_width = 50
+
+                if len(all_data[0]) > col_idx:
+                    max_width = max(max_width, len(str(all_data[0][col_idx])) * 10 + 40)
+
+                for row in all_data[1:]:
+                    if len(row) > col_idx and row[col_idx]:
+                        max_width = max(
+                            max_width, len(str(row[col_idx]).strip()) * 8 + 25
+                        )
+
+                if col_idx in column_limits:
+                    max_width = (
+                        max(95, min(max_width, column_limits[col_idx]))
+                        if col_idx == 5
+                        else min(max_width, column_limits[col_idx])
+                    )
+
+                widths.append(int(max_width))
+
+            requests = [
+                {
+                    "updateDimensionProperties": {
+                        "range": {
+                            "sheetId": sheet.id,
+                            "dimension": "COLUMNS",
+                            "startIndex": col_idx,
+                            "endIndex": col_idx + 1,
+                        },
+                        "properties": {"pixelSize": width},
+                        "fields": "pixelSize",
+                    }
+                }
+                for col_idx, width in enumerate(widths)
+            ]
+
+            for i in range(0, len(requests), 100):
+                self.spreadsheet.batch_update({"requests": requests[i : i + 100]})
                 time.sleep(1)
 
+        except Exception as e:
+            print(f"Column resize error: {e}")
+
+    def _format_headers(self, sheet, num_cols):
+        try:
+            col_letter = chr(ord("A") + num_cols - 1)
+            sheet.format(
+                f"A1:{col_letter}1",
+                {
+                    "horizontalAlignment": "CENTER",
+                    "verticalAlignment": "MIDDLE",
+                    "textFormat": {
+                        "fontFamily": "Times New Roman",
+                        "fontSize": 14,
+                        "bold": True,
+                    },
+                    "backgroundColor": {"red": 0.7, "green": 0.9, "blue": 0.7},
+                },
+            )
         except:
             pass
 
-    def _get_cell(self, row, index, default=""):
-        try:
-            return row[index].strip() if len(row) > index and row[index] else default
-        except:
-            return default
+    @staticmethod
+    @lru_cache(maxsize=2048)
+    def _normalize(text):
+        return re.sub(r"[^a-z0-9]", "", text.lower()) if text else ""
 
-    def _format_date(self):
-        return datetime.datetime.now().strftime("%d %B, %I:%M %p")
-
-
-if __name__ == "__main__":
-    cleaner = ManualCleanup()
-    cleaner.cleanup()
+    @staticmethod
+    @lru_cache(maxsize=2048)
+    def _clean_url(url):
+        if not url:
+            return ""
+        if "jobright.ai/jobs/info/" in url.lower():
+            match = re.search(r"(jobright\.ai/jobs/info/[a-f0-9]+)", url, re.I)
+            if match:
+                return match.group(1).lower()
+        return re.sub(r"[?#].*$", "", url).lower().rstrip("/")
