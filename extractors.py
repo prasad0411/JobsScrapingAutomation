@@ -1518,5 +1518,5 @@ class SimplifyGitHubScraper:
                         "is_closed": is_closed,
                         "source": source_name,
                     }
-                )
+                ) 
         return jobs
