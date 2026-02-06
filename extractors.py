@@ -269,27 +269,38 @@ class SimplifyRedirectResolver:
 
     @staticmethod
     def _method_2_selenium_click(click_url):
+        global _SELENIUM_DRIVER
+
         if not SELENIUM_AVAILABLE:
             return None
-        driver = None
+
         try:
-            chrome_options = Options()
-            chrome_options.add_argument("--headless")
-            chrome_options.add_argument("--disable-blink-features=AutomationControlled")
-            chrome_options.add_argument("--no-sandbox")
-            chrome_options.add_argument("--disable-dev-shm-usage")
-            chrome_options.add_argument(f"user-agent={USER_AGENTS[0]}")
-            chrome_options.add_experimental_option(
-                "excludeSwitches", ["enable-logging"]
-            )
-            service = Service(ChromeDriverManager().install())
-            driver = webdriver.Chrome(service=service, options=chrome_options)
-            driver.set_page_load_timeout(20)
-            driver.get(click_url)
+            if _SELENIUM_DRIVER is None:
+                chrome_options = Options()
+                chrome_options.add_argument("--headless")
+                chrome_options.add_argument(
+                    "--disable-blink-features=AutomationControlled"
+                )
+                chrome_options.add_argument("--no-sandbox")
+                chrome_options.add_argument("--disable-dev-shm-usage")
+                chrome_options.add_argument(f"user-agent={USER_AGENTS[0]}")
+                chrome_options.add_experimental_option(
+                    "excludeSwitches", ["enable-logging"]
+                )
+                service = Service(ChromeDriverManager().install())
+                _SELENIUM_DRIVER = webdriver.Chrome(
+                    service=service, options=chrome_options
+                )
+                _SELENIUM_DRIVER.set_page_load_timeout(20)
+                logging.info(
+                    "Selenium driver initialized (SimplifyRedirectResolver will reuse)"
+                )
+
+            _SELENIUM_DRIVER.get(click_url)
 
             for wait_time in [3, 2, 2]:
                 time.sleep(wait_time)
-                current_url = driver.current_url
+                current_url = _SELENIUM_DRIVER.current_url
 
                 if current_url != click_url:
                     if SimplifyRedirectResolver._is_valid_job_url(current_url):
@@ -299,14 +310,15 @@ class SimplifyRedirectResolver:
                     if SimplifyRedirectResolver._is_valid_job_url(current_url):
                         return current_url
 
-        except:
-            pass
-        finally:
-            if driver:
+        except Exception as e:
+            logging.debug(f"SimplifyRedirectResolver Selenium failed: {e}")
+            if _SELENIUM_DRIVER:
                 try:
-                    driver.quit()
+                    _SELENIUM_DRIVER.quit()
                 except:
                     pass
+                _SELENIUM_DRIVER = None
+
         return None
 
     @staticmethod
@@ -742,7 +754,13 @@ class PageFetcher:
             return _URL_HEALTH_CACHE[url]
         response = retry_request(url, method="HEAD", max_retries=2)
         if response:
-            is_healthy = 200 <= response.status_code < 300
+            is_healthy = 200 <= response.status_code < 400 or response.status_code in [
+                301,
+                302,
+                303,
+                307,
+                308,
+            ]
             _URL_HEALTH_CACHE[url] = (is_healthy, response.status_code)
             return is_healthy, response.status_code
         _URL_HEALTH_CACHE[url] = (False, 0)
@@ -1518,5 +1536,5 @@ class SimplifyGitHubScraper:
                         "is_closed": is_closed,
                         "source": source_name,
                     }
-                ) 
+                )
         return jobs

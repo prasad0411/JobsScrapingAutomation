@@ -163,6 +163,9 @@ SHOW_GITHUB_COUNTS = False
 
 USER_LOCATION = "Boston"
 
+REPROCESS_EMAILS_DAYS = 3
+EMAIL_DATE_FILTER_ENABLED = True
+
 PAGE_TEXT_QUICK_SCAN = 2000
 PAGE_TEXT_STANDARD_SCAN = 5000
 PAGE_TEXT_FULL_SCAN = 15000
@@ -284,12 +287,13 @@ ASSOCIATE_BACHELOR_ONLY_PATTERNS = [
 ]
 
 CPT_OPT_EXCLUSION_PATTERNS = [
-    r"will\s+not\s+(?:provide|offer).*(?:cpt|opt|curricular\s+practical|optional\s+practical)",
-    r"(?:does\s+not|doesn't|cannot)\s+(?:support|sponsor|provide).*(?:cpt|opt)",
-    r"not\s+eligible.*(?:cpt|opt)",
-    r"no.*(?:assistance|support|documentation).*(?:cpt|opt)",
-    r"will\s+not.*sign.*documentation.*(?:cpt|opt)",
-    r"(?:cpt|opt).*not\s+(?:available|supported|provided)",
+    r"will\s+not\s+(?:provide|offer|support|sign).{0,80}(?:cpt|opt|curricular\s+practical|optional\s+practical)",
+    r"(?:does\s+not|doesn't|cannot)\s+(?:support|provide|sponsor).{0,80}(?:cpt|opt)",
+    r"(?:cpt|opt|curricular\s+practical|optional\s+practical).{0,80}(?:not|n't|cannot).{0,50}(?:support|provide|available|offered)",
+    r"no.{0,30}(?:assistance|support|documentation).{0,50}(?:for|with|regarding).{0,30}(?:cpt|opt)",
+    r"will\s+not.*sign.*documentation.{0,50}(?:cpt|opt)",
+    r"(?:cpt|opt).{0,50}not\s+(?:available|supported|provided|offered)",
+    r"not\s+eligible.{0,30}(?:for|under).{0,30}(?:cpt|opt)",
 ]
 
 GEOGRAPHIC_ENROLLMENT_PATTERNS = [
@@ -318,6 +322,17 @@ ENHANCED_PHD_PATTERNS = [
     r"one\s+of.*following.*phd",
     r"enrolled.*phd\s+student",
     r"phd-level\s+student",
+    r"ongoing\s+ph\.?d\.?",
+    r"current\s+ph\.?d\.?",
+    r"active\s+ph\.?d\.?",
+    r"ph\.?d\.?\s+(?:student|candidate|intern)",
+    r"pursuing.*ph\.?d\.?\s+(?:degree|program)",
+]
+
+DEGREE_LIST_PATTERNS = [
+    r"(?:pursuing|currently\s+in|degree\s+in|enrolled\s+in).{0,80}(?:ba|bs|ms|ma|phd|ph\.d\.).{0,50}(?:ba|bs|ms|ma|phd|ph\.d\.|or|and|,)",
+    r"(?:bachelor|master|doctoral|phd|ph\.d\.).{0,50}(?:or|and|,).{0,50}(?:bachelor|master|phd|ph\.d\.)",
+    r"(?:ba|bs|ms|ma|phd|ph\.d\.)[\s,/]+(?:ba|bs|ms|ma|phd|ph\.d\.)",
 ]
 
 PHD_MS_FLEXIBILITY_KEYWORDS = [
@@ -332,6 +347,40 @@ PHD_MS_FLEXIBILITY_KEYWORDS = [
     "m.s.",
     "ms degree",
     "ms students",
+]
+
+INTERNATIONAL_URL_INDICATORS = [
+    ".co.uk",
+    ".uk",
+    "/uk/",
+    "/gb/",
+    ".ca",
+    "/canada/",
+    "/canadian/",
+    ".com.au",
+    ".au",
+    "/australia/",
+    ".de",
+    "/germany/",
+    "/deutschland/",
+    ".fr",
+    "/france/",
+    ".in",
+    "/india/",
+    ".sg",
+    "/singapore/",
+]
+
+INTERNATIONAL_TEXT_INDICATORS = [
+    (r"\bunited\s+kingdom\b", "UK"),
+    (r",\s*uk\b", "UK"),
+    (r",\s*gb\b", "UK"),
+    (r"\blondon,\s*uk", "UK"),
+    (r"canada", "Canada"),
+    (r"ontario,\s*can", "Canada"),
+    (r"toronto,\s*on\b", "Canada"),
+    (r"montreal,\s*qc", "Canada"),
+    (r"vancouver,\s*bc", "Canada"),
 ]
 
 PORTAL_NAME_INDICATORS = [

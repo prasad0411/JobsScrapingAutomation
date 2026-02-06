@@ -115,6 +115,7 @@ class UnifiedJobAggregator:
         self.existing_company_titles = self.sheets.load_company_titles_only()
         self.existing_job_ids = self.sheets.load_job_ids_only()
         self.existing_jobs = self.existing_company_titles
+        self.processed_cache = {}
 
         self.processing_lock = set()
         self.valid_jobs = []
@@ -131,16 +132,11 @@ class UnifiedJobAggregator:
     def run(self):
         if not self.jobright_auth.cookies:
             self.jobright_auth.login_interactive()
-        print("Scraping GitHub repositories...")
         self._scrape_simplify_github()
         print("\nProcessing email jobs...")
         try:
             emails_data = self.email_extractor.fetch_job_emails()
             if emails_data:
-                total_urls = sum(len(email["urls"]) for email in emails_data)
-                print(
-                    f"Processing {total_urls} URLs from {len(emails_data)} emails...\n"
-                )
                 self._process_emails_grouped(emails_data)
             else:
                 print("No email jobs found")
@@ -163,13 +159,8 @@ class UnifiedJobAggregator:
     def _scrape_simplify_github(self):
         from config import SHOW_GITHUB_COUNTS
 
-        print("Processing SimplifyJobs repository...")
         simplify_jobs = self._safe_scrape(SIMPLIFY_URL, "SimplifyJobs")
-        print(f"  SimplifyJobs: {len(simplify_jobs)} jobs found")
-
-        print("Processing vanshb03 repository...")
         vanshb03_jobs = self._safe_scrape(VANSHB03_URL, "vanshb03")
-        print(f"  vanshb03: {len(vanshb03_jobs)} jobs found\n")
 
         logging.info(f"GitHub: {len(simplify_jobs)} + {len(vanshb03_jobs)}")
         for i, job in enumerate(simplify_jobs):
@@ -196,10 +187,16 @@ class UnifiedJobAggregator:
             except Exception as e:
                 logging.error(f"GitHub error: {e}")
                 continue
-        github_valid = sum(
-            1 for j in self.valid_jobs if j["source"] in ["SimplifyJobs", "vanshb03"]
+
+        simplify_valid = sum(
+            1 for j in self.valid_jobs if j["source"] == "SimplifyJobs"
         )
-        print(f"GitHub: {github_valid} valid jobs\n")
+        vanshb03_valid = sum(1 for j in self.valid_jobs if j["source"] == "vanshb03")
+        github_valid = simplify_valid + vanshb03_valid
+
+        print(
+            f"GitHub: {github_valid} valid jobs ({simplify_valid} SimplifyJobs, {vanshb03_valid} vanshb03)\n"
+        )
 
     def _process_single_github_job(self, job):
         age_days = self._parse_github_age(job["age"])
@@ -495,27 +492,55 @@ class UnifiedJobAggregator:
             logging.error(f"ERROR | {company} | {e}")
 
     def _process_emails_grouped(self, emails_data):
+        try:
+            from config import REPROCESS_EMAILS_DAYS, EMAIL_DATE_FILTER_ENABLED
+        except (ImportError, AttributeError):
+            REPROCESS_EMAILS_DAYS = 4
+            EMAIL_DATE_FILTER_ENABLED = True
+
         processed_emails = EmailTracker.load_processed_emails()
         processed_emails = EmailTracker.cleanup_old_entries(processed_emails)
+
+        from datetime import datetime, timedelta
+
+        cutoff_date = (datetime.now() - timedelta(days=REPROCESS_EMAILS_DAYS)).strftime(
+            "%Y-%m-%d"
+        )
+
         total_resolved = 0
         total_failed = 0
         emails_processed = 0
         emails_skipped = 0
+
         for email_idx, email in enumerate(emails_data, 1):
             email_id = email["email_id"]
             subject = email["subject"][:70]
             sender = email["sender"]
             url_count = len(email["urls"])
+
             if email_id in processed_emails:
-                print(f'\nEmail {email_idx}/{len(emails_data)}: "{subject}" ({sender})')
-                print(
-                    f"  ⊘ Already processed on {processed_emails[email_id]['processed_date']}"
-                )
-                emails_skipped += 1
-                continue
+                email_date = processed_emails[email_id].get("processed_date", "")
+
+                should_reprocess = False
+                if EMAIL_DATE_FILTER_ENABLED and email_date:
+                    if email_date >= cutoff_date:
+                        should_reprocess = True
+                        logging.debug(f"Reprocessing recent email from {email_date}")
+
+                if not should_reprocess:
+                    print(
+                        f'\nEmail {email_idx}/{len(emails_data)}: "{subject}" ({sender})'
+                    )
+                    print(
+                        f"  ⊘ Already processed on {processed_emails[email_id]['processed_date']}"
+                    )
+                    emails_skipped += 1
+                    continue
+
             emails_processed += 1
             print(f'\nEmail {email_idx}/{len(emails_data)}: "{subject}" ({sender})')
             print(f"  {url_count} URLs from this email...")
+
             for url in email["urls"]:
                 try:
                     if "simplify.jobs/p/" in url.lower():
@@ -532,15 +557,20 @@ class UnifiedJobAggregator:
                             url, email["html"], sender
                         )
                 except Exception as e:
+                    self.outcomes["crashes"] = self.outcomes.get("crashes", 0) + 1
                     print(f"    ERROR: {str(e)[:50]}")
                     logging.error(f"Exception: {e}")
                     continue
+
             EmailTracker.mark_email_processed(
                 processed_emails, email_id, subject, url_count
             )
+
         EmailTracker.save_processed_emails(processed_emails)
+
         if emails_skipped > 0:
             print(f"\n  ⊘ Skipped {emails_skipped} already-processed emails")
+
         if total_resolved > 0 or total_failed > 0:
             print(
                 f"  Simplify totals: {total_resolved} resolved, {total_failed} failed\n"
@@ -1194,18 +1224,77 @@ class UnifiedJobAggregator:
             self.outcomes["valid"] = len(self.valid_jobs)
 
     def _print_summary(self):
+        simplify_valid = sum(
+            1 for j in self.valid_jobs if j.get("source") == "SimplifyJobs"
+        )
+        vanshb03_valid = sum(
+            1 for j in self.valid_jobs if j.get("source") == "vanshb03"
+        )
+        email_valid = sum(
+            1
+            for j in self.valid_jobs
+            if j.get("source") not in ["SimplifyJobs", "vanshb03"]
+        )
+
+        simplify_discarded = sum(
+            1 for j in self.discarded_jobs if j.get("source") == "SimplifyJobs"
+        )
+        vanshb03_discarded = sum(
+            1 for j in self.discarded_jobs if j.get("source") == "vanshb03"
+        )
+        email_discarded = sum(
+            1
+            for j in self.discarded_jobs
+            if j.get("source") not in ["SimplifyJobs", "vanshb03"]
+        )
+
+        simplify_dups = self.outcomes.get("simplify_duplicates", 0)
+        vanshb03_dups = self.outcomes.get("vanshb03_duplicates", 0)
+        email_dups = self.outcomes.get("email_duplicates", 0)
+
+        total_github_valid = simplify_valid + vanshb03_valid
+        total_github_discarded = simplify_discarded + vanshb03_discarded
+        total_github_dups = simplify_dups + vanshb03_dups
+
+        crashes = self.outcomes.get("crashes", 0)
+
         print("\n" + "=" * 80)
-        print("SUMMARY:")
+        print("GITHUB BREAKDOWN:")
         print("=" * 80)
-        summary_items = [
-            ("✓ Valid", self.outcomes["valid"]),
-            ("✗ Discarded", self.outcomes["discarded"]),
-            ("⊘ Duplicate URL", self.outcomes["skipped_duplicate_url"]),
-            ("⊘ Duplicate job", self.outcomes["skipped_duplicate_company_title"]),
-        ]
-        for label, count in summary_items:
-            if count > 0:
-                print(f"  {label}: {count}")
+        if simplify_valid + simplify_discarded + simplify_dups > 0:
+            print(f"  SimplifyJobs:")
+            print(f"    ✓ Valid: {simplify_valid}")
+            print(f"    ✗ Discarded: {simplify_discarded}")
+            print(f"    ⊘ Duplicates: {simplify_dups}")
+
+        if vanshb03_valid + vanshb03_discarded + vanshb03_dups > 0:
+            print(f"  vanshb03:")
+            print(f"    ✓ Valid: {vanshb03_valid}")
+            print(f"    ✗ Discarded: {vanshb03_discarded}")
+            print(f"    ⊘ Duplicates: {vanshb03_dups}")
+
+        print(
+            f"  Total GitHub: {total_github_valid} valid, {total_github_discarded} discarded, {total_github_dups} duplicates"
+        )
+
+        print("\n" + "=" * 80)
+        print("EMAIL BREAKDOWN:")
+        print("=" * 80)
+        print(f"  ✓ Valid: {email_valid}")
+        print(f"  ✗ Discarded: {email_discarded}")
+        print(f"  ⊘ Duplicates: {email_dups}")
+        if crashes > 0:
+            print(f"  ✗ Crashed: {crashes} jobs (see log for details)")
+
+        print("\n" + "=" * 80)
+        print("OVERALL SUMMARY:")
+        print("=" * 80)
+        print(f"  ✓ Valid: {self.outcomes['valid']}")
+        print(f"  ✗ Discarded: {self.outcomes['discarded']}")
+        print(f"  ⊘ Duplicate URL: {self.outcomes['skipped_duplicate_url']}")
+        print(f"  ⊘ Duplicate job: {self.outcomes['skipped_duplicate_company_title']}")
+        if crashes > 0:
+            print(f"  ✗ Crashed: {crashes}")
         print("=" * 80)
 
     @staticmethod

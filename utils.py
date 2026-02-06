@@ -446,10 +446,18 @@ class DateParser:
             match = cls._RELATIVE_PATTERN.search(text_lower)
             if match:
                 days = int(match.group(1))
-                # NEW: Sanity check
+                context_start = max(0, match.start() - 40)
+                context_end = min(len(text_lower), match.end() + 40)
+                context = text_lower[context_start:context_end]
+
+                logging.debug(f"Age extraction: {days} days | Text: '...{context}...'")
+
                 if 0 <= days <= MAX_REASONABLE_AGE_DAYS:
                     return days
                 else:
+                    logging.debug(
+                        f"Age {days} exceeds MAX_REASONABLE_AGE_DAYS ({MAX_REASONABLE_AGE_DAYS})"
+                    )
                     return None
 
             if DATEUTIL_AVAILABLE:

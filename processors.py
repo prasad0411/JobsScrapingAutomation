@@ -77,6 +77,46 @@ _LOCATION_LABEL_PATTERN = re.compile(
     r"Location\s*:?\s*([A-Za-z\s,]+(?:,\s*[A-Z]{2})?)", re.I
 )
 
+
+def log_detailed_rejection(
+    company,
+    title,
+    reason,
+    pattern=None,
+    matched_text=None,
+    context=None,
+    url=None,
+    debug_info=None,
+):
+    base_msg = f"REJECTED | {company} | {reason} | Title: '{title}'"
+
+    details = []
+
+    if pattern:
+        details.append(f"Pattern: {pattern}")
+
+    if matched_text:
+        clean_match = matched_text.strip()[:150]
+        details.append(f"Match: '{clean_match}'")
+
+    if context:
+        clean_context = context.strip()[:250]
+        details.append(f"Context: '...{clean_context}...'")
+
+    if debug_info:
+        details.append(f"Debug: {debug_info}")
+
+    if url:
+        details.append(f"URL: {url[:80]}")
+
+    if details:
+        full_msg = base_msg + " | " + " | ".join(details)
+    else:
+        full_msg = base_msg
+
+    logging.info(full_msg)
+
+
 # ============================================================================
 # Title Processing - ORIGINAL
 # ============================================================================
@@ -257,7 +297,13 @@ class TitleProcessor:
 
     @staticmethod
     def check_season_requirement(title, page_text=""):
-        combined = (title + " " + page_text).lower()
+        try:
+            from config import PAGE_TEXT_STANDARD_SCAN
+        except (ImportError, AttributeError):
+            PAGE_TEXT_STANDARD_SCAN = 5000
+
+        limited_text = page_text[:PAGE_TEXT_STANDARD_SCAN] if page_text else ""
+        combined = (title + " " + limited_text).lower()
 
         years_found = []
         for match in re.finditer(r"\b(202[4-9]|203[0-9])\b", combined):
@@ -984,63 +1030,71 @@ class LocationProcessor:
 
     @staticmethod
     def check_if_international(location, soup=None, url=None, title=""):
-        """
-        ORIGINAL + ENHANCED: Multi-method Canadian detection
-        NEW: Title parameter for priority checking
-        """
+        try:
+            from config import (
+                INTERNATIONAL_URL_INDICATORS,
+                INTERNATIONAL_TEXT_INDICATORS,
+            )
+        except (ImportError, AttributeError):
+            INTERNATIONAL_URL_INDICATORS = [".co.uk", ".ca", "/uk/", "/canada/"]
+            INTERNATIONAL_TEXT_INDICATORS = []
 
-        # NEW METHOD 1: Check title first (highest priority for Boomi cases)
+        if url:
+            url_lower = url.lower()
+            for indicator in INTERNATIONAL_URL_INDICATORS:
+                if indicator in url_lower:
+                    country = (
+                        "UK"
+                        if "uk" in indicator or "gb" in indicator
+                        else (
+                            "Canada"
+                            if "ca" in indicator or "canada" in indicator
+                            else "International"
+                        )
+                    )
+                    return f"Location: International ({country} from URL)"
+
         if title:
             title_location = LocationExtractor.extract_from_title(title)
             if title_location and title_location.value:
                 loc_upper = title_location.value.upper()
-                # Check for Canadian province codes in title
                 for province in CANADA_PROVINCES:
                     if f", {province}" in loc_upper:
-                        # Exclude Ontario, CA (California)
                         if province == "ON" and ", CA" not in loc_upper:
                             return f"Location: Canada (from title)"
                         elif province != "ON":
                             return f"Location: Canada (from title: {province})"
 
-        # ORIGINAL METHOD 2: Check extracted location
         if location and location not in ["Unknown", ""]:
             location_lower = location.lower()
             normalized = normalize_unicode(location_lower)
 
-            # NEW: Check for CANADA marker
             if ", CANADA" in location.upper() or "CANADIAN_CITY_" in location:
                 return "Location: Canada (from location field)"
 
-            # ORIGINAL: Check for "Canada" keyword
             if "canada" in location_lower:
                 return "Location: Canada"
 
-            # ORIGINAL: Check provinces (full names)
             for full_name, code in CANADA_PROVINCE_NAMES.items():
                 if re.search(rf"\b{full_name}\b", location_lower, re.I):
                     if full_name == "ontario" and ", ca" in location_lower:
                         continue
                     return f"Location: Canada ({full_name.title()})"
 
-            # ORIGINAL: Check province codes
             for province in CANADA_PROVINCES:
                 if re.search(rf",\s*{province}\b", location):
                     if province == "ON" and ", ca" in location_lower:
                         continue
                     return f"Location: Canada (province: {province})"
 
-            # ORIGINAL: Check ", CA" with Canadian city indicators
             if (", CA" in location or " - CA" in location) and any(
                 ind in location_lower for ind in ["toronto", "ottawa", "montreal"]
             ):
                 if "ontario, ca" not in location_lower:
                     return "Location: Canada"
 
-            # EXPANDED: Check major Canadian cities
             for city in MAJOR_CANADIAN_CITIES:
                 if city in normalized:
-                    # NEW: Handle ambiguous cities
                     if city in AMBIGUOUS_CITIES:
                         resolved = LocationProcessor._resolve_ambiguous_city(
                             city, location, soup, url
@@ -1050,7 +1104,22 @@ class LocationProcessor:
                     else:
                         return f"Location: Canada ({city.title()})"
 
-        # NEW METHOD 3: Extract city from URL (works even if location = "Unknown")
+            if any(
+                kw in location_lower
+                for kw in [
+                    "uk",
+                    "united kingdom",
+                    "london",
+                    "india",
+                    "china",
+                    "germany",
+                    "france",
+                    "singapore",
+                    "australia",
+                ]
+            ):
+                return "Location: International"
+
         if url:
             city_from_url = LocationProcessor._extract_city_from_url(url)
             if city_from_url:
@@ -1065,21 +1134,19 @@ class LocationProcessor:
                         if resolved == "Canada":
                             return f"Location: Canada (URL city: {city_from_url})"
 
-        # ORIGINAL METHOD: Check page text
         canada_page_check = LocationProcessor._check_page_for_canada(soup)
         if canada_page_check:
             return canada_page_check
 
-        # ORIGINAL METHOD: Check URL
         canada_url_check = LocationProcessor._check_url_for_canada(url)
         if canada_url_check:
             return canada_url_check
 
-        # ORIGINAL: Check other international (UK, India, China)
-        if location and location != "Unknown":
-            location_lower = location.lower()
-            if any(kw in location_lower for kw in ["uk", "london", "india", "china"]):
-                return "Location: International"
+        if location == "Unknown" and soup:
+            page_snippet = soup.get_text()[:3000].lower()
+            for pattern, country in INTERNATIONAL_TEXT_INDICATORS:
+                if re.search(pattern, page_snippet):
+                    return f"Location: International ({country} from page)"
 
         return None
 
@@ -1236,17 +1303,27 @@ class ValidationHelper:
 
     @staticmethod
     def check_page_restrictions(soup):
-        """ENHANCED: Added clearance, citizenship, and undergraduate-only checks"""
         if not soup:
             return None, None, []
 
         try:
-            # Check 1: Security clearance requirements
             clearance_decision, clearance_reason = (
                 ValidationHelper._check_clearance_requirements(soup)
             )
             if clearance_decision == "REJECT":
                 return clearance_decision, clearance_reason, []
+
+            citizenship_decision, citizenship_reason = (
+                ValidationHelper._check_citizenship_requirements(soup)
+            )
+            if citizenship_decision == "REJECT":
+                return citizenship_decision, citizenship_reason, []
+
+            undergrad_decision, undergrad_reason = (
+                ValidationHelper._check_undergraduate_only_requirements(soup)
+            )
+            if undergrad_decision == "REJECT":
+                return undergrad_decision, undergrad_reason, []
 
             phd_decision, phd_reason = ValidationHelper._check_phd_only_requirements(
                 soup
@@ -1254,11 +1331,11 @@ class ValidationHelper:
             if phd_decision == "REJECT":
                 return phd_decision, phd_reason, []
 
-            citizenship_decision, citizenship_reason = (
-                ValidationHelper._check_citizenship_requirements(soup)
+            geographic_decision, geographic_reason = (
+                ValidationHelper._check_geographic_enrollment_restrictions(soup)
             )
-            if citizenship_decision == "REJECT":
-                return citizenship_decision, citizenship_reason, []
+            if geographic_decision == "REJECT":
+                return geographic_decision, geographic_reason, []
 
             cpt_decision, cpt_reason = ValidationHelper._check_cpt_opt_restrictions(
                 soup
@@ -1272,25 +1349,12 @@ class ValidationHelper:
             if us_person_decision == "REJECT":
                 return us_person_decision, us_person_reason, []
 
-            undergrad_decision, undergrad_reason = (
-                ValidationHelper._check_undergraduate_only_requirements(soup)
-            )
-            if undergrad_decision == "REJECT":
-                return undergrad_decision, undergrad_reason, []
-
-            geographic_decision, geographic_reason = (
-                ValidationHelper._check_geographic_enrollment_restrictions(soup)
-            )
-            if geographic_decision == "REJECT":
-                return geographic_decision, geographic_reason, []
-
             degree_decision, degree_reason = (
                 ValidationHelper._check_degree_requirements_strict(soup)
             )
             if degree_decision == "REJECT":
                 return degree_decision, degree_reason, []
 
-            # Check 5: Graduation year requirements
             year_decision, year_reason = (
                 ValidationHelper._check_graduation_year_requirements(soup)
             )
@@ -1422,14 +1486,27 @@ class ValidationHelper:
                 ENHANCED_PHD_PATTERNS,
                 PHD_MS_FLEXIBILITY_KEYWORDS,
                 PAGE_TEXT_FULL_SCAN,
+                DEGREE_LIST_PATTERNS,
             )
         except (ImportError, AttributeError):
             ENHANCED_PHD_PATTERNS = []
             PHD_MS_FLEXIBILITY_KEYWORDS = ["master", " ms ", "ms/phd"]
             PAGE_TEXT_FULL_SCAN = 15000
+            DEGREE_LIST_PATTERNS = []
 
         try:
             page_text = soup.get_text()[:PAGE_TEXT_FULL_SCAN].lower()
+
+            for degree_pattern in DEGREE_LIST_PATTERNS:
+                degree_matches = list(re.finditer(degree_pattern, page_text))
+                for degree_match in degree_matches:
+                    list_text = degree_match.group(0)
+
+                    if re.search(r"\bms\b|\bma\b|master'?s?", list_text, re.I):
+                        logging.debug(
+                            f"PhD check: Degree list found with MS: {list_text[:100]}"
+                        )
+                        return None, None
 
             phd_only_patterns = [
                 r"\bphd\s+(?:intern|student|candidate|only|required)",
@@ -1444,6 +1521,7 @@ class ValidationHelper:
             for pattern in phd_only_patterns:
                 match = re.search(pattern, page_text)
                 if match:
+                    matched_text = match.group(0)
                     context = page_text[
                         max(0, match.start() - 500) : min(
                             len(page_text), match.end() + 500
@@ -1452,6 +1530,8 @@ class ValidationHelper:
 
                     if not any(kw in context for kw in PHD_MS_FLEXIBILITY_KEYWORDS):
                         requirements_start = page_text.find("qualification")
+                        if requirements_start == -1:
+                            requirements_start = page_text.find("requirement")
                         requirements_section = (
                             page_text[requirements_start : requirements_start + 2000]
                             if requirements_start != -1
@@ -1462,10 +1542,19 @@ class ValidationHelper:
                             kw in requirements_section
                             for kw in PHD_MS_FLEXIBILITY_KEYWORDS
                         ):
+                            logging.debug(
+                                f"PhD check: MS found in requirements section"
+                            )
                             continue
 
-                        logging.debug(
-                            f"PhD-only check: Found '{pattern}' without MS flexibility"
+                        log_detailed_rejection(
+                            "Company",
+                            "Title",
+                            "PhD-only",
+                            pattern=pattern,
+                            matched_text=matched_text,
+                            context=context[:200],
+                            debug_info=f"No MS keywords in context or requirements",
                         )
                         return "REJECT", "PhD students only (MS students not eligible)"
 
@@ -1518,8 +1607,39 @@ class ValidationHelper:
             page_text = soup.get_text()[:PAGE_TEXT_FULL_SCAN].lower()
 
             for pattern in CPT_OPT_EXCLUSION_PATTERNS:
-                if re.search(pattern, page_text):
-                    logging.debug(f"CPT/OPT exclusion found: {pattern}")
+                match = re.search(pattern, page_text)
+                if match:
+                    matched_text = match.group(0)
+                    context = page_text[
+                        max(0, match.start() - 150) : min(
+                            len(page_text), match.end() + 150
+                        )
+                    ]
+
+                    positive_indicators = [
+                        "support cpt",
+                        "cpt eligible",
+                        "cpt accepted",
+                        "welcome cpt",
+                        "provide cpt",
+                        "offer cpt",
+                        "support opt",
+                        "opt eligible",
+                    ]
+                    if any(indicator in context for indicator in positive_indicators):
+                        logging.debug(
+                            f"CPT/OPT: Skipping positive mention: {matched_text}"
+                        )
+                        continue
+
+                    log_detailed_rejection(
+                        "Company",
+                        "Title",
+                        "CPT/OPT exclusion",
+                        pattern=pattern,
+                        matched_text=matched_text,
+                        context=context[:200],
+                    )
                     return (
                         "REJECT",
                         "Company does not support CPT/OPT (F-1 students not eligible)",
@@ -1572,23 +1692,56 @@ class ValidationHelper:
 
             for pattern in GEOGRAPHIC_ENROLLMENT_PATTERNS:
                 match = re.search(pattern, page_text)
-                if match:
-                    required_location = (
-                        match.group(1).strip() if match.lastindex >= 1 else ""
+                if match and match.lastindex >= 1:
+                    required_location = match.group(1).strip()
+
+                    if not required_location:
+                        continue
+
+                    words = required_location.split()
+                    if len(words) > 4:
+                        logging.debug(
+                            f"Geographic: Rejected (too many words): {required_location}"
+                        )
+                        continue
+
+                    non_location_words = [
+                        "the",
+                        "of",
+                        "what",
+                        "and",
+                        "or",
+                        "who",
+                        "which",
+                        "that",
+                        "this",
+                    ]
+                    if any(
+                        word in required_location.lower().split()
+                        for word in non_location_words
+                    ):
+                        logging.debug(
+                            f"Geographic: Rejected (invalid words): {required_location}"
+                        )
+                        continue
+
+                    required_normalized = (
+                        required_location.lower().replace("/", " ").replace("-", " ")
                     )
 
-                    if required_location:
-                        required_normalized = (
-                            required_location.lower()
-                            .replace("/", " ")
-                            .replace("-", " ")
+                    if USER_LOCATION.lower() not in required_normalized:
+                        log_detailed_rejection(
+                            "Company",
+                            "Title",
+                            "Geographic enrollment",
+                            pattern=pattern,
+                            matched_text=f"Required: {required_location}",
+                            debug_info=f"User location: {USER_LOCATION}",
                         )
-
-                        if USER_LOCATION.lower() not in required_normalized:
-                            return (
-                                "REJECT",
-                                f"Geographic enrollment required: {required_location}",
-                            )
+                        return (
+                            "REJECT",
+                            f"Geographic enrollment required: {required_location}",
+                        )
 
         except Exception as e:
             logging.debug(f"Geographic enrollment check failed: {e}")
