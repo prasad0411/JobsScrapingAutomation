@@ -87,7 +87,7 @@ Data Sources (GitHub, Gmail, Web)
 **Web Scraping:** Selenium WebDriver, BeautifulSoup4, Requests  
 **Processing:** Regex pattern matching, set-based operations, context-aware validation
 
-**Codebase:** 8,264 lines across 6 production modules
+**Codebase:** 8,000+ lines across 6 production modules
 
 ---
 
@@ -145,7 +145,7 @@ python3 job_aggregator.py
 
 ## Use Cases
 
-- Graduate students tracking 500+ internship applications
+- Graduate students tracking 1500+ internship applications
 - International students with visa restrictions (F-1, CPT/OPT filtering)
 - Job seekers aggregating from multiple sources
 - Recruitment analytics and market research
