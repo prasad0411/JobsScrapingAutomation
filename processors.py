@@ -1104,11 +1104,23 @@ class LocationProcessor:
                     else:
                         return f"Location: Canada ({city.title()})"
 
+            try:
+                from config import UK_CITIES
+            except (ImportError, AttributeError):
+                UK_CITIES = ["london", "manchester", "edinburgh"]
+
+            for uk_city in UK_CITIES:
+                if uk_city in normalized:
+                    return f"Location: International (UK - {uk_city.title()})"
+
             if any(
                 kw in location_lower
                 for kw in [
                     "uk",
                     "united kingdom",
+                    "england",
+                    "scotland",
+                    "wales",
                     "london",
                     "india",
                     "china",
@@ -1302,6 +1314,90 @@ class ValidationHelper:
         return LocationProcessor._check_url_for_canada(url)
 
     @staticmethod
+    def _check_high_school_only(soup):
+        """NEW: Detect high school student requirements"""
+        if not soup:
+            return None, None
+
+        try:
+            from config import HIGH_SCHOOL_ONLY_PATTERNS, PAGE_TEXT_FULL_SCAN
+        except (ImportError, AttributeError):
+            return None, None
+
+        try:
+            page_text = soup.get_text()[:PAGE_TEXT_FULL_SCAN].lower()
+
+            for pattern in HIGH_SCHOOL_ONLY_PATTERNS:
+                match = re.search(pattern, page_text)
+                if match:
+                    matched_text = match.group(0)
+                    context = page_text[
+                        max(0, match.start() - 150) : min(
+                            len(page_text), match.end() + 150
+                        )
+                    ]
+
+                    log_detailed_rejection(
+                        "Company",
+                        "Title",
+                        "High school only",
+                        pattern=pattern,
+                        matched_text=matched_text,
+                        context=context[:200],
+                    )
+                    return (
+                        "REJECT",
+                        "High school students only (college students not eligible)",
+                    )
+
+        except Exception as e:
+            logging.debug(f"High school check failed: {e}")
+
+        return None, None
+
+    @staticmethod
+    def _check_permanent_authorization(soup):
+        """NEW: Detect permanent US work authorization requirements (excludes F-1 temporary status)"""
+        if not soup:
+            return None, None
+
+        try:
+            from config import PERMANENT_US_AUTHORIZATION_PATTERNS, PAGE_TEXT_FULL_SCAN
+        except (ImportError, AttributeError):
+            return None, None
+
+        try:
+            page_text = soup.get_text()[:PAGE_TEXT_FULL_SCAN].lower()
+
+            for pattern in PERMANENT_US_AUTHORIZATION_PATTERNS:
+                match = re.search(pattern, page_text)
+                if match:
+                    matched_text = match.group(0)
+                    context = page_text[
+                        max(0, match.start() - 150) : min(
+                            len(page_text), match.end() + 150
+                        )
+                    ]
+
+                    log_detailed_rejection(
+                        "Company",
+                        "Title",
+                        "Permanent authorization",
+                        pattern=pattern,
+                        matched_text=matched_text,
+                        context=context[:200],
+                    )
+                    return (
+                        "REJECT",
+                        "Requires permanent US work authorization (F-1 temporary status not eligible)",
+                    )
+
+        except Exception as e:
+            logging.debug(f"Permanent authorization check failed: {e}")
+
+        return None, None
+
+    @staticmethod
     def check_page_restrictions(soup):
         if not soup:
             return None, None, []
@@ -1318,6 +1414,18 @@ class ValidationHelper:
             )
             if citizenship_decision == "REJECT":
                 return citizenship_decision, citizenship_reason, []
+
+            perm_auth_decision, perm_auth_reason = (
+                ValidationHelper._check_permanent_authorization(soup)
+            )
+            if perm_auth_decision == "REJECT":
+                return perm_auth_decision, perm_auth_reason, []
+
+            highschool_decision, highschool_reason = (
+                ValidationHelper._check_high_school_only(soup)
+            )
+            if highschool_decision == "REJECT":
+                return highschool_decision, highschool_reason, []
 
             undergrad_decision, undergrad_reason = (
                 ValidationHelper._check_undergraduate_only_requirements(soup)
@@ -1365,6 +1473,48 @@ class ValidationHelper:
             logging.debug(f"Page restrictions check failed: {e}")
 
         return None, None, []
+
+    @staticmethod
+    def extract_page_age(soup):
+        """NEW: Extract posting age from actual job page (for 3-day validation)"""
+        if not soup:
+            return None
+
+        try:
+            from utils import DateParser
+            from config import PAGE_TEXT_QUICK_SCAN
+        except (ImportError, AttributeError):
+            return None
+
+        try:
+            page_text = soup.get_text()[:PAGE_TEXT_QUICK_SCAN]
+
+            age_patterns = [
+                r"posted\s+(\d+\+?)\s*d(?:ays?)?\s*ago",
+                r"posted\s+(\d+\+?)\s*mo(?:nth)?s?\s*ago",
+                r"(\d+\+?)\s*d(?:ays?)?\s*ago",
+                r"posted\s+(today|yesterday)",
+                r"posted\s+on[:\s]+([A-Z][a-z]+\s+\d{1,2},?\s+\d{4})",
+            ]
+
+            for pattern in age_patterns:
+                match = re.search(pattern, page_text, re.I)
+                if match:
+                    matched_text = match.group(0)
+                    age_days = DateParser.extract_days_ago(matched_text)
+
+                    if age_days is not None:
+                        logging.debug(
+                            f"Page age extracted: {age_days} days from '{matched_text}'"
+                        )
+                        return age_days
+
+            logging.debug("No page age found (acceptable - will not reject)")
+            return None
+
+        except Exception as e:
+            logging.debug(f"Page age extraction failed: {e}")
+            return None
 
     @staticmethod
     def _check_degree_requirements_strict(soup):
@@ -1462,6 +1612,19 @@ class ValidationHelper:
                         ]
                     ):
                         continue
+
+                    if "senior" in pattern or "junior" in pattern:
+                        if "level" in pattern:
+                            wider_context = page_text[
+                                max(0, match.start() - 50) : min(
+                                    len(page_text), match.end() + 50
+                                )
+                            ]
+                            if "student" not in wider_context:
+                                logging.debug(
+                                    f"Undergrad check: '{pattern}' without 'student' context - likely 'senior engineer'"
+                                )
+                                continue
 
                     logging.debug(
                         f"Undergrad-only check: Found '{pattern}' without grad flexibility"
@@ -2151,6 +2314,7 @@ class CompanyExtractor:
             r"[,_]\s*(?:United States|U\.S\.A\.?|USA|US)$", "", name, flags=re.I
         )
         name = re.sub(r"^\d{2}-\d{7}\s+", "", name)
+        name = re.sub(r"^[A-Z]{2,6}\d{2,5}\s+", "", name)
 
         for indicator in PORTAL_NAME_INDICATORS:
             if indicator in name:

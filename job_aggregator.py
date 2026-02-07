@@ -622,6 +622,13 @@ class UnifiedJobAggregator:
             self.outcomes["skipped_url_international"] += 1
             return
         if "jobright.ai/jobs/info/" in url.lower():
+            from extractors import JobrightRedirectResolver
+
+            resolved_url, success = JobrightRedirectResolver.resolve(url, email_html)
+            if success and resolved_url != url:
+                logging.info(f"Jobright resolved: {resolved_url[:80]}")
+                url = resolved_url
+
             soup, _ = safe_parse_html(email_html)
             if soup:
                 job_data = SourceParsers.parse_jobright_email(

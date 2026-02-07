@@ -120,6 +120,7 @@ VANSHB03_URL = (
 
 MAX_JOB_AGE_DAYS = 3
 MAX_REASONABLE_AGE_DAYS = 365
+PAGE_AGE_THRESHOLD_DAYS = 3
 MIN_QUALITY_SCORE = 4
 MIN_CONFIDENCE_JOB_ID = 0.70
 MIN_CONFIDENCE_LOCATION = 0.70
@@ -133,9 +134,9 @@ BACKOFF_MULTIPLIER = 2
 
 BLACKLIST_DOMAINS = ["workatastartup.com"]
 
-PLATFORM_BLACKLIST = [".icims.com"]
+PLATFORM_BLACKLIST = []
 
-PLATFORM_BLACKLIST_REASONS = {".icims.com": "User preference: ICIMS platform excluded"}
+PLATFORM_BLACKLIST_REASONS = {}
 
 COMPANY_BLACKLIST = [
     "RTX",
@@ -163,7 +164,7 @@ SHOW_GITHUB_COUNTS = False
 
 USER_LOCATION = "Boston"
 
-REPROCESS_EMAILS_DAYS = 3
+REPROCESS_EMAILS_DAYS = 4
 EMAIL_DATE_FILTER_ENABLED = True
 
 PAGE_TEXT_QUICK_SCAN = 2000
@@ -284,6 +285,18 @@ ASSOCIATE_BACHELOR_ONLY_PATTERNS = [
     r"student\s+pursuing.*bachelor'?s?",
     r"pursuit\s+of.*bachelor'?s?\s+degree",
     r"bachelor'?s?\s+degree\s+program.*enrollment",
+    r"pursuing.*(?:an?\s+)?undergraduate'?s?\s+degree",
+    r"enrolled.*undergraduate'?s?\s+(?:degree|program)",
+    r"undergraduate'?s?\s+degree.*(?:required|program)",
+    r"(?:in\s+)?(?:an?\s+)?undergraduate'?s?\s+degree",
+    r"associate'?s?\s+or\s+bachelor'?s?\s+degree",
+    r"pursuing.*associate'?s?\s+or\s+bachelor'?s?",
+    r"senior\s+level\s+student",
+    r"junior\s+level\s+student",
+    r"(?:junior|senior)-level\s+student",
+    r"junior\s+(?:or|and|to)\s+senior\s+level",
+    r"senior.*graduating.*(?:summer|spring|may|june|202[67])",
+    r"(?:junior|senior).*graduating.*(?:this\s+)?(?:summer|spring)",
 ]
 
 CPT_OPT_EXCLUSION_PATTERNS = [
@@ -294,6 +307,9 @@ CPT_OPT_EXCLUSION_PATTERNS = [
     r"will\s+not.*sign.*documentation.{0,50}(?:cpt|opt)",
     r"(?:cpt|opt).{0,50}not\s+(?:available|supported|provided|offered)",
     r"not\s+eligible.{0,30}(?:for|under).{0,30}(?:cpt|opt)",
+    r"visa.*not\s+available.{0,200}f-1.{0,100}(?:cpt|opt|ead)",
+    r"not\s+available.{0,150}(?:includes|including).{0,100}f-1.{0,50}(?:cpt|opt|ead)",
+    r"sponsorship.*not\s+available.{0,200}(?:includes|including).{0,100}(?:cpt|opt|f-1)",
 ]
 
 GEOGRAPHIC_ENROLLMENT_PATTERNS = [
@@ -301,6 +317,24 @@ GEOGRAPHIC_ENROLLMENT_PATTERNS = [
     r"must\s+be\s+enrolled.*in\s+([A-Za-z\s/]+).*to\s+be\s+considered",
     r"attend.*(?:college|university).*(?:within|in)\s+([A-Za-z\s/]+)",
     r"(?:college|university).*in\s+the\s+([A-Za-z\s/]+).*(?:area|region)",
+]
+
+HIGH_SCHOOL_ONLY_PATTERNS = [
+    r"high\s+school\s+(?:student|senior|graduate)",
+    r"graduating\s+(?:from\s+)?high\s+school",
+    r"on\s+track\s+to\s+graduating\s+high\s+school",
+    r"current(?:ly)?\s+(?:in\s+)?high\s+school",
+    r"high\s+school\s+diploma",
+    r"must\s+be.*high\s+school",
+    r"high\s+school.*plans\s+to\s+attain",
+]
+
+PERMANENT_US_AUTHORIZATION_PATTERNS = [
+    r"permanent.*(?:us|united\s+states|u\.s\.).*(?:work|employment)\s+authorization",
+    r"requisite.*permanent.*(?:work|employment).*authorization",
+    r"must\s+(?:have|possess).*permanent.*(?:right|authorization)\s+to\s+work",
+    r"permanently\s+authorized\s+to\s+work",
+    r"permanent.*(?:right|ability)\s+to\s+work.*(?:in\s+the\s+)?(?:us|united\s+states)",
 ]
 
 US_PERSON_DOD_PATTERNS = [
@@ -376,12 +410,49 @@ INTERNATIONAL_TEXT_INDICATORS = [
     (r",\s*uk\b", "UK"),
     (r",\s*gb\b", "UK"),
     (r"\blondon,\s*uk", "UK"),
+    (r"\bengland\b", "UK"),
+    (r",\s*england\b", "UK"),
+    (r"\bscotland\b", "UK"),
+    (r"\bwales\b", "UK"),
+    (r"\bnorthern\s+ireland\b", "UK"),
+    (r"\bharrogate\b", "UK"),
+    (r"\bmanchester\b", "UK"),
+    (r"\bedinburgh\b", "UK"),
+    (r"\bglasgow\b", "UK"),
+    (r"\bleeds\b", "UK"),
+    (r"\bbristol\b", "UK"),
+    (r"\bcambridge,\s*uk", "UK"),
     (r"canada", "Canada"),
     (r"ontario,\s*can", "Canada"),
     (r"toronto,\s*on\b", "Canada"),
     (r"montreal,\s*qc", "Canada"),
     (r"vancouver,\s*bc", "Canada"),
 ]
+
+UK_CITIES = [
+    "london",
+    "manchester",
+    "edinburgh",
+    "glasgow",
+    "birmingham",
+    "leeds",
+    "bristol",
+    "harrogate",
+    "cambridge",
+    "oxford",
+    "reading",
+    "milton keynes",
+    "southampton",
+    "nottingham",
+]
+
+CITY_STATE_DISAMBIGUATION = {
+    "wyoming": {"MN": "Wyoming, Minnesota"},
+    "ontario": {"CA": "Ontario, California"},
+    "paris": {"TX": "Paris, Texas"},
+    "portland": {"ME": "Portland, Maine", "OR": "Portland, Oregon"},
+    "kansas city": {"KS": "Kansas City, Kansas", "MO": "Kansas City, Missouri"},
+}
 
 PORTAL_NAME_INDICATORS = [
     "Agency Contractor",

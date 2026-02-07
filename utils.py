@@ -426,7 +426,7 @@ class DateParser:
 
     @classmethod
     def extract_days_ago(cls, text):
-        """ORIGINAL + ENHANCED with sanity validation"""
+        """ENHANCED: Handles "+", "1mo", absolute dates, with detailed logging"""
         if not text:
             return None
 
@@ -443,14 +443,43 @@ class DateParser:
             if match:
                 return 0
 
-            match = cls._RELATIVE_PATTERN.search(text_lower)
+            month_match = re.search(r"(\d+)\+?\s*mo(?:nth)?s?\s*ago", text_lower)
+            if month_match:
+                months = int(month_match.group(1))
+                days = months * 30
+                has_plus = "+" in month_match.group(0)
+
+                context_start = max(0, month_match.start() - 40)
+                context_end = min(len(text_lower), month_match.end() + 40)
+                context = text_lower[context_start:context_end]
+
+                logging.debug(
+                    f"Age extraction: {months}mo ({days} days) | Plus: {has_plus} | Text: '...{context}...'"
+                )
+
+                if has_plus:
+                    return days + 1
+
+                if 0 <= days <= MAX_REASONABLE_AGE_DAYS:
+                    return days
+                else:
+                    return None
+
+            match = re.search(r"(\d+)(\+)?\s*d(?:ays?)?\s*ago", text_lower)
             if match:
                 days = int(match.group(1))
+                has_plus = match.group(2) is not None
+
                 context_start = max(0, match.start() - 40)
                 context_end = min(len(text_lower), match.end() + 40)
                 context = text_lower[context_start:context_end]
 
-                logging.debug(f"Age extraction: {days} days | Text: '...{context}...'")
+                logging.debug(
+                    f"Age extraction: {days} days | Plus: {has_plus} | Text: '...{context}...'"
+                )
+
+                if has_plus:
+                    return days + 1
 
                 if 0 <= days <= MAX_REASONABLE_AGE_DAYS:
                     return days

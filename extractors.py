@@ -423,6 +423,164 @@ class SimplifyRedirectResolver:
         return None
 
 
+class JobrightRedirectResolver:
+    """NEW: Resolves Jobright tracking URLs to actual job URLs"""
+
+    _email_html_cache = {}
+
+    @staticmethod
+    def cache_email_html(email_id, html_content):
+        """Store email HTML for URL extraction"""
+        JobrightRedirectResolver._email_html_cache[email_id] = html_content
+
+    @staticmethod
+    def resolve(jobright_url, email_html=None):
+        """
+        Resolve Jobright tracking URL to actual job URL
+        Returns: (actual_url, success_boolean)
+        """
+        if "jobright.ai" not in jobright_url.lower():
+            return jobright_url, False
+
+        job_id = JobrightRedirectResolver._extract_job_id(jobright_url)
+        if not job_id:
+            logging.debug("Jobright: No job ID found in URL")
+            return jobright_url, False
+
+        actual_url = JobrightRedirectResolver._method_1_email_html(job_id, email_html)
+        if actual_url:
+            logging.info(f"Jobright HTTP: {actual_url[:80]}")
+            return actual_url, True
+
+        actual_url = JobrightRedirectResolver._method_2_http_fetch(jobright_url)
+        if actual_url:
+            logging.info(f"Jobright HTTP: {actual_url[:80]}")
+            return actual_url, True
+
+        actual_url = JobrightRedirectResolver._method_3_selenium(jobright_url)
+        if actual_url:
+            logging.info(f"Jobright Selenium: {actual_url[:80]}")
+            return actual_url, True
+
+        logging.warning(f"Jobright resolution failed: {jobright_url}")
+        return jobright_url, False
+
+    @staticmethod
+    def _extract_job_id(url):
+        """Extract job ID from Jobright URL"""
+        match = re.search(r"jobright\.ai/jobs/info/([a-f0-9]+)", url, re.I)
+        if match:
+            return match.group(1)
+        return None
+
+    @staticmethod
+    def _method_1_email_html(job_id, email_html):
+        """Extract actual URL from email HTML (fastest, most reliable)"""
+        if not email_html:
+            return None
+
+        try:
+            from bs4 import BeautifulSoup
+
+            soup = BeautifulSoup(email_html, "html.parser")
+
+            for link in soup.find_all("a", href=True):
+                href = link["href"]
+                if job_id in href:
+                    continue
+
+                if any(
+                    domain in href
+                    for domain in [
+                        ".myworkdayjobs.com",
+                        "greenhouse.io",
+                        "lever.co",
+                        "ashbyhq.com",
+                        "smartrecruiters.com",
+                        "icims.com",
+                    ]
+                ):
+                    if "/job/" in href or "/jobs/" in href:
+                        return href
+        except:
+            pass
+
+        return None
+
+    @staticmethod
+    def _method_2_http_fetch(jobright_url):
+        """Fetch Jobright page and extract actual URL"""
+        try:
+            response = retry_request(jobright_url, max_retries=2)
+            if not response:
+                return None
+
+            from bs4 import BeautifulSoup
+
+            soup = BeautifulSoup(response.content, "html.parser")
+
+            apply_button = soup.find(
+                "a", {"class": lambda x: x and "apply" in x.lower()}
+            )
+            if apply_button and apply_button.get("href"):
+                href = apply_button["href"]
+                if "jobright.ai" not in href and href.startswith("http"):
+                    return href
+
+            for link in soup.find_all("a", href=True):
+                href = link["href"]
+                if "jobright.ai" in href or "linkedin.com" in href:
+                    continue
+
+                if any(
+                    domain in href
+                    for domain in [".myworkdayjobs.com", "greenhouse.io", "ashbyhq.com"]
+                ):
+                    return href
+
+        except:
+            pass
+
+        return None
+
+    @staticmethod
+    def _method_3_selenium(jobright_url):
+        """Use Selenium to click through and get final URL"""
+        global _SELENIUM_DRIVER
+
+        if not SELENIUM_AVAILABLE:
+            return None
+
+        try:
+            if _SELENIUM_DRIVER is None:
+                from selenium import webdriver
+                from selenium.webdriver.chrome.service import Service
+                from selenium.webdriver.chrome.options import Options
+                from webdriver_manager.chrome import ChromeDriverManager
+
+                chrome_options = Options()
+                chrome_options.add_argument("--headless")
+                chrome_options.add_argument("--no-sandbox")
+                chrome_options.add_argument("--disable-dev-shm-usage")
+                service = Service(ChromeDriverManager().install())
+                _SELENIUM_DRIVER = webdriver.Chrome(
+                    service=service, options=chrome_options
+                )
+                _SELENIUM_DRIVER.set_page_load_timeout(20)
+
+            _SELENIUM_DRIVER.get(jobright_url)
+            time.sleep(3)
+
+            current_url = _SELENIUM_DRIVER.current_url
+            if current_url != jobright_url and "jobright.ai" not in current_url:
+                return current_url
+
+        except Exception as e:
+            logging.debug(f"Jobright Selenium failed: {e}")
+
+        return None
+
+
 class JobrightAuthenticator:
     def __init__(self):
         self.cookies = None
