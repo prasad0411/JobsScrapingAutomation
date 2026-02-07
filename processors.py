@@ -1504,6 +1504,21 @@ class ValidationHelper:
                     age_days = DateParser.extract_days_ago(matched_text)
 
                     if age_days is not None:
+                        try:
+                            from config import MAX_REASONABLE_AGE_DAYS
+                        except (ImportError, AttributeError):
+                            MAX_REASONABLE_AGE_DAYS = 365
+
+                        if age_days > MAX_REASONABLE_AGE_DAYS:
+                            logging.warning(
+                                f"Page age {age_days} exceeds MAX_REASONABLE_AGE_DAYS ({MAX_REASONABLE_AGE_DAYS}) - ignoring"
+                            )
+                            continue
+
+                        if age_days < 0:
+                            logging.warning(f"Negative page age {age_days} - ignoring")
+                            continue
+
                         logging.debug(
                             f"Page age extracted: {age_days} days from '{matched_text}'"
                         )
@@ -1819,16 +1834,44 @@ class ValidationHelper:
             return None, None
 
         try:
-            from config import US_PERSON_DOD_PATTERNS, PAGE_TEXT_FULL_SCAN
+            from config import (
+                US_PERSON_DOD_PATTERNS,
+                PAGE_TEXT_FULL_SCAN,
+                EXPORT_CONTROL_EXCLUSION_KEYWORDS,
+            )
         except (ImportError, AttributeError):
-            return None, None
+            EXPORT_CONTROL_EXCLUSION_KEYWORDS = ["export control", "export compliance"]
 
         try:
             page_text = soup.get_text()[:PAGE_TEXT_FULL_SCAN].lower()
 
             for pattern in US_PERSON_DOD_PATTERNS:
-                if re.search(pattern, page_text):
-                    logging.debug(f"US Person/DoD requirement found: {pattern}")
+                match = re.search(pattern, page_text)
+                if match:
+                    matched_text = match.group(0)
+                    context_start = max(0, match.start() - 300)
+                    context_end = min(len(page_text), match.end() + 300)
+                    context = page_text[context_start:context_end]
+
+                    is_export_control = any(
+                        keyword in context
+                        for keyword in EXPORT_CONTROL_EXCLUSION_KEYWORDS
+                    )
+
+                    if is_export_control:
+                        logging.debug(
+                            f"US Person found in export control context - skipping: '{matched_text}'"
+                        )
+                        continue
+
+                    log_detailed_rejection(
+                        "Company",
+                        "Title",
+                        "US Person/DoD",
+                        pattern=pattern,
+                        matched_text=matched_text,
+                        context=context[:200],
+                    )
                     return "REJECT", "US Person or DoD contract requirement"
 
         except Exception as e:

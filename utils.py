@@ -498,6 +498,18 @@ class DateParser:
                         now = datetime.now()
                         days_diff = (now - parsed_date).days
 
+                        if days_diff < 0:
+                            if days_diff > -7:
+                                logging.debug(
+                                    f"Future date by {abs(days_diff)} days ('{text}') - treating as today"
+                                )
+                                return 0
+                            else:
+                                logging.warning(
+                                    f"Future date: {parsed_date} from '{text}' - ignoring"
+                                )
+                                return None
+
                         if days_diff < -60:
                             try:
                                 adjusted_date = parsed_date.replace(
@@ -506,16 +518,27 @@ class DateParser:
                                 days_diff = (now - adjusted_date).days
 
                                 if days_diff < 0:
+                                    logging.debug(
+                                        f"Date still future after year adjustment - ignoring"
+                                    )
                                     return None
 
                             except (ValueError, OverflowError):
                                 return None
 
-                        # NEW: Sanity check
-                        if days_diff < 0 or days_diff > MAX_REASONABLE_AGE_DAYS:
+                        if days_diff > MAX_REASONABLE_AGE_DAYS:
+                            logging.warning(
+                                f"Unreasonably old: {days_diff} days from '{text}' - ignoring"
+                            )
                             return None
 
-                        return days_diff
+                        if days_diff >= 0 and days_diff <= MAX_REASONABLE_AGE_DAYS:
+                            logging.debug(
+                                f"Absolute date extracted: {days_diff} days from '{text}'"
+                            )
+                            return days_diff
+
+                        return None
 
                 except Exception as e:
                     logging.debug(f"Flexible date parsing failed for '{text}': {e}")

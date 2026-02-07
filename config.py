@@ -165,7 +165,7 @@ SHOW_GITHUB_COUNTS = False
 USER_LOCATION = "Boston"
 
 REPROCESS_EMAILS_DAYS = 4
-EMAIL_DATE_FILTER_ENABLED = True
+EMAIL_DATE_FILTER_ENABLED = False
 
 PAGE_TEXT_QUICK_SCAN = 2000
 PAGE_TEXT_STANDARD_SCAN = 5000
@@ -345,6 +345,20 @@ US_PERSON_DOD_PATTERNS = [
     r"department\s+of\s+defense",
     r"dod\s+contract",
     r"defense\s+contract",
+]
+
+EXPORT_CONTROL_EXCLUSION_KEYWORDS = [
+    "export control",
+    "export compliance",
+    "export regulations",
+    "itar",
+    "ear",
+    "immigration & nationality act",
+    "defined by",
+    "classified as",
+    "u.s. export control",
+    "export-controlled",
+    "for export compliance",
 ]
 
 ENHANCED_PHD_PATTERNS = [
