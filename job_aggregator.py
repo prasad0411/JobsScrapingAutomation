@@ -212,21 +212,21 @@ class UnifiedJobAggregator:
             return
         is_valid, invalid_reason = TitleProcessor.is_valid_job_title(title)
         if not is_valid:
-            print(f"  {job['company'][:30]}: ✗ {invalid_reason}")
+            print(f"  {job['company'][:100]}: ✗ {invalid_reason}")
             logging.info(
                 f"REJECTED | {job['company']} | {invalid_reason} | Title: '{title}' | URL: {job['url'][:60]}"
             )
             return
         is_intern, intern_reason = TitleProcessor.is_internship_role(title, "", "")
         if not is_intern:
-            print(f"  {job['company'][:30]}: ✗ {intern_reason}")
+            print(f"  {job['company'][:100]}: ✗ {intern_reason}")
             logging.info(
                 f"REJECTED | {job['company']} | {intern_reason} | Title: '{title}' | Has intern: {'intern' in title.lower()} | Has co-op: {'co-op' in title.lower()} | Has apprentice: {'apprentice' in title.lower()}"
             )
             self.outcomes["skipped_senior_role"] += 1
             return
         if job["is_closed"]:
-            print(f"  {job['company'][:30]}: ✗ Closed")
+            print(f"  {job['company'][:100]}: ✗ Closed")
             self._add_to_discarded(
                 job["company"],
                 title,
@@ -241,7 +241,7 @@ class UnifiedJobAggregator:
             return
         if not TitleProcessor.is_cs_engineering_role(title):
             matched_kw = [kw for kw in TECHNICAL_ROLE_KEYWORDS if kw in title.lower()]
-            print(f"  {job['company'][:30]}: ✗ Non-CS")
+            print(f"  {job['company'][:100]}: ✗ Non-CS")
             logging.info(
                 f"REJECTED | {job['company']} | Non-CS | Title: '{title}' | Matched keywords: {matched_kw} | Tech count: {len(matched_kw)}"
             )
@@ -259,7 +259,7 @@ class UnifiedJobAggregator:
             return
         url_intl_check = ValidationHelper.check_url_for_international(job["url"])
         if url_intl_check:
-            print(f"  {job['company'][:30]}: ✗ {url_intl_check}")
+            print(f"  {job['company'][:100]}: ✗ {url_intl_check}")
             country = (
                 url_intl_check.split(":")[-1].strip().replace("(from URL)", "").strip()
             )
@@ -290,7 +290,7 @@ class UnifiedJobAggregator:
                     reason = COMPANY_BLACKLIST_REASONS.get(
                         blacklisted, f"Blacklisted company: {blacklisted}"
                     )
-                    print(f"  {company[:30]}: ✗ {reason}")
+                    print(f"  {company[:100]}: ✗ {reason}")
                     self._add_to_discarded(
                         company,
                         title,
@@ -319,7 +319,7 @@ class UnifiedJobAggregator:
                         blacklisted_pattern,
                         f"Blacklisted platform: {blacklisted_pattern}",
                     )
-                    print(f"  {company[:30]}: ✗ {reason}")
+                    print(f"  {company[:100]}: ✗ {reason}")
                     self._add_to_discarded(
                         company,
                         title,
@@ -344,12 +344,12 @@ class UnifiedJobAggregator:
                 reason = (
                     f"Dead URL ({status_code})" if status_code else "Connection failed"
                 )
-                print(f"  {company[:30]}: ✗ {reason}")
+                print(f"  {company[:100]}: ✗ {reason}")
                 self.outcomes["skipped_dead_url"] += 1
                 return
             response, final_url, page_source = self.page_fetcher.fetch_page(url)
             if not response:
-                print(f"  {company[:30]}: ✗ HTTP failed")
+                print(f"  {company[:100]}: ✗ HTTP failed")
                 self.outcomes["failed_http"] += 1
                 return
             clean_final = URLCleaner.clean_url(final_url)
@@ -366,7 +366,7 @@ class UnifiedJobAggregator:
                 return
             job_age = PageParser.extract_job_age_days(soup)
             if job_age is not None and job_age > MAX_JOB_AGE_DAYS:
-                print(f"  {company[:30]}: ✗ Posted {job_age}d ago")
+                print(f"  {company[:100]}: ✗ Posted {job_age}d ago")
                 self._add_to_discarded(
                     company,
                     title,
@@ -384,7 +384,7 @@ class UnifiedJobAggregator:
                 title, soup.get_text()[:2000]
             )
             if not is_valid_season:
-                print(f"  {company[:30]}: ✗ {season_reason}")
+                print(f"  {company[:100]}: ✗ {season_reason}")
                 self._add_to_discarded(
                     company,
                     title,
@@ -403,7 +403,7 @@ class UnifiedJobAggregator:
                 ValidationHelper.check_page_restrictions(soup)
             )
             if decision == "REJECT" and restriction:
-                print(f"  {company[:30]}: ✗ {restriction}")
+                print(f"  {company[:100]}: ✗ {restriction}")
                 logging.info(
                     f"REJECTED | {company} | {restriction} | Title: '{title}' | Source: {source} | URL: {final_url[:60]}"
                 )
@@ -441,7 +441,7 @@ class UnifiedJobAggregator:
                 location_formatted, soup, final_url, title
             )
             if intl_check:
-                print(f"  {company[:30]}: ✗ {intl_check}")
+                print(f"  {company[:100]}: ✗ {intl_check}")
                 logging.info(
                     f"REJECTED | {company} | {intl_check} | Title: '{title}' | Location: {location_formatted} | Source: {source}"
                 )
@@ -458,6 +458,29 @@ class UnifiedJobAggregator:
                 )
                 self.outcomes["discarded"] += 1
                 return
+
+            company_intl_check = LocationProcessor.check_company_for_international(
+                extracted_company
+            )
+            if company_intl_check:
+                print(f"  {company[:100]}: ✗ {company_intl_check}")
+                logging.info(
+                    f"REJECTED | {company} | {company_intl_check} | Company: {extracted_company} | Source: {source}"
+                )
+                self._add_to_discarded(
+                    company,
+                    title,
+                    "International",
+                    remote,
+                    final_url,
+                    job_id,
+                    company_intl_check,
+                    source,
+                    sponsorship,
+                )
+                self.outcomes["discarded"] += 1
+                return
+
             if location_formatted == "Unknown":
                 review_flags.append("⚠️ Location failed")
             quality = QualityScorer.calculate_score(
@@ -470,14 +493,14 @@ class UnifiedJobAggregator:
                 }
             )
             if not QualityScorer.is_acceptable_quality(quality):
-                print(f"  {company[:30]}: ✗ Quality ({quality}/7)")
+                print(f"  {company[:100]}: ✗ Quality ({quality}/7)")
                 self.outcomes["discarded"] += 1
                 return
             role_alert = RoleCategorizer.get_terminal_alert(title)
             if review_flags:
-                print(f"  {company[:30]}: ✓ [{', '.join(review_flags)}] {role_alert}")
+                print(f"  {company[:100]}: ✓ [{', '.join(review_flags)}] {role_alert}")
             else:
-                print(f"  {company[:30]}: ✓ {role_alert}")
+                print(f"  {company[:100]}: ✓ {role_alert}")
             self._add_to_valid(
                 extracted_company,
                 title,

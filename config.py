@@ -468,6 +468,57 @@ CITY_STATE_DISAMBIGUATION = {
     "kansas city": {"KS": "Kansas City, Kansas", "MO": "Kansas City, Missouri"},
 }
 
+LOCATION_STOPWORDS = [
+    "responsibilities",
+    "requirements",
+    "qualifications",
+    "description",
+    "benefits",
+    "who you are",
+    "what you'll do",
+    "about you",
+    "overview",
+    "summary",
+    "details",
+    "information",
+    "remote",
+    "hybrid",
+    "onsite",
+    "on-site",
+    "virtual",
+    "flexible",
+    "office",
+    "workplace",
+    "telecommute",
+]
+
+WORK_MODE_KEYWORDS = ["remote", "hybrid", "onsite", "on-site", "virtual", "flexible"]
+
+CURRENCY_CODES = ["GBP", "USD", "EUR", "CAD", "AUD", "JPY", "CHF"]
+
+LEGAL_ENTITY_SUFFIXES = [
+    "LLC",
+    "L.L.C.",
+    "L.P.",
+    "LLP",
+    "Inc.",
+    "Inc",
+    "Corp.",
+    "Corp",
+    "Ltd.",
+    "Ltd",
+    "PLC",
+    "Limited",
+    "Corporation",
+    "Incorporated",
+    "Company",
+    "Co.",
+]
+
+DBA_INDICATORS = [" DBA ", " d/b/a ", " doing business as "]
+
+TERMINAL_COMPANY_WIDTH = 100
+
 PORTAL_NAME_INDICATORS = [
     "Agency Contractor",
     "Preferential Rehire",
@@ -479,10 +530,29 @@ PORTAL_NAME_INDICATORS = [
 
 WORKDAY_ABBREVIATIONS = {
     "bcbsmn": "Blue Cross and Blue Shield of Minnesota",
+    "bcbsnc": "Blue Cross Blue Shield of North Carolina",
     "hp": "HP Inc.",
     "cat": "Caterpillar",
     "bmo": "Bank of Montreal",
     "cibc": "Canadian Imperial Bank of Commerce",
+    "troweprice": "T. Rowe Price",
+    "healthfirst": "Healthfirst",
+    "barrywehmiller": "Barry-Wehmiller",
+    "centerstone": "Centerstone",
+    "insulet": "Insulet Corporation",
+    "sunlife": "Sun Life Financial",
+    "resmed": "ResMed",
+    "guardianlife": "The Guardian Life Insurance Company",
+    "huron": "Huron Consulting Group",
+    "nreca": "NRECA",
+    "coxhealth": "CoxHealth",
+    "kbr": "KBR",
+    "calix": "Calix",
+    "barr": "Barr Engineering",
+    "amat": "Applied Materials",
+    "jll": "Jones Lang LaSalle",
+    "msd": "Merck Sharp & Dohme",
+    "biibhr": "Biogen",
 }
 
 GUARANTEED_TECHNICAL_PHRASES = [

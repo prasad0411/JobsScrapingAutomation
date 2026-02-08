@@ -869,6 +869,10 @@ class LocationProcessor:
             if not location:
                 return "Unknown"
 
+            location = LocationProcessor.clean_location(location)
+            if location == "Unknown":
+                return "Unknown"
+
             # NEW: Strip location suffixes
             for suffix in LOCATION_SUFFIXES:
                 if location.endswith(suffix):
@@ -1163,6 +1167,36 @@ class LocationProcessor:
         return None
 
     @staticmethod
+    def check_company_for_international(company_name):
+        """NEW: Check if company name indicates international location"""
+        if not company_name or company_name == "Unknown":
+            return None
+
+        international_indicators_in_company = [
+            "(united kingdom)",
+            "(uk)",
+            " uk)",
+            " ltd. (uk",
+            "(canada)",
+            "(international)",
+            "(europe)",
+            "ltd. (united kingdom)",
+            "limited (uk)",
+        ]
+
+        company_lower = company_name.lower()
+        for indicator in international_indicators_in_company:
+            if indicator in company_lower:
+                country = (
+                    "UK"
+                    if "uk" in indicator or "kingdom" in indicator
+                    else "International"
+                )
+                return f"Location: {country} (from company name)"
+
+        return None
+
+    @staticmethod
     def _extract_city_from_url(url):
         """NEW: Extract first city name from URL path"""
         if not url:
@@ -1271,6 +1305,52 @@ class LocationProcessor:
             return "Location: Canada (from URL path)"
 
         return None
+
+    @staticmethod
+    def clean_location(location):
+        """NEW: Comprehensive location cleaning and validation"""
+        if not location or location == "Unknown":
+            return location
+
+        try:
+            from config import LOCATION_STOPWORDS, WORK_MODE_KEYWORDS, CURRENCY_CODES
+        except (ImportError, AttributeError):
+            LOCATION_STOPWORDS = [
+                "responsibilities",
+                "requirements",
+                "remote",
+                "hybrid",
+            ]
+            WORK_MODE_KEYWORDS = ["remote", "hybrid", "onsite"]
+            CURRENCY_CODES = ["GBP", "USD", "EUR"]
+
+        original = location
+
+        if location in CURRENCY_CODES:
+            currency_map = {"GBP": "UK", "EUR": "Europe", "CAD": "Canada"}
+            return currency_map.get(location, "Unknown")
+
+        location_lower = location.lower()
+        if any(
+            stopword == location_lower.split(",")[0].strip()
+            for stopword in LOCATION_STOPWORDS
+        ):
+            return "Unknown"
+
+        for work_mode in WORK_MODE_KEYWORDS:
+            location = re.sub(rf"\b{work_mode}\b,?\s*", "", location, flags=re.I)
+
+        location = re.sub(r"([a-z])([A-Z][a-z])", r"\1, \2", location)
+
+        location = location.strip(", ")
+
+        if len(location) < 2:
+            return "Unknown"
+
+        if location.lower() in LOCATION_STOPWORDS:
+            return "Unknown"
+
+        return location
 
 
 # ============================================================================
@@ -1476,31 +1556,65 @@ class ValidationHelper:
 
     @staticmethod
     def extract_page_age(soup):
-        """NEW: Extract posting age from actual job page (for 3-day validation)"""
+        """ENHANCED: Element-based age extraction avoiding header/footer/program dates"""
         if not soup:
             return None
 
         try:
             from utils import DateParser
-            from config import PAGE_TEXT_QUICK_SCAN
+            from config import PAGE_TEXT_STANDARD_SCAN
         except (ImportError, AttributeError):
             return None
 
         try:
-            page_text = soup.get_text()[:PAGE_TEXT_QUICK_SCAN]
+            main_content = soup.find("main") or soup.find(
+                "div", class_=re.compile("job.*desc|desc.*job|content", re.I)
+            )
 
-            age_patterns = [
-                r"posted\s+(\d+\+?)\s*d(?:ays?)?\s*ago",
-                r"posted\s+(\d+\+?)\s*mo(?:nth)?s?\s*ago",
-                r"(\d+\+?)\s*d(?:ays?)?\s*ago",
-                r"posted\s+(today|yesterday)",
-                r"posted\s+on[:\s]+([A-Z][a-z]+\s+\d{1,2},?\s+\d{4})",
+            if main_content:
+                content_text = main_content.get_text()[:PAGE_TEXT_STANDARD_SCAN]
+            else:
+                all_text = soup.get_text()
+                if len(all_text) > 500:
+                    content_text = all_text[
+                        200 : min(len(all_text), PAGE_TEXT_STANDARD_SCAN + 200)
+                    ]
+                else:
+                    content_text = all_text
+
+            posting_patterns = [
+                (r"posted\s+(\d+\+?)\s*d(?:ays?)?\s*ago", "relative"),
+                (r"posted\s+(\d+\+?)\s*mo(?:nth)?s?\s*ago", "relative"),
+                (r"posted\s+(today|yesterday)", "relative"),
+                (r"posting\s+date[:\s]+([A-Za-z]+\s+\d{1,2},?\s+\d{4})", "absolute"),
+                (r"posted\s+on[:\s]+([A-Za-z]+\s+\d{1,2},?\s+\d{4})", "absolute"),
+                (r"posted[:\s]+([0-9]{1,2}/[0-9]{1,2}/[0-9]{4})", "absolute"),
             ]
 
-            for pattern in age_patterns:
-                match = re.search(pattern, page_text, re.I)
+            for pattern, date_type in posting_patterns:
+                match = re.search(pattern, content_text, re.I)
                 if match:
                     matched_text = match.group(0)
+
+                    context_start = max(0, match.start() - 50)
+                    context_end = min(len(content_text), match.end() + 50)
+                    context = content_text[context_start:context_end].lower()
+
+                    skip_indicators = [
+                        "start date",
+                        "program begins",
+                        "internship begins",
+                        "©",
+                        "copyright",
+                        "established",
+                        "founded",
+                    ]
+                    if any(indicator in context for indicator in skip_indicators):
+                        logging.debug(
+                            f"Skipping date in non-posting context: '{matched_text}'"
+                        )
+                        continue
+
                     age_days = DateParser.extract_days_ago(matched_text)
 
                     if age_days is not None:
@@ -1511,7 +1625,7 @@ class ValidationHelper:
 
                         if age_days > MAX_REASONABLE_AGE_DAYS:
                             logging.warning(
-                                f"Page age {age_days} exceeds MAX_REASONABLE_AGE_DAYS ({MAX_REASONABLE_AGE_DAYS}) - ignoring"
+                                f"Page age {age_days} exceeds reasonable ({MAX_REASONABLE_AGE_DAYS}) - ignoring"
                             )
                             continue
 
@@ -2349,15 +2463,46 @@ class CompanyExtractor:
             return name
 
         try:
-            from config import PORTAL_NAME_INDICATORS
+            from config import (
+                PORTAL_NAME_INDICATORS,
+                LEGAL_ENTITY_SUFFIXES,
+                DBA_INDICATORS,
+            )
         except (ImportError, AttributeError):
             PORTAL_NAME_INDICATORS = []
+            LEGAL_ENTITY_SUFFIXES = ["LLC", "Inc.", "Corp.", "Ltd."]
+            DBA_INDICATORS = [" DBA ", " d/b/a "]
+
+        import html
+
+        name = html.unescape(name)
+
+        name = re.sub(r"^[*#@!]\s*", "", name)
+
+        name = re.sub(r"^[A-Z]{2,6}\d{2,6}\s+", "", name)
+        name = re.sub(r"^\d{2}-\d{7}\s+", "", name)
+        name = re.sub(r"^US\d+-[A-Z]{2,5}\s+", "", name)
+        name = re.sub(r"^[A-Z]{2}\d+\s*-\s*", "", name)
+
+        for dba in DBA_INDICATORS:
+            if dba in name:
+                parts = name.split(dba)
+                name = parts[-1]
+
+        for suffix_pattern in LEGAL_ENTITY_SUFFIXES:
+            escaped = re.escape(suffix_pattern)
+            name = re.sub(rf",?\s+{escaped}$", "", name, flags=re.I)
+
+        name = re.sub(
+            r"\s*\([^)]*(?:United Kingdom|UK|Canada|International|U\.S\.|USA|[0-9]{4,})\)$",
+            "",
+            name,
+            flags=re.I,
+        )
 
         name = re.sub(
             r"[,_]\s*(?:United States|U\.S\.A\.?|USA|US)$", "", name, flags=re.I
         )
-        name = re.sub(r"^\d{2}-\d{7}\s+", "", name)
-        name = re.sub(r"^[A-Z]{2,6}\d{2,5}\s+", "", name)
 
         for indicator in PORTAL_NAME_INDICATORS:
             if indicator in name:
@@ -2375,7 +2520,23 @@ class CompanyExtractor:
         if "myworkdayjobs.com" in (name or ""):
             return "Unknown"
 
-        return name.strip()
+        name = name.strip()
+
+        if len(name) > 70:
+            company_suffixes = [
+                " Company of America",
+                " of America",
+                " Corporation of America",
+                " Holdings Company",
+                " Group Holdings",
+                " Services Company",
+            ]
+            for suffix in company_suffixes:
+                if name.endswith(suffix):
+                    name = name[: -len(suffix)].strip()
+                    break
+
+        return name
 
     @staticmethod
     @lru_cache(maxsize=256)

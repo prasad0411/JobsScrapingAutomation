@@ -475,7 +475,7 @@ class JobrightRedirectResolver:
 
     @staticmethod
     def _method_1_email_html(job_id, email_html):
-        """Extract actual URL from email HTML (fastest, most reliable)"""
+        """ENHANCED: Extract actual URL from email HTML with multiple strategies"""
         if not email_html:
             return None
 
@@ -484,32 +484,55 @@ class JobrightRedirectResolver:
 
             soup = BeautifulSoup(email_html, "html.parser")
 
+            all_links = []
             for link in soup.find_all("a", href=True):
                 href = link["href"]
+                all_links.append(href)
+
                 if job_id in href:
                     continue
 
-                if any(
-                    domain in href
-                    for domain in [
-                        ".myworkdayjobs.com",
-                        "greenhouse.io",
-                        "lever.co",
-                        "ashbyhq.com",
-                        "smartrecruiters.com",
-                        "icims.com",
-                    ]
-                ):
-                    if "/job/" in href or "/jobs/" in href:
+                valid_domains = [
+                    ".myworkdayjobs.com",
+                    "greenhouse.io",
+                    "lever.co",
+                    "ashbyhq.com",
+                    "smartrecruiters.com",
+                    "icims.com",
+                    "taleo.net",
+                    "ultipro.com",
+                    "workable.com",
+                    "breezy.hr",
+                    "bamboohr.com",
+                    "jobvite.com",
+                ]
+
+                if any(domain in href for domain in valid_domains):
+                    if "/job/" in href or "/jobs/" in href or "/career" in href:
+                        logging.debug(f"Jobright email HTML: Found {href[:80]}")
                         return href
-        except:
-            pass
+
+            for link_href in all_links:
+                if (
+                    link_href.startswith("http")
+                    and "jobright" not in link_href
+                    and "linkedin" not in link_href
+                ):
+                    if any(
+                        x in link_href
+                        for x in ["apply", "career", "position", "job", "requisition"]
+                    ):
+                        logging.debug(f"Jobright email HTML fallback: {link_href[:80]}")
+                        return link_href
+
+        except Exception as e:
+            logging.debug(f"Jobright email HTML extraction failed: {e}")
 
         return None
 
     @staticmethod
     def _method_2_http_fetch(jobright_url):
-        """Fetch Jobright page and extract actual URL"""
+        """ENHANCED: Fetch Jobright page and extract actual URL with multiple strategies"""
         try:
             response = retry_request(jobright_url, max_retries=2)
             if not response:
@@ -519,12 +542,27 @@ class JobrightRedirectResolver:
 
             soup = BeautifulSoup(response.content, "html.parser")
 
-            apply_button = soup.find(
-                "a", {"class": lambda x: x and "apply" in x.lower()}
+            script_tags = soup.find_all("script")
+            for script in script_tags:
+                if script.string:
+                    url_matches = re.findall(
+                        r'https?://[^\s"\'<>]+(?:myworkdayjobs|greenhouse|lever|ashby|icims|smartrecruiters)[^\s"\'<>]+',
+                        script.string,
+                    )
+                    for url_match in url_matches:
+                        if "job" in url_match.lower():
+                            logging.debug(
+                                f"Jobright script extraction: {url_match[:80]}"
+                            )
+                            return url_match
+
+            apply_links = soup.find_all(
+                "a", {"class": lambda x: x and "apply" in str(x).lower()}
             )
-            if apply_button and apply_button.get("href"):
-                href = apply_button["href"]
-                if "jobright.ai" not in href and href.startswith("http"):
+            for link in apply_links:
+                href = link.get("href", "")
+                if href and href.startswith("http") and "jobright.ai" not in href:
+                    logging.debug(f"Jobright apply button: {href[:80]}")
                     return href
 
             for link in soup.find_all("a", href=True):
@@ -534,18 +572,24 @@ class JobrightRedirectResolver:
 
                 if any(
                     domain in href
-                    for domain in [".myworkdayjobs.com", "greenhouse.io", "ashbyhq.com"]
+                    for domain in [
+                        ".myworkdayjobs.com",
+                        "greenhouse.io",
+                        "ashbyhq.com",
+                        "icims.com",
+                    ]
                 ):
+                    logging.debug(f"Jobright link scan: {href[:80]}")
                     return href
 
-        except:
-            pass
+        except Exception as e:
+            logging.debug(f"Jobright HTTP fetch failed: {e}")
 
         return None
 
     @staticmethod
     def _method_3_selenium(jobright_url):
-        """Use Selenium to click through and get final URL"""
+        """ENHANCED: Use Selenium to click through and get final URL"""
         global _SELENIUM_DRIVER
 
         if not SELENIUM_AVAILABLE:
@@ -566,13 +610,36 @@ class JobrightRedirectResolver:
                 _SELENIUM_DRIVER = webdriver.Chrome(
                     service=service, options=chrome_options
                 )
-                _SELENIUM_DRIVER.set_page_load_timeout(20)
+                _SELENIUM_DRIVER.set_page_load_timeout(25)
 
             _SELENIUM_DRIVER.get(jobright_url)
-            time.sleep(3)
+            time.sleep(5)
+
+            try:
+                from selenium.webdriver.common.by import By
+                from selenium.webdriver.support.ui import WebDriverWait
+                from selenium.webdriver.support import expected_conditions as EC
+
+                apply_button = WebDriverWait(_SELENIUM_DRIVER, 10).until(
+                    EC.presence_of_element_located(
+                        (
+                            By.XPATH,
+                            "//a[contains(text(), 'Apply') or contains(@class, 'apply')]",
+                        )
+                    )
+                )
+
+                apply_url = apply_button.get_attribute("href")
+                if apply_url and "jobright.ai" not in apply_url:
+                    logging.debug(f"Jobright Selenium button click: {apply_url[:80]}")
+                    return apply_url
+
+            except:
+                pass
 
             current_url = _SELENIUM_DRIVER.current_url
             if current_url != jobright_url and "jobright.ai" not in current_url:
+                logging.debug(f"Jobright Selenium redirect: {current_url[:80]}")
                 return current_url
 
         except Exception as e:
