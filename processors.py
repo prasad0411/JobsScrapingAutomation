@@ -76,6 +76,9 @@ _CITY_STATE_PATTERN = re.compile(r"([A-Z][a-z]+(?:\s+[A-Z][a-z]+)*),?\s*([A-Z]{2
 _LOCATION_LABEL_PATTERN = re.compile(
     r"Location\s*:?\s*([A-Za-z\s,]+(?:,\s*[A-Z]{2})?)", re.I
 )
+_LOCATION_NO_SPACE_PATTERN = re.compile(
+    r"Location:([A-Z][a-z]+(?:\s+[A-Z][a-z]+)*,\s*[A-Z][a-z]+)", re.I
+)
 
 
 def log_detailed_rejection(
@@ -579,6 +582,14 @@ class LocationExtractor:
                     cleaned = LocationProcessor.clean_location_aggressive(location)
                     if cleaned and cleaned != "Unknown":
                         return ExtractionResult(cleaned, 0.75, "page_text_labeled")
+
+            match = _LOCATION_NO_SPACE_PATTERN.search(page_text)
+            if match:
+                location = match.group(1).strip()
+                if len(location) < 50:
+                    cleaned = LocationProcessor.clean_location_aggressive(location)
+                    if cleaned and cleaned != "Unknown":
+                        return ExtractionResult(cleaned, 0.75, "page_text_no_space")
 
             # NEW: EA-style pattern
             ea_pattern = (
@@ -1350,6 +1361,19 @@ class LocationProcessor:
         if location.lower() in LOCATION_STOPWORDS:
             return "Unknown"
 
+        try:
+            from config import US_STATE_NAME_TO_CODE
+        except (ImportError, AttributeError):
+            US_STATE_NAME_TO_CODE = {}
+
+        parts = location.split(",")
+        if len(parts) == 2:
+            city, state = parts[0].strip(), parts[1].strip()
+            state_lower = state.lower()
+            if state_lower in US_STATE_NAME_TO_CODE:
+                state_code = US_STATE_NAME_TO_CODE[state_lower]
+                location = f"{city}, {state_code}"
+
         return location
 
 
@@ -1738,8 +1762,15 @@ class ValidationHelper:
                             "ms/phd",
                             "or graduate",
                             "and graduate",
+                            "or master's",
+                            "master's degree",
+                            "ms degree",
+                            "or ms",
                         ]
                     ):
+                        logging.debug(
+                            f"Undergrad pattern matched but graduate/master's also mentioned - accepting"
+                        )
                         continue
 
                     if "senior" in pattern or "junior" in pattern:
@@ -2467,22 +2498,25 @@ class CompanyExtractor:
                 PORTAL_NAME_INDICATORS,
                 LEGAL_ENTITY_SUFFIXES,
                 DBA_INDICATORS,
+                COMPANY_NORMALIZATIONS,
             )
         except (ImportError, AttributeError):
             PORTAL_NAME_INDICATORS = []
             LEGAL_ENTITY_SUFFIXES = ["LLC", "Inc.", "Corp.", "Ltd."]
             DBA_INDICATORS = [" DBA ", " d/b/a "]
+            COMPANY_NORMALIZATIONS = {}
 
         import html
 
         name = html.unescape(name)
 
-        name = re.sub(r"^[*#@!]\s*", "", name)
+        name = re.sub(r"^[-*#@!]+\s*", "", name)
 
         name = re.sub(r"^[A-Z]{2,6}\d{2,6}\s+", "", name)
         name = re.sub(r"^\d{2}-\d{7}\s+", "", name)
         name = re.sub(r"^US\d+-[A-Z]{2,5}\s+", "", name)
         name = re.sub(r"^[A-Z]{2}\d+\s*-\s*", "", name)
+        name = re.sub(r"^[A-Z]{2,6}&[A-Z]{1,3}\s+", "", name)
 
         for dba in DBA_INDICATORS:
             if dba in name:
@@ -2514,6 +2548,8 @@ class CompanyExtractor:
             "On Location X": "TKO Group Holdings",
             "On Location": "TKO Group Holdings",
         }
+
+        normalizations.update(COMPANY_NORMALIZATIONS)
 
         name = normalizations.get(name, name)
 

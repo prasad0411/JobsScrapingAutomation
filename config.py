@@ -297,6 +297,11 @@ ASSOCIATE_BACHELOR_ONLY_PATTERNS = [
     r"junior\s+(?:or|and|to)\s+senior\s+level",
     r"senior.*graduating.*(?:summer|spring|may|june|202[67])",
     r"(?:junior|senior).*graduating.*(?:this\s+)?(?:summer|spring)",
+    r"currently.*working.*towards.*bachelor'?s?",
+    r"rising.*(?:junior\s+or\s+senior|senior\s+or\s+junior)",
+    r"enrolled.*(?:in\s+)?(?:an?\s+)?undergraduate.*(?:engineering|program)",
+    r"final-year\s+undergraduate",
+    r"(?:third|3rd).*(?:or|and|-).*(?:fourth|4th).*year",
 ]
 
 CPT_OPT_EXCLUSION_PATTERNS = [
@@ -402,6 +407,11 @@ INTERNATIONAL_URL_INDICATORS = [
     ".uk",
     "/uk/",
     "/gb/",
+    "-uk-",
+    "-gb-",
+    "/gbp/",
+    "-gbp-",
+    "/sheffield-gbp/",
     ".ca",
     "/canada/",
     "/canadian/",
@@ -458,6 +468,9 @@ UK_CITIES = [
     "milton keynes",
     "southampton",
     "nottingham",
+    "sheffield",
+    "coventry",
+    "liverpool",
 ]
 
 CITY_STATE_DISAMBIGUATION = {
@@ -466,6 +479,59 @@ CITY_STATE_DISAMBIGUATION = {
     "paris": {"TX": "Paris, Texas"},
     "portland": {"ME": "Portland, Maine", "OR": "Portland, Oregon"},
     "kansas city": {"KS": "Kansas City, Kansas", "MO": "Kansas City, Missouri"},
+}
+
+US_STATE_NAME_TO_CODE = {
+    "alabama": "AL",
+    "alaska": "AK",
+    "arizona": "AZ",
+    "arkansas": "AR",
+    "california": "CA",
+    "colorado": "CO",
+    "connecticut": "CT",
+    "delaware": "DE",
+    "florida": "FL",
+    "georgia": "GA",
+    "hawaii": "HI",
+    "idaho": "ID",
+    "illinois": "IL",
+    "indiana": "IN",
+    "iowa": "IA",
+    "kansas": "KS",
+    "kentucky": "KY",
+    "louisiana": "LA",
+    "maine": "ME",
+    "maryland": "MD",
+    "massachusetts": "MA",
+    "michigan": "MI",
+    "minnesota": "MN",
+    "mississippi": "MS",
+    "missouri": "MO",
+    "montana": "MT",
+    "nebraska": "NE",
+    "nevada": "NV",
+    "new hampshire": "NH",
+    "new jersey": "NJ",
+    "new mexico": "NM",
+    "new york": "NY",
+    "north carolina": "NC",
+    "north dakota": "ND",
+    "ohio": "OH",
+    "oklahoma": "OK",
+    "oregon": "OR",
+    "pennsylvania": "PA",
+    "rhode island": "RI",
+    "south carolina": "SC",
+    "south dakota": "SD",
+    "tennessee": "TN",
+    "texas": "TX",
+    "utah": "UT",
+    "vermont": "VT",
+    "virginia": "VA",
+    "washington": "WA",
+    "west virginia": "WV",
+    "wisconsin": "WI",
+    "wyoming": "WY",
 }
 
 LOCATION_STOPWORDS = [
@@ -553,6 +619,17 @@ WORKDAY_ABBREVIATIONS = {
     "jll": "Jones Lang LaSalle",
     "msd": "Merck Sharp & Dohme",
     "biibhr": "Biogen",
+}
+
+COMPANY_NORMALIZATIONS = {
+    "SSB&T": "State Street Bank & Trust",
+    "SSB": "State Street",
+    "The Charles Stark Draper Laboratory": "Draper",
+    "Bose Corporation, U.S.A": "Bose Corporation",
+    "On Location X": "TKO Group Holdings",
+    "On Location": "TKO Group Holdings",
+    "HF Management Services": "Healthfirst",
+    "Management Services": "Healthfirst",
 }
 
 GUARANTEED_TECHNICAL_PHRASES = [
