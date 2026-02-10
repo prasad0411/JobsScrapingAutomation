@@ -491,5 +491,5 @@ class SheetsManager:
         if "jobright.ai/jobs/info/" in url.lower():
             match = re.search(r"(jobright\.ai/jobs/info/[a-f0-9]+)", url, re.I)
             if match:
-                return match.group(1).lower()
+                return match.group(1).lower() 
         return re.sub(r"[?#].*$", "", url).lower().rstrip("/")
