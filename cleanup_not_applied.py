@@ -156,6 +156,19 @@ class ManualCleanup:
 
     def _move_to_reviewed(self, not_applied_rows):
         reviewed_data = self.reviewed_sheet.get_all_values()
+        used_rows = len(reviewed_data)
+        total_rows = self.reviewed_sheet.row_count
+        available_rows = total_rows - used_rows
+
+        if available_rows < 250:
+            new_total = total_rows + 1000
+            print(
+                f"  Expanding Reviewed sheet: {total_rows} → {new_total} rows ({available_rows} available < 250 threshold)"
+            )
+            self.reviewed_sheet.resize(rows=new_total)
+            time.sleep(2)
+            print(f"  ✓ Reviewed sheet now has {1000 + available_rows} available rows")
+
         next_row = len(reviewed_data) + 1
 
         reviewed_rows = [

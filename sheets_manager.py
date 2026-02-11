@@ -182,9 +182,45 @@ class SheetsManager:
                 return {"row": idx, "sr_no": idx - 1}
         return {"row": len(data) + 1, "sr_no": len(data)}
 
+    def ensure_sufficient_rows(self, sheet, min_available=250, add_count=1000):
+        """
+        NEW: Ensure sheet has sufficient empty rows before batch operations
+        If available rows < min_available, expand sheet by add_count rows
+        """
+        try:
+            import time
+
+            current_total_rows = sheet.row_count
+
+            all_data = sheet.get_all_values()
+            used_rows = len(all_data)
+
+            available_rows = current_total_rows - used_rows
+
+            if available_rows < min_available:
+                new_total = current_total_rows + add_count
+
+                print(
+                    f"  Expanding {sheet.title}: {current_total_rows} → {new_total} rows ({available_rows} available < {min_available} threshold)"
+                )
+
+                sheet.resize(rows=new_total)
+                time.sleep(2)
+
+                print(
+                    f"  ✓ {sheet.title} now has {add_count + available_rows} available rows"
+                )
+            else:
+                pass
+
+        except Exception as e:
+            print(f"  Warning: Could not check/expand {sheet.title}: {e}")
+
     def add_valid_jobs(self, jobs, start_row, start_sr_no):
         if not jobs:
             return 0
+
+        self.ensure_sufficient_rows(self.valid_sheet)
 
         from utils import DataSanitizer
 
@@ -216,6 +252,8 @@ class SheetsManager:
     def add_discarded_jobs(self, jobs, start_row, start_sr_no):
         if not jobs:
             return 0
+
+        self.ensure_sufficient_rows(self.discarded_entries)
 
         from utils import DataSanitizer
 
@@ -491,5 +529,5 @@ class SheetsManager:
         if "jobright.ai/jobs/info/" in url.lower():
             match = re.search(r"(jobright\.ai/jobs/info/[a-f0-9]+)", url, re.I)
             if match:
-                return match.group(1).lower() 
+                return match.group(1).lower()
         return re.sub(r"[?#].*$", "", url).lower().rstrip("/")
