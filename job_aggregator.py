@@ -81,6 +81,93 @@ with open("skipped_jobs.log", "w") as f:
     f.write("=" * 100 + "\n\n")
 
 
+class JobrightEmailParser:
+    @staticmethod
+    def parse_email_jobs(email_html):
+        if not email_html:
+            return {}
+
+        try:
+            soup = BeautifulSoup(email_html, "html.parser")
+            job_map = {}
+
+            job_sections = soup.find_all("table", id="job-section")
+
+            for section in job_sections:
+                try:
+                    parent_link = section.find_parent(
+                        "a", href=re.compile(r"jobright\.ai/jobs/info/")
+                    )
+                    if not parent_link:
+                        title_link = section.find("p", id="job-title")
+                        if title_link:
+                            a_tag = title_link.find(
+                                "a", href=re.compile(r"jobright\.ai/jobs/info/")
+                            )
+                            if a_tag:
+                                jr_url = a_tag.get("href", "")
+                            else:
+                                continue
+                        else:
+                            continue
+                    else:
+                        jr_url = parent_link.get("href", "")
+
+                    if not jr_url or "jobright.ai/jobs/info/" not in jr_url:
+                        continue
+
+                    company_elem = section.find("p", id="job-company-name")
+                    company = (
+                        company_elem.get_text(strip=True) if company_elem else "Unknown"
+                    )
+
+                    title_elem = section.find("p", id="job-title")
+                    title = title_elem.get_text(strip=True) if title_elem else "Unknown"
+
+                    location = "Unknown"
+                    tags = section.find_all("p", id="job-tag")
+                    for tag in tags:
+                        tag_text = tag.get_text(strip=True)
+                        if not tag_text:
+                            continue
+                        if any(
+                            skip in tag_text
+                            for skip in ["$", "/hr", "/yr", "/mo", "referral"]
+                        ):
+                            continue
+                        if re.search(r"[A-Z][a-z]+.*,\s*[A-Z]{2}", tag_text):
+                            location = tag_text
+                            break
+                        if "remote" in tag_text.lower() and len(tag_text) < 20:
+                            location = "Remote"
+                            break
+                        if len(tag_text) < 60 and "," in tag_text:
+                            location = tag_text
+                            break
+
+                    clean_jr_url = re.sub(r"\?.*$", "", jr_url)
+                    job_data = {
+                        "company": company,
+                        "title": title,
+                        "location": location,
+                        "apply_url": None,
+                    }
+                    job_map[clean_jr_url] = job_data
+                    job_map[jr_url] = job_data
+
+                except Exception as e:
+                    logging.debug(f"Failed to parse job section: {e}")
+                    continue
+
+            unique_count = len(set(id(v) for v in job_map.values()))
+            logging.info(f"Jobright email parser: extracted {unique_count} job cards")
+            return job_map
+
+        except Exception as e:
+            logging.error(f"Jobright email parser failed: {e}")
+            return {}
+
+
 class ProcessedEmailTracker:
     @staticmethod
     def load():
@@ -348,6 +435,9 @@ class UnifiedJobAggregator:
         processed_emails = ProcessedEmailTracker.load()
         email_counter = 0
 
+        self._jobright_email_map = {}
+        seen_jobright_urls = set()
+
         for email in emails_data:
             email_id = email["email_id"]
             sender = email["sender"]
@@ -359,12 +449,32 @@ class UnifiedJobAggregator:
                 logging.info(f"Skipping already processed email: {subject}")
                 continue
 
+            if sender == "Jobright" and html_content:
+                parsed_jobs = JobrightEmailParser.parse_email_jobs(html_content)
+                if parsed_jobs:
+                    self._jobright_email_map.update(parsed_jobs)
+                    logging.info(
+                        f"Pre-parsed {len(parsed_jobs) // 2} Jobright jobs from: {subject}"
+                    )
+
+            deduped_urls = []
+            for url in urls:
+                clean = re.sub(r"\?.*$", "", url).lower()
+                if "jobright.ai/jobs/info/" in clean:
+                    if clean in seen_jobright_urls:
+                        self.outcomes["skipped_duplicate_url"] += 1
+                        continue
+                    seen_jobright_urls.add(clean)
+                deduped_urls.append(url)
+
             email_counter += 1
+            skipped = len(urls) - len(deduped_urls)
+            skip_msg = f" ({skipped} deduped)" if skipped > 0 else ""
             print(
-                f"\n  Email #{email_counter}: {subject} ({sender}) - {len(urls)} URLs"
+                f"\n  Email #{email_counter}: {subject} ({sender}) - {len(deduped_urls)} URLs{skip_msg}"
             )
 
-            for url in urls:
+            for url in deduped_urls:
                 try:
                     self._process_single_email_url(url, sender, html_content, subject)
                 except Exception as e:
@@ -398,11 +508,99 @@ class UnifiedJobAggregator:
                 url, email_html=email_html
             )
 
+            if "jobright.ai" in resolved_url.lower():
+                email_fallback = self._get_jobright_email_fallback(url)
+                if (
+                    email_fallback
+                    and email_fallback.get("title", "Unknown") != "Unknown"
+                ):
+                    logging.info(
+                        f"Jobright email data: {email_fallback['company']} | {email_fallback['title']} | {email_fallback.get('location', 'Unknown')}"
+                    )
+
         if self._is_duplicate_url(resolved_url):
             self.outcomes["skipped_duplicate_url"] += 1
             return
 
         if "jobright.ai" in resolved_url.lower() and sender == "Jobright":
+            email_fallback = self._get_jobright_email_fallback(url)
+
+            if email_fallback and email_fallback.get("title", "Unknown") != "Unknown":
+                company = email_fallback.get("company", "Unknown")
+                title = TitleProcessor.clean_title_aggressive(
+                    email_fallback.get("title", "Unknown")
+                )
+                location = email_fallback.get("location", "Unknown")
+
+                if self._is_duplicate(company, title, resolved_url):
+                    return
+
+                is_internship, intern_reason = TitleProcessor.is_internship_role(title)
+                if not is_internship:
+                    self.outcomes["skipped_senior_role"] += 1
+                    logging.info(
+                        f"REJECTED | {company} | {title} | {intern_reason} | Email: {subject}"
+                    )
+                    return
+
+                actual_url = self._extract_original_job_post_url(resolved_url)
+
+                if actual_url:
+                    if self._is_duplicate_url(actual_url):
+                        self.outcomes["skipped_duplicate_url"] += 1
+                        return
+
+                    result = self._process_single_job_comprehensive(
+                        actual_url,
+                        company_hint=company,
+                        title_hint=title,
+                        location_hint=location,
+                        source=sender,
+                        email_html=email_html,
+                    )
+                    if result:
+                        alert = RoleCategorizer.get_terminal_alert(result["title"])
+                        print(
+                            f"    {result['company'][:50]}: ✓ Valid {alert} (email→original)"
+                        )
+                    return
+
+                jobright_data = None
+                try:
+                    response = retry_request(resolved_url, max_retries=2)
+                    if response and response.status_code == 200:
+                        soup, _ = safe_parse_html(response.content)
+                        if soup:
+                            jobright_data = PageParser.extract_jobright_data(
+                                soup, resolved_url, self.jobright_auth
+                            )
+                except Exception:
+                    pass
+
+                if jobright_data:
+                    actual_url = jobright_data.get("url", resolved_url)
+                    if "jobright.ai" not in actual_url:
+                        resolved_url = actual_url
+
+                    result = self._process_single_job_comprehensive(
+                        resolved_url,
+                        company_hint=company,
+                        title_hint=title,
+                        location_hint=location,
+                        source=sender,
+                        email_html=email_html,
+                    )
+                    if result:
+                        alert = RoleCategorizer.get_terminal_alert(result["title"])
+                        print(f"    {result['company'][:50]}: ✓ Valid {alert}")
+                    return
+
+                logging.info(
+                    f"SKIPPED | {company} | {title} | Jobright resolution failed, no apply URL in email"
+                )
+                self.outcomes["failed_jobright_resolution"] += 1
+                return
+
             jobright_data = None
             try:
                 response = retry_request(resolved_url, max_retries=2)
@@ -452,6 +650,10 @@ class UnifiedJobAggregator:
                     print(f"    {result['company'][:50]}: ✓ Valid {alert}")
                 return
 
+            logging.info(f"SKIPPED | Jobright URL unresolvable | {resolved_url[:60]}")
+            self.outcomes["failed_jobright_resolution"] += 1
+            return
+
         result = self._process_single_job_comprehensive(
             resolved_url,
             source=sender,
@@ -460,6 +662,75 @@ class UnifiedJobAggregator:
         if result:
             alert = RoleCategorizer.get_terminal_alert(result["title"])
             print(f"    {result['company'][:50]}: ✓ Valid {alert}")
+
+    def _get_jobright_email_fallback(self, url):
+        if not hasattr(self, "_jobright_email_map"):
+            return None
+
+        clean_url = re.sub(r"\?.*$", "", url).lower()
+        if url in self._jobright_email_map:
+            return self._jobright_email_map[url]
+        if clean_url in self._jobright_email_map:
+            return self._jobright_email_map[clean_url]
+
+        for key, data in self._jobright_email_map.items():
+            if clean_url in key.lower() or key.lower() in clean_url:
+                return data
+
+        return None
+
+    def _extract_original_job_post_url(self, jobright_url):
+        try:
+            response = retry_request(jobright_url, max_retries=2)
+            if not response or response.status_code != 200:
+                return None
+
+            soup, _ = safe_parse_html(response.content)
+            if not soup:
+                return None
+
+            origin_link = soup.find("a", class_=re.compile(r"index_origin"))
+            if not origin_link:
+                origin_link = soup.find(
+                    "a", string=re.compile(r"original\s+job\s+post", re.I)
+                )
+            if not origin_link:
+                for link in soup.find_all("a", href=True):
+                    link_text = link.get_text(strip=True).lower()
+                    if "original" in link_text and "job" in link_text:
+                        href = link.get("href")
+                        if href and "jobright.ai" not in href:
+                            origin_link = link
+                            break
+
+            if origin_link:
+                href = origin_link.get("href")
+                if href and href.startswith("http") and "jobright.ai" not in href:
+                    logging.info(f"Jobright original job post: {href[:80]}")
+                    return href
+
+            script_tag = soup.find("script", {"id": "__NEXT_DATA__"})
+            if script_tag:
+                import json
+
+                data = json.loads(script_tag.string)
+                job_result = (
+                    data.get("props", {})
+                    .get("pageProps", {})
+                    .get("dataSource", {})
+                    .get("jobResult", {})
+                )
+                actual_url = job_result.get("applyLink") or job_result.get(
+                    "originalUrl"
+                )
+                if actual_url and "jobright.ai" not in actual_url:
+                    logging.info(f"Jobright JSON data: {actual_url[:80]}")
+                    return actual_url
+
+        except Exception as e:
+            logging.debug(f"Original job post extraction failed: {e}")
+
+        return None
 
     def _process_single_job_comprehensive(
         self,
@@ -827,6 +1098,7 @@ class UnifiedJobAggregator:
             ("⊘ Low quality", self.outcomes["skipped_low_quality"]),
             ("✗ HTTP failed", self.outcomes["failed_http"]),
             ("✗ Parse failed", self.outcomes["failed_parse"]),
+            ("✗ Jobright unresolved", self.outcomes["failed_jobright_resolution"]),
         ]
         for label, count in summary_items:
             if count > 0:
