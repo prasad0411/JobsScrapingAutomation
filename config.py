@@ -146,6 +146,7 @@ COMPANY_BLACKLIST = [
     "Lockheed Martin",
     "Leidos",
     "Leidos Defense Systems",
+    "General Dynamics Mission Systems",
 ]
 
 COMPANY_BLACKLIST_REASONS = {
@@ -156,6 +157,7 @@ COMPANY_BLACKLIST_REASONS = {
     "Lockheed Martin": "Company always requires security clearance",
     "Leidos": "Company always requires security clearance",
     "Leidos Defense Systems": "Company always requires security clearance",
+    "General Dynamics Mission Systems": "Company always requires security clearance",
 }
 
 VERBOSE_OUTPUT = False
