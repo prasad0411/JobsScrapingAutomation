@@ -680,15 +680,49 @@ class UnifiedJobAggregator:
         return None
 
     def _extract_original_job_post_url(self, jobright_url):
+        soup = None
+
         try:
-            response = retry_request(jobright_url, max_retries=2)
-            if not response or response.status_code != 200:
-                return None
+            auth_response = self.jobright_auth.session.get(
+                jobright_url,
+                timeout=15,
+                headers={
+                    "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36"
+                },
+            )
+            if auth_response and auth_response.status_code == 200:
+                soup, _ = safe_parse_html(auth_response.content)
+                logging.info(f"Jobright auth fetch OK: {jobright_url[:60]}")
+        except Exception as e:
+            logging.debug(f"Jobright auth fetch failed: {e}")
 
-            soup, _ = safe_parse_html(response.content)
-            if not soup:
-                return None
+        if soup:
+            url = self._parse_original_url_from_soup(soup)
+            if url:
+                return url
 
+        try:
+            logging.info(f"Jobright trying Selenium: {jobright_url[:60]}")
+            response, final_url, page_source = self.page_fetcher.fetch_page(
+                jobright_url
+            )
+            if response:
+                page_html = (
+                    response.text if hasattr(response, "text") else str(response)
+                )
+                soup, _ = safe_parse_html(page_html)
+                if soup:
+                    url = self._parse_original_url_from_soup(soup)
+                    if url:
+                        return url
+        except Exception as e:
+            logging.debug(f"Jobright Selenium fetch failed: {e}")
+
+        logging.info(f"Jobright original URL not found: {jobright_url[:60]}")
+        return None
+
+    def _parse_original_url_from_soup(self, soup):
+        try:
             origin_link = soup.find("a", class_=re.compile(r"index_origin"))
             if not origin_link:
                 origin_link = soup.find(
@@ -728,7 +762,7 @@ class UnifiedJobAggregator:
                     return actual_url
 
         except Exception as e:
-            logging.debug(f"Original job post extraction failed: {e}")
+            logging.debug(f"Soup parsing failed: {e}")
 
         return None
 
