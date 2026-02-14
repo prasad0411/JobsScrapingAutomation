@@ -209,6 +209,26 @@ class TitleProcessor:
         return False
 
     @staticmethod
+    def is_title_extraction_reliable(title):
+        if not title:
+            return False
+
+        suspicious_patterns = [
+            (r"\|.*\|", "Multiple pipes"),
+            (r",\s*[A-Z]{2}$", "Ends with state code"),
+            (r"(?:remote|hybrid|onsite)", "Contains work mode"),
+            (r"(?:spring|summer|fall|winter)\s*(?:\||$)", "Contains season"),
+            (r"^\d{4}", "Starts with year"),
+            (r"columbus.*ohio|ohio.*columbus", "Contains full location"),
+        ]
+
+        for pattern, reason in suspicious_patterns:
+            if re.search(pattern, title, re.I):
+                return False
+
+        return True
+
+    @staticmethod
     def is_internship_role(title, job_type="", page_text=""):
         try:
             from config import (
@@ -1172,6 +1192,14 @@ class LocationProcessor:
 
         canada_page_check = LocationProcessor._check_page_for_canada(soup)
         if canada_page_check:
+            if location and location != "Unknown":
+                if re.search(r",\s*[A-Z]{2}$", location):
+                    state_code = location[-2:]
+                    if validate_us_state_code(state_code):
+                        logging.debug(
+                            f"Meta tag says Canada but location field has US state '{state_code}' - trusting location field"
+                        )
+                        return None
             return canada_page_check
 
         canada_url_check = LocationProcessor._check_url_for_canada(url)
@@ -2172,9 +2200,13 @@ class ValidationHelper:
                 GEOGRAPHIC_ENROLLMENT_PATTERNS,
                 PAGE_TEXT_FULL_SCAN,
                 USER_LOCATION,
+                USER_STATE,
+                USER_COUNTRY,
             )
         except (ImportError, AttributeError):
-            return None, None
+            USER_STATE = "Massachusetts"
+            USER_COUNTRY = "United States"
+            USER_LOCATION = "Boston"
 
         try:
             page_text = soup.get_text()[:PAGE_TEXT_FULL_SCAN].lower()
@@ -2189,9 +2221,6 @@ class ValidationHelper:
 
                     words = required_location.split()
                     if len(words) > 4:
-                        logging.debug(
-                            f"Geographic: Rejected (too many words): {required_location}"
-                        )
                         continue
 
                     non_location_words = [
@@ -2209,28 +2238,45 @@ class ValidationHelper:
                         word in required_location.lower().split()
                         for word in non_location_words
                     ):
-                        logging.debug(
-                            f"Geographic: Rejected (invalid words): {required_location}"
-                        )
                         continue
 
                     required_normalized = (
                         required_location.lower().replace("/", " ").replace("-", " ")
                     )
 
-                    if USER_LOCATION.lower() not in required_normalized:
-                        log_detailed_rejection(
-                            "Company",
-                            "Title",
-                            "Geographic enrollment",
-                            pattern=pattern,
-                            matched_text=f"Required: {required_location}",
-                            debug_info=f"User location: {USER_LOCATION}",
+                    if (
+                        "united states" in required_normalized
+                        and USER_COUNTRY == "United States"
+                    ):
+                        logging.debug(
+                            f"Geographic restriction 'United States' matches user country - accepting"
                         )
-                        return (
-                            "REJECT",
-                            f"Geographic enrollment required: {required_location}",
+                        continue
+
+                    if USER_STATE.lower() in required_normalized:
+                        logging.debug(
+                            f"Geographic restriction '{required_location}' matches user state - accepting"
                         )
+                        continue
+
+                    if USER_LOCATION.lower() in required_normalized:
+                        logging.debug(
+                            f"Geographic restriction '{required_location}' matches user location - accepting"
+                        )
+                        continue
+
+                    log_detailed_rejection(
+                        "Company",
+                        "Title",
+                        "Geographic enrollment",
+                        pattern=pattern,
+                        matched_text=f"Required: {required_location}",
+                        debug_info=f"User location: {USER_STATE}, {USER_COUNTRY}",
+                    )
+                    return (
+                        "REJECT",
+                        f"Geographic enrollment required: {required_location}",
+                    )
 
         except Exception as e:
             logging.debug(f"Geographic enrollment check failed: {e}")
