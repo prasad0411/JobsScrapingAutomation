@@ -149,6 +149,15 @@ class TitleProcessor:
 
         title_lower = title.lower()
 
+        try:
+            from config import INVALID_TITLE_KEYWORDS
+        except (ImportError, AttributeError):
+            INVALID_TITLE_KEYWORDS = []
+
+        for pattern in INVALID_TITLE_KEYWORDS:
+            if re.search(pattern, title_lower):
+                return False, "PhD or military veteran role (not eligible)"
+
         spam_patterns = [
             r"^application$",
             r"^apply\s",
@@ -1374,6 +1383,19 @@ class LocationProcessor:
                 state_code = US_STATE_NAME_TO_CODE[state_lower]
                 location = f"{city}, {state_code}"
 
+        parts = location.split(",")
+        formatted_parts = []
+        for part in parts:
+            part = part.strip()
+            if len(part) == 2 and part.isupper():
+                formatted_parts.append(part)
+            elif part.isupper() or part.islower():
+                formatted_parts.append(part.title())
+            else:
+                formatted_parts.append(part)
+
+        location = ", ".join(formatted_parts)
+
         return location
 
 
@@ -1502,6 +1524,110 @@ class ValidationHelper:
         return None, None
 
     @staticmethod
+    def _check_non_cs_undergraduate_degree(soup):
+        """NEW: Detect non-CS undergraduate degree requirements (BSEE, BSME, etc.)"""
+        if not soup:
+            return None, None
+
+        try:
+            from config import NON_CS_UNDERGRADUATE_DEGREE_PATTERNS, PAGE_TEXT_FULL_SCAN
+        except (ImportError, AttributeError):
+            return None, None
+
+        try:
+            page_text = soup.get_text()[:PAGE_TEXT_FULL_SCAN].lower()
+
+            for pattern in NON_CS_UNDERGRADUATE_DEGREE_PATTERNS:
+                match = re.search(pattern, page_text)
+                if match:
+                    matched_text = match.group(0)
+                    context = page_text[
+                        max(0, match.start() - 200) : min(
+                            len(page_text), match.end() + 200
+                        )
+                    ]
+
+                    cs_keywords = [
+                        "computer science",
+                        "software engineering",
+                        "computer engineering",
+                        "cs",
+                        " or ms",
+                        "or master",
+                    ]
+                    if any(kw in context for kw in cs_keywords):
+                        logging.debug(
+                            f"Non-CS degree found but CS also mentioned - accepting"
+                        )
+                        continue
+
+                    logging.debug(
+                        f"Non-CS undergraduate degree requirement: '{matched_text}'"
+                    )
+                    return (
+                        "REJECT",
+                        "Requires non-CS undergraduate degree (Electrical/Mechanical Engineering)",
+                    )
+
+        except Exception as e:
+            logging.debug(f"Non-CS degree check failed: {e}")
+
+        return None, None
+
+    @staticmethod
+    def _check_preferred_degree_mismatch(soup):
+        """NEW: Detect when preferred degrees list excludes CS/Software"""
+        if not soup:
+            return None, None
+
+        try:
+            from config import PREFERRED_DEGREE_MISMATCH_PATTERNS, PAGE_TEXT_FULL_SCAN
+        except (ImportError, AttributeError):
+            return None, None
+
+        try:
+            page_text = soup.get_text()[:PAGE_TEXT_FULL_SCAN].lower()
+
+            for pattern in PREFERRED_DEGREE_MISMATCH_PATTERNS:
+                match = re.search(pattern, page_text)
+                if match:
+                    degree_list = match.group(1).lower()
+
+                    cs_keywords = [
+                        "computer",
+                        "software",
+                        "cs ",
+                        "information technology",
+                        "it ",
+                        "data science",
+                    ]
+                    has_cs = any(kw in degree_list for kw in cs_keywords)
+
+                    non_cs_keywords = [
+                        "mechanical",
+                        "electrical",
+                        "civil",
+                        "aerospace",
+                        "chemical",
+                        "agricultural",
+                    ]
+                    has_non_cs = any(kw in degree_list for kw in non_cs_keywords)
+
+                    if has_non_cs and not has_cs:
+                        logging.debug(
+                            f"Preferred degrees mismatch: '{degree_list}' (no CS/Software mentioned)"
+                        )
+                        return (
+                            "REJECT",
+                            "Preferred degrees do not include CS/Software (Mechanical/Electrical Engineering only)",
+                        )
+
+        except Exception as e:
+            logging.debug(f"Preferred degree check failed: {e}")
+
+        return None, None
+
+    @staticmethod
     def check_page_restrictions(soup):
         if not soup:
             return None, None, []
@@ -1536,6 +1662,18 @@ class ValidationHelper:
             )
             if undergrad_decision == "REJECT":
                 return undergrad_decision, undergrad_reason, []
+
+            non_cs_decision, non_cs_reason = (
+                ValidationHelper._check_non_cs_undergraduate_degree(soup)
+            )
+            if non_cs_decision == "REJECT":
+                return non_cs_decision, non_cs_reason, []
+
+            pref_degree_decision, pref_degree_reason = (
+                ValidationHelper._check_preferred_degree_mismatch(soup)
+            )
+            if pref_degree_decision == "REJECT":
+                return pref_degree_decision, pref_degree_reason, []
 
             phd_decision, phd_reason = ValidationHelper._check_phd_only_requirements(
                 soup

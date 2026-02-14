@@ -304,6 +304,12 @@ ASSOCIATE_BACHELOR_ONLY_PATTERNS = [
     r"enrolled.*(?:in\s+)?(?:an?\s+)?undergraduate.*(?:engineering|program)",
     r"final-year\s+undergraduate",
     r"(?:third|3rd).*(?:or|and|-).*(?:fourth|4th).*year",
+    r"(?:3rd|4th)\s+year.*(?:or|and)\s+(?:recent\s+)?graduate",
+    r"senior\s+standing,?\s+(?:may|june|spring|summer)\s+202[67]",
+    r"pursuing.*(?:ba|bs)/(?:ba|bs)\s+degree",
+    r"currently.*(?:ba|bs)\s+degree",
+    r"pursuing.*(?:bsee|bsce|bsme|bsae|bsie)\b",
+    r"enrolled.*(?:bsee|bsce|bsme|bsae)\s+(?:or|program)",
 ]
 
 CPT_OPT_EXCLUSION_PATTERNS = [
@@ -366,6 +372,10 @@ EXPORT_CONTROL_EXCLUSION_KEYWORDS = [
     "u.s. export control",
     "export-controlled",
     "for export compliance",
+    "eligible for any required authorizations",
+    "eligible for authorizations from",
+    "to conform to u.s. export control",
+    "export-controlled commodities and technology",
 ]
 
 ENHANCED_PHD_PATTERNS = [
@@ -402,6 +412,28 @@ PHD_MS_FLEXIBILITY_KEYWORDS = [
     "m.s.",
     "ms degree",
     "ms students",
+]
+
+NON_CS_UNDERGRADUATE_DEGREE_PATTERNS = [
+    r"pursuing.*(?:bsee|bsme|bsce|bsae|bsie)\b",
+    r"enrolled.*(?:bsee|bsme|bsce|bsae)\s+(?:or|program)",
+    r"bachelor.*(?:electrical\s+engineering|mechanical\s+engineering|civil\s+engineering|aerospace\s+engineering)",
+    r"degree.*preferred:\s*(?:mechanical|electrical|civil|aerospace)(?:\s+engineer)",
+]
+
+PREFERRED_DEGREE_MISMATCH_PATTERNS = [
+    r"degrees?\s+preferred:\s*([^.]+)",
+    r"preferred\s+(?:majors?|degrees?):\s*([^.]+)",
+    r"(?:majoring|degree)\s+in:\s*([^.]+)\s+preferred",
+]
+
+INVALID_TITLE_KEYWORDS = [
+    r"military.*veteran",
+    r"veteran.*military",
+    r"\bphd\b.*intern",
+    r"intern.*\bphd\b",
+    r"ph\.d\..*intern",
+    r"intern.*ph\.d\.",
 ]
 
 INTERNATIONAL_URL_INDICATORS = [
@@ -621,11 +653,13 @@ WORKDAY_ABBREVIATIONS = {
     "jll": "Jones Lang LaSalle",
     "msd": "Merck Sharp & Dohme",
     "biibhr": "Biogen",
+    "washpost": "The Washington Post",
 }
 
 COMPANY_NORMALIZATIONS = {
     "SSB&T": "State Street Bank & Trust",
     "SSB": "State Street",
+    "500 WP": "The Washington Post",
     "The Charles Stark Draper Laboratory": "Draper",
     "Bose Corporation, U.S.A": "Bose Corporation",
     "On Location X": "TKO Group Holdings",
@@ -1295,6 +1329,7 @@ COMPANY_NAME_STOPWORDS = [
 JOB_ID_PATTERNS = [
     (r"/jobs?/(\d{10})", 0.96),
     (r"gh_jid=(\d{7,})", 0.96),
+    (r"[?&]token=(\d{10})", 0.96),
     (r"/jobs?/(\d{6,})", 0.94),
     (r"_([A-Z]R?-?\d{5,})(?:-\d+)?(?:\?|$)", 0.93),
     (r"/([A-Z]{2,3}\d{5,})(?:-\d+)?(?:\?|$)", 0.91),

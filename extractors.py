@@ -462,6 +462,13 @@ class JobrightRedirectResolver:
             logging.info(f"Jobright Selenium: {actual_url[:80]}")
             return actual_url, True
 
+        actual_url = JobrightRedirectResolver._method_4_authenticated(
+            jobright_url, job_id
+        )
+        if actual_url:
+            logging.info(f"Jobright Auth API: {actual_url[:80]}")
+            return actual_url, True
+
         logging.warning(f"Jobright resolution failed: {jobright_url}")
         return jobright_url, False
 
@@ -644,6 +651,44 @@ class JobrightRedirectResolver:
 
         except Exception as e:
             logging.debug(f"Jobright Selenium failed: {e}")
+
+        return None
+
+    @staticmethod
+    def _method_4_authenticated(jobright_url, job_id):
+        """NEW: Try authenticated request to Jobright API"""
+        try:
+            import json
+            import os
+
+            cookies_file = "jobright_cookies.json"
+            if not os.path.exists(cookies_file):
+                return None
+
+            with open(cookies_file, "r") as f:
+                cookies = json.load(f)
+
+            session = requests.Session()
+            for cookie in cookies:
+                session.cookies.set(
+                    cookie["name"],
+                    cookie["value"],
+                    domain=cookie.get("domain", "jobright.ai"),
+                )
+
+            api_url = f"https://jobright.ai/api/jobs/{job_id}"
+            response = session.get(api_url, timeout=10)
+
+            if response.status_code == 200:
+                data = response.json()
+                if "jobUrl" in data:
+                    logging.debug(f"Jobright auth API: {data['jobUrl'][:80]}")
+                    return data["jobUrl"]
+                elif "url" in data:
+                    return data["url"]
+
+        except Exception as e:
+            logging.debug(f"Jobright authenticated API failed: {e}")
 
         return None
 
