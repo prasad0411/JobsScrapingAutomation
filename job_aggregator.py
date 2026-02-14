@@ -1,982 +1,877 @@
 #!/usr/bin/env python3
 
+import time
+import datetime
+import random
 import re
+import json
+import os
 import logging
-from dataclasses import dataclass
-from functools import lru_cache
-from collections import Counter
-from operator import attrgetter
+from collections import defaultdict
+from bs4 import BeautifulSoup
 
 from config import (
-    COMPANY_SLUG_MAPPING,
-    COMPANY_NAME_PREFIXES,
-    COMPANY_NAME_STOPWORDS,
-    COMPANY_PLACEHOLDERS,
-    PLATFORM_DETECTION_PATTERNS,
-    ROLE_CATEGORIES,
-    JUNK_SUBDOMAIN_PATTERNS,
-    extract_domain_and_subdomain,
-    fuzzy_match_company,
-    parse_date_flexible,
-    RAPIDFUZZ_AVAILABLE,
-    DATEUTIL_AVAILABLE,
-    MAX_REASONABLE_AGE_DAYS,
+    SIMPLIFY_URL,
+    VANSHB03_URL,
+    MAX_JOB_AGE_DAYS,
+    PAGE_AGE_THRESHOLD_DAYS,
+    MIN_QUALITY_SCORE,
+    COMPANY_BLACKLIST,
+    COMPANY_BLACKLIST_REASONS,
+    PLATFORM_BLACKLIST,
+    PLATFORM_BLACKLIST_REASONS,
+    BLACKLIST_DOMAINS,
+    PROCESSED_EMAILS_FILE,
+    EMAIL_TRACKING_RETENTION_DAYS,
+    REPROCESS_EMAILS_DAYS,
+    EMAIL_DATE_FILTER_ENABLED,
+    TERMINAL_COMPANY_WIDTH,
+    VERBOSE_OUTPUT,
+    SHOW_GITHUB_COUNTS,
 )
 
-_COMPILED_PLATFORM_PATTERNS = {
-    platform: re.compile(pattern, re.I)
-    for platform, pattern in PLATFORM_DETECTION_PATTERNS.items()
-}
+from extractors import (
+    EmailExtractor,
+    PageFetcher,
+    PageParser,
+    SourceParsers,
+    JobrightAuthenticator,
+    JobrightRedirectResolver,
+    SimplifyRedirectResolver,
+    SimplifyGitHubScraper,
+    safe_parse_html,
+    retry_request,
+)
 
-_COMPILED_JUNK_PATTERNS = [
-    re.compile(pattern, re.I) for pattern in JUNK_SUBDOMAIN_PATTERNS
-]
+from processors import (
+    TitleProcessor,
+    LocationExtractor,
+    LocationProcessor,
+    ValidationHelper,
+    CompanyExtractor,
+    QualityScorer,
+    log_detailed_rejection,
+)
 
-_STOPWORD_TRANS = str.maketrans("", "", "".join(set("".join(COMPANY_NAME_STOPWORDS))))
+from sheets_manager import SheetsManager
+
+from utils import (
+    PlatformDetector,
+    CompanyNormalizer,
+    CompanyValidator,
+    RoleCategorizer,
+    URLCleaner,
+    DateParser,
+    DataSanitizer,
+    ExtractionVoter,
+)
+
+logging.basicConfig(
+    filename="skipped_jobs.log",
+    level=logging.INFO,
+    format="%(asctime)s | %(message)s",
+    datefmt="%Y-%m-%d %H:%M:%S",
+)
+
+with open("skipped_jobs.log", "w") as f:
+    f.write("=" * 100 + "\n")
+    f.write(
+        f"JOB PROCESSING LOG - {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n"
+    )
+    f.write("=" * 100 + "\n\n")
 
 
-# ============================================================================
-# Extraction Result - ORIGINAL
-# ============================================================================
-
-
-@dataclass
-class ExtractionResult:
-    value: str
-    confidence: float
-    method: str
-
-    def is_valid(self):
-        """
-        CRITICAL FIX: "Unknown" is NOT a valid result
-        This enables URL fallback to work
-        """
-        return self.value not in [None, "", "N/A", "Unknown"]
-
-
-# ============================================================================
-# Platform Detector - ORIGINAL
-# ============================================================================
-
-
-class PlatformDetector:
+class ProcessedEmailTracker:
     @staticmethod
-    @lru_cache(maxsize=1024)
-    def detect(url):
-        if not url:
-            return "generic"
+    def load():
+        if os.path.exists(PROCESSED_EMAILS_FILE):
+            try:
+                with open(PROCESSED_EMAILS_FILE, "r") as f:
+                    data = json.load(f)
+                cutoff = (
+                    datetime.datetime.now()
+                    - datetime.timedelta(days=EMAIL_TRACKING_RETENTION_DAYS)
+                ).strftime("%Y-%m-%d")
+                cleaned = {
+                    k: v
+                    for k, v in data.items()
+                    if v.get("processed_date", "") >= cutoff
+                }
+                return cleaned
+            except Exception:
+                return {}
+        return {}
 
+    @staticmethod
+    def save(processed_emails):
         try:
-            url_lower = url.lower()
-            for platform, pattern in _COMPILED_PLATFORM_PATTERNS.items():
-                if pattern.search(url_lower):
-                    return platform
+            with open(PROCESSED_EMAILS_FILE, "w") as f:
+                json.dump(processed_emails, f, indent=2)
         except Exception as e:
-            logging.debug(f"Platform detection failed for {url}: {e}")
+            logging.error(f"Failed to save processed emails: {e}")
 
-        return "generic"
-
-
-# ============================================================================
-# Company Normalizer - ORIGINAL (FULL)
-# ============================================================================
-
-
-class CompanyNormalizer:
-    _COMPOUND_WORDS = {
-        "motorolasolutions": "Motorola Solutions",
-        "goldmansachs": "Goldman Sachs",
-        "morganstanley": "Morgan Stanley",
-        "bankofamerica": "Bank of America",
-        "wellsfargo": "Wells Fargo",
-        "americanexpress": "American Express",
-        "capitalone": "Capital One",
-    }
-
-    _ACRONYMS = {
-        "ibm",
-        "att",
-        "sap",
-        "hpe",
-        "aws",
-        "gcp",
-        "api",
-        "ai",
-        "ml",
-        "abb",
-        "asml",
-    }
-
-    _SPECIAL_CAPS = {
-        "openai": "OpenAI",
-        "youtube": "YouTube",
-        "linkedin": "LinkedIn",
-        "paypal": "PayPal",
-        "ebay": "eBay",
-        "tiktok": "TikTok",
-    }
-
-    @classmethod
-    @lru_cache(maxsize=512)
-    def normalize(cls, company_name, url=""):
-        if not company_name or not company_name.strip():
-            return None
-
-        try:
-            name = company_name.strip()
-            name_lower = name.lower()
-
-            for prefix in COMPANY_NAME_PREFIXES:
-                if name_lower.startswith(prefix):
-                    name = name[len(prefix) :]
-                    name_lower = name.lower()
-                    break
-
-            for stopword in COMPANY_NAME_STOPWORDS:
-                name = name.replace(stopword, "")
-
-            name = name.strip()
-            name_lower = name.lower()
-
-            if name_lower in COMPANY_SLUG_MAPPING:
-                return COMPANY_SLUG_MAPPING[name_lower]
-
-            if name_lower in cls._COMPOUND_WORDS:
-                return cls._COMPOUND_WORDS[name_lower]
-
-            if len(name_lower) > 8 and " " not in name_lower:
-                for compound, expanded in cls._COMPOUND_WORDS.items():
-                    if compound in name_lower:
-                        return expanded
-
-            name = re.sub(r"^[A-Z]{2,4}[-\s]", "", name)
-            name = re.sub(
-                r",?\s+(Inc\.?|LLC\.?|Corp\.?|Ltd\.?|Corporation|Corp\s+Svcs\.?)$",
-                "",
-                name,
-                flags=re.I,
-            )
-            name = name.strip()
-
-            if not name or len(name) < 2:
-                return None
-
-            if name in COMPANY_PLACEHOLDERS or name.lower() in [
-                p.lower() for p in COMPANY_PLACEHOLDERS
-            ]:
-                return None
-
-            return cls._apply_smart_capitalization(name)
-
-        except Exception as e:
-            logging.debug(f"Company normalization failed for '{company_name}': {e}")
-            return None
-
-    @classmethod
-    def _apply_smart_capitalization(cls, name):
-        try:
-            name_lower = name.lower()
-
-            if name_lower in cls._ACRONYMS:
-                return name.upper()
-
-            if name_lower in cls._SPECIAL_CAPS:
-                return cls._SPECIAL_CAPS[name_lower]
-
-            if name.isupper() or name.islower():
-                words = name_lower.split()
-                result = []
-                for word in words:
-                    if word in ["ai", "ml", "api", "aws", "gcp", "iot"]:
-                        result.append(word.upper())
-                    else:
-                        result.append(word.title())
-                return " ".join(result)
-
-            return name
-        except Exception as e:
-            logging.debug(f"Capitalization failed for '{name}': {e}")
-            return name
-
-    @classmethod
-    def extract_from_url_path(cls, url, platform):
-        patterns = {
-            "greenhouse": r"greenhouse\.io/([^/]+)/jobs",
-            "ashby": r"ashbyhq\.com/([^/]+)/",
-            "lever": r"lever\.co/([^/]+)/",
-            "workable": r"workable\.com/([^/]+)/",
+    @staticmethod
+    def mark_email_processed(processed_emails, email_id, subject, url_count):
+        processed_emails[email_id] = {
+            "subject": subject,
+            "processed_date": datetime.datetime.now().strftime("%Y-%m-%d"),
+            "processed_time": datetime.datetime.now().strftime("%H:%M:%S"),
+            "url_count": url_count,
         }
 
+
+class UnifiedJobAggregator:
+    def __init__(self):
+        print("=" * 80)
+        self.sheets = SheetsManager()
+        self.email_extractor = EmailExtractor()
+        self.page_fetcher = PageFetcher()
+        self.jobright_auth = JobrightAuthenticator()
+
+        existing = self.sheets.load_existing_jobs()
+        self.existing_jobs = existing["jobs"]
+        self.existing_urls = existing["urls"]
+        self.existing_job_ids = existing["job_ids"]
+        self.processed_cache = existing["cache"]
+
+        self.processing_lock = set()
+        self.valid_jobs = []
+        self.discarded_jobs = []
+        self.duplicate_jobs = []
+
+        self.outcomes = defaultdict(int)
+
+        print(
+            f"Loaded: {len(self.existing_jobs)} jobs, {len(self.existing_urls)} URLs, {len(self.existing_job_ids)} IDs"
+        )
+        logging.info(f"Loaded {len(self.existing_jobs)} existing jobs from sheets")
+
+    def run(self):
+        start_time = time.time()
+
+        if not self.jobright_auth.cookies:
+            self.jobright_auth.login_interactive()
+
+        print("Scraping GitHub repositories...")
+        self._scrape_simplify_github()
+
+        print("\nProcessing email jobs...")
         try:
-            if platform in patterns:
-                match = re.search(patterns[platform], url, re.I)
-                if match:
-                    slug = match.group(1)
-                    return cls.normalize(slug, url)
+            emails_data = self.email_extractor.fetch_job_emails()
+            if emails_data:
+                total_urls = sum(len(email["urls"]) for email in emails_data)
+                print(
+                    f"Processing {total_urls} URLs from {len(emails_data)} emails...\n"
+                )
+                self._process_emails_grouped(emails_data)
+            else:
+                print("No email jobs found")
+                logging.warning("No email data received from Gmail")
         except Exception as e:
-            logging.debug(f"URL path extraction failed for {url}: {e}")
+            print(f"Email processing error: {e}")
+            logging.error(f"Email processing error: {e}", exc_info=True)
 
-        return None
+        self._ensure_mutual_exclusion()
 
+        rows = self.sheets.get_next_row_numbers()
+        added_valid = self.sheets.add_valid_jobs(
+            self.valid_jobs, rows["valid"], rows["valid_sr_no"]
+        )
+        added_discarded = self.sheets.add_discarded_jobs(
+            self.discarded_jobs, rows["discarded"], rows["discarded_sr_no"]
+        )
 
-# ============================================================================
-# Company Validator - ORIGINAL (FULL)
-# ============================================================================
+        self._print_summary()
+        elapsed = time.time() - start_time
+        print(f"\n✓ DONE: {added_valid} valid, {added_discarded} discarded")
+        print(f"Execution time: {elapsed / 60:.1f} minutes")
+        print("=" * 80 + "\n")
 
+        logging.info(f"SUMMARY: {added_valid} valid, {added_discarded} discarded")
 
-class CompanyValidator:
-    _INVALID_KEYWORDS = {
-        "careers",
-        "jobs",
-        "external",
-        "applicant",
-        "portal",
-        "apply",
-        "join",
-    }
-    _TITLE_INDICATORS = {"intern", "engineer", "developer", "software", "position"}
+    def _scrape_simplify_github(self):
+        simplify_jobs = self._safe_scrape(SIMPLIFY_URL, "SimplifyJobs")
+        vanshb03_jobs = self._safe_scrape(VANSHB03_URL, "vanshb03")
 
-    @staticmethod
-    @lru_cache(maxsize=512)
-    def is_valid(name):
-        if not name or not name.strip():
-            return False
+        print(
+            f"  Total: {len(simplify_jobs)} SimplifyJobs + {len(vanshb03_jobs)} vanshb03\n"
+        )
+        logging.info(
+            f"GitHub: {len(simplify_jobs)} SimplifyJobs + {len(vanshb03_jobs)} vanshb03"
+        )
 
-        try:
-            if name in COMPANY_PLACEHOLDERS or name.lower() in {
-                p.lower() for p in COMPANY_PLACEHOLDERS
-            }:
-                return False
+        for i, job in enumerate(simplify_jobs):
+            try:
+                age_days = self._parse_github_age(job["age"])
+                if age_days is not None and age_days > MAX_JOB_AGE_DAYS:
+                    skipped = len(simplify_jobs) - i
+                    logging.info(
+                        f"SimplifyJobs: Early exit - skipped {skipped} old jobs"
+                    )
+                    self.outcomes["skipped_too_old"] += skipped
+                    break
+                self._process_single_github_job(job)
+            except Exception as e:
+                logging.error(f"Failed to process SimplifyJobs job: {e}", exc_info=True)
+                continue
 
-            if name.lower() in CompanyValidator._INVALID_KEYWORDS:
-                return False
+        for i, job in enumerate(vanshb03_jobs):
+            try:
+                age_days = self._parse_github_age(job["age"])
+                if age_days is not None and age_days > MAX_JOB_AGE_DAYS:
+                    skipped = len(vanshb03_jobs) - i
+                    logging.info(f"vanshb03: Early exit - skipped {skipped} old jobs")
+                    self.outcomes["skipped_too_old"] += skipped
+                    break
+                self._process_single_github_job(job)
+            except Exception as e:
+                logging.error(f"Failed to process vanshb03 job: {e}", exc_info=True)
+                continue
 
-            if re.match(r"^[A-Z]{2,4}[-\s]", name):
-                return False
+        github_valid = sum(
+            1 for j in self.valid_jobs if j["source"] in ["SimplifyJobs", "vanshb03"]
+        )
+        print(f"  GitHub summary: {github_valid} valid jobs\n")
+        logging.info(f"GitHub summary: {github_valid} valid jobs")
 
-            if len(name) > 60 or len(name) < 2:
-                return False
+    def _process_single_github_job(self, job):
+        title = TitleProcessor.clean_title_aggressive(job["title"])
+        url = job["url"]
+        source = job.get("source", "GitHub")
+        company_from_github = job.get("company", "Unknown")
+        location_from_github = job.get("location", "Unknown")
 
-            if name.isupper() and len(name) < 10 and not any(c.isdigit() for c in name):
-                return False
+        if job.get("is_closed", False):
+            return
 
-            title_count = sum(
-                1 for kw in CompanyValidator._TITLE_INDICATORS if kw in name.lower()
+        is_valid_title, reason = TitleProcessor.is_valid_job_title(title)
+        if not is_valid_title:
+            self.outcomes["skipped_invalid_title"] += 1
+            logging.info(
+                f"REJECTED | {company_from_github} | {title} | Invalid title: {reason}"
             )
-            if title_count >= 3:
-                return False
+            return
 
-            return True
-        except Exception as e:
-            logging.debug(f"Company validation failed for '{name}': {e}")
-            return False
+        resolved_url = url
+        if "simplify.jobs" in url.lower():
+            resolved_url, resolved = SimplifyRedirectResolver.resolve(url)
+            if not resolved:
+                resolved_url = url
 
-    @staticmethod
-    @lru_cache(maxsize=256)
-    def is_junk_subdomain(subdomain):
-        if not subdomain:
-            return True
+        if self._is_duplicate(company_from_github, title, resolved_url):
+            return
 
+        is_internship, intern_reason = TitleProcessor.is_internship_role(title)
+        if not is_internship:
+            self.outcomes["skipped_senior_role"] += 1
+            logging.info(
+                f"REJECTED | {company_from_github} | {title} | {intern_reason}"
+            )
+            return
+
+        season_ok, season_reason = TitleProcessor.check_season_requirement(title)
+        if not season_ok:
+            self.outcomes["skipped_wrong_season"] += 1
+            logging.info(
+                f"REJECTED | {company_from_github} | {title} | {season_reason}"
+            )
+            return
+
+        is_tech = TitleProcessor.is_cs_engineering_role(title)
+        if not is_tech:
+            self.outcomes["skipped_non_tech"] += 1
+            logging.info(
+                f"REJECTED | {company_from_github} | {title} | Not a CS/Engineering role"
+            )
+            return
+
+        company_lower = company_from_github.lower().strip()
+        if any(bl.lower() == company_lower for bl in COMPANY_BLACKLIST):
+            reason = COMPANY_BLACKLIST_REASONS.get(
+                company_from_github, "Blacklisted company"
+            )
+            self.outcomes["skipped_blacklisted"] += 1
+            self._add_discarded(
+                company_from_github,
+                title,
+                location_from_github,
+                "Unknown",
+                resolved_url,
+                "N/A",
+                "Internship",
+                source,
+                reason,
+            )
+            logging.info(
+                f"REJECTED | {company_from_github} | {title} | Blacklisted: {reason}"
+            )
+            return
+
+        international_check = LocationProcessor.check_if_international(
+            location_from_github, url=resolved_url, title=title
+        )
+        if international_check:
+            self.outcomes["skipped_international"] += 1
+            self._add_discarded(
+                company_from_github,
+                title,
+                location_from_github,
+                "Unknown",
+                resolved_url,
+                "N/A",
+                "Internship",
+                source,
+                international_check,
+            )
+            logging.info(
+                f"REJECTED | {company_from_github} | {title} | {international_check}"
+            )
+            return
+
+        result = self._process_single_job_comprehensive(
+            resolved_url,
+            company_hint=company_from_github,
+            title_hint=title,
+            location_hint=location_from_github,
+            source=source,
+        )
+
+        if result:
+            alert = RoleCategorizer.get_terminal_alert(result["title"])
+            company_display = result["company"][:TERMINAL_COMPANY_WIDTH]
+            print(f"  {company_display}: ✓ Valid {alert}")
+        else:
+            if not any(resolved_url in d.get("url", "") for d in self.discarded_jobs):
+                pass
+
+    def _process_emails_grouped(self, emails_data):
+        processed_emails = ProcessedEmailTracker.load()
+        email_counter = 0
+
+        for email in emails_data:
+            email_id = email["email_id"]
+            sender = email["sender"]
+            subject = email["subject"]
+            html_content = email.get("html", "")
+            urls = email["urls"]
+
+            if email_id in processed_emails:
+                logging.info(f"Skipping already processed email: {subject}")
+                continue
+
+            email_counter += 1
+            print(
+                f"\n  Email #{email_counter}: {subject} ({sender}) - {len(urls)} URLs"
+            )
+
+            for url in urls:
+                try:
+                    self._process_single_email_url(url, sender, html_content, subject)
+                except Exception as e:
+                    logging.error(f"Failed to process email URL {url}: {e}")
+                    continue
+
+            ProcessedEmailTracker.mark_email_processed(
+                processed_emails, email_id, subject, len(urls)
+            )
+
+        ProcessedEmailTracker.save(processed_emails)
+
+    def _process_single_email_url(self, url, sender, email_html, subject):
+        if any(domain in url.lower() for domain in BLACKLIST_DOMAINS):
+            return
+
+        is_valid_url, url_reason = ValidationHelper.is_valid_job_url(url)
+        if not is_valid_url:
+            return
+
+        resolved_url = url
+        is_company_site = False
+
+        if "simplify.jobs" in url.lower():
+            resolved_url, resolved = SimplifyRedirectResolver.resolve(url)
+            if not resolved:
+                resolved_url = url
+
+        if "jobright.ai" in url.lower():
+            resolved_url, is_company_site = JobrightRedirectResolver.resolve(
+                url, email_html=email_html
+            )
+
+        if self._is_duplicate_url(resolved_url):
+            self.outcomes["skipped_duplicate_url"] += 1
+            return
+
+        if "jobright.ai" in resolved_url.lower() and sender == "Jobright":
+            jobright_data = None
+            try:
+                response = retry_request(resolved_url, max_retries=2)
+                if response and response.status_code == 200:
+                    soup, _ = safe_parse_html(response.content)
+                    if soup:
+                        jobright_data = PageParser.extract_jobright_data(
+                            soup, resolved_url, self.jobright_auth
+                        )
+            except Exception:
+                pass
+
+            if jobright_data:
+                actual_url = jobright_data.get("url", resolved_url)
+                if "jobright.ai" not in actual_url and jobright_data.get(
+                    "is_company_site", False
+                ):
+                    resolved_url = actual_url
+
+                company = jobright_data.get("company", "Unknown")
+                title = TitleProcessor.clean_title_aggressive(
+                    jobright_data.get("title", "Unknown")
+                )
+                location = jobright_data.get("location", "Unknown")
+
+                if self._is_duplicate(company, title, resolved_url):
+                    return
+
+                is_internship, intern_reason = TitleProcessor.is_internship_role(title)
+                if not is_internship:
+                    self.outcomes["skipped_senior_role"] += 1
+                    logging.info(
+                        f"REJECTED | {company} | {title} | {intern_reason} | Email: {subject}"
+                    )
+                    return
+
+                result = self._process_single_job_comprehensive(
+                    resolved_url,
+                    company_hint=company,
+                    title_hint=title,
+                    location_hint=location,
+                    source=sender,
+                    email_html=email_html,
+                )
+                if result:
+                    alert = RoleCategorizer.get_terminal_alert(result["title"])
+                    print(f"    {result['company'][:50]}: ✓ Valid {alert}")
+                return
+
+        result = self._process_single_job_comprehensive(
+            resolved_url,
+            source=sender,
+            email_html=email_html,
+        )
+        if result:
+            alert = RoleCategorizer.get_terminal_alert(result["title"])
+            print(f"    {result['company'][:50]}: ✓ Valid {alert}")
+
+    def _process_single_job_comprehensive(
+        self,
+        url,
+        company_hint="",
+        title_hint="",
+        location_hint="",
+        source="Unknown",
+        email_html=None,
+    ):
         try:
-            for pattern in _COMPILED_JUNK_PATTERNS:
-                if pattern.search(subdomain):
-                    return True
-            if subdomain.islower() and len(subdomain) > 20 and " " not in subdomain:
-                return True
-        except Exception as e:
-            logging.debug(f"Junk subdomain check failed for '{subdomain}': {e}")
+            platform = PlatformDetector.detect(url)
 
-        return False
+            response, final_url, page_source = self.page_fetcher.fetch_page(url)
 
-
-# ============================================================================
-# Role Categorizer - ORIGINAL (FULL)
-# ============================================================================
-
-
-class RoleCategorizer:
-    @staticmethod
-    @lru_cache(maxsize=512)
-    def categorize(title):
-        if not title:
-            return "Unknown", "ACCEPT", ""
-
-        try:
-            title_lower = title.lower()
-
-            for category_name, config in ROLE_CATEGORIES.items():
-                keyword_match = any(kw in title_lower for kw in config["keywords"])
-                exclude_match = any(ex in title_lower for ex in config["exclude"])
-
-                if keyword_match and not exclude_match:
-                    return category_name, config["action"], config["alert"]
-
-            generic_sw = {"engineer", "developer", "programmer", "software"}
-            if any(kw in title_lower for kw in generic_sw):
-                return "Pure Software", "ACCEPT", "✅ SOFTWARE"
-
-        except Exception as e:
-            logging.debug(f"Role categorization failed for '{title}': {e}")
-
-        return "Unknown", "ACCEPT", ""
-
-    @staticmethod
-    def get_terminal_alert(title):
-        _, _, alert = RoleCategorizer.categorize(title)
-        return f"[{alert}]" if alert else ""
-
-
-# ============================================================================
-# URL Cleaner - ORIGINAL
-# ============================================================================
-
-
-class URLCleaner:
-    _CLEAN_PATTERN = re.compile(r"[?#].*$")
-
-    @classmethod
-    @lru_cache(maxsize=2048)
-    def clean_url(cls, url):
-        if not url:
-            return ""
-
-        try:
-            if "jobright.ai/jobs/info/" in url.lower():
-                match = re.search(r"(jobright\.ai/jobs/info/[a-f0-9]+)", url, re.I)
-                if match:
-                    return match.group(1).lower()
-
-            return cls._CLEAN_PATTERN.sub("", url).lower().rstrip("/")
-        except Exception as e:
-            logging.debug(f"URL cleaning failed for '{url}': {e}")
-            return url.lower()
-
-    @staticmethod
-    @lru_cache(maxsize=2048)
-    def normalize_text(text):
-        if not text:
-            return ""
-        try:
-            return re.sub(r"[^a-z0-9]", "", text.lower())
-        except Exception as e:
-            logging.debug(f"Text normalization failed: {e}")
-            return text.lower()
-
-
-# ============================================================================
-# Extraction Voter - ORIGINAL + CRITICAL FIX
-# ============================================================================
-
-
-class ExtractionVoter:
-    @staticmethod
-    def vote(results, min_confidence=0.6):
-        """
-        CRITICAL FIX: Filter out None/"Unknown" BEFORE voting
-        This is what enables URL fallback to work!
-        """
-        if not results:
-            return None
-
-        try:
-            # CRITICAL: Filter out invalid results (None, "Unknown", empty)
-            valid_results = [
-                r
-                for r in results
-                if r.value not in [None, "", "N/A", "Unknown"]  # THE FIX
-                and r.confidence >= min_confidence
-            ]
-
-            if not valid_results:
+            if not response:
+                self.outcomes["failed_http"] += 1
+                logging.info(f"HTTP FAIL | {url[:80]}")
                 return None
 
-            if len(valid_results) == 1:
-                return valid_results[0]
-
-            value_groups = {}
-            for result in valid_results:
-                key = result.value.lower().strip()
-                if key not in value_groups:
-                    value_groups[key] = []
-                value_groups[key].append(result)
-
-            best_group = max(
-                value_groups.items(),
-                key=lambda x: (len(x[1]) * 1.2)
-                * (sum(r.confidence for r in x[1]) / len(x[1])),
+            soup, _ = safe_parse_html(
+                response.text if hasattr(response, "text") else str(response)
             )
+            if not soup:
+                self.outcomes["failed_parse"] += 1
+                return None
 
-            return max(best_group[1], key=attrgetter("confidence"))
+            company = CompanyExtractor.extract_all_methods(final_url or url, soup)
+            if not company or company == "Unknown":
+                company = company_hint if company_hint else "Unknown"
 
-        except Exception as e:
-            logging.debug(f"Extraction voting failed: {e}")
-            return None
+            company_clean = CompanyExtractor.clean_company_name(company)
+            if company_clean and company_clean != "Unknown":
+                company = company_clean
 
+            normalized = CompanyNormalizer.normalize(company, url)
+            if normalized:
+                company = normalized
 
-# ============================================================================
-# Date Parser - ORIGINAL + ENHANCED with sanity capping
-# ============================================================================
+            title = PageParser.extract_title(soup)
+            if not title or title == "Unknown":
+                title = title_hint if title_hint else "Unknown"
+            title = TitleProcessor.clean_title_aggressive(title)
 
+            if self._is_duplicate(company, title, final_url or url):
+                return None
 
-class DateParser:
-    _RELATIVE_PATTERN = re.compile(r"(\d+)\+?\s*d(?:ays?)?\s*ago", re.I)
-    _HOURS_PATTERN = re.compile(r"(\d+)\s*h(?:ours?)?\s*ago", re.I)
-    _TODAY_PATTERN = re.compile(r"\b(today|just\s+now)\b", re.I)
-    _YESTERDAY_PATTERN = re.compile(r"\byesterday\b", re.I)
-
-    @classmethod
-    def extract_days_ago(cls, text):
-        """ENHANCED: Handles "+", "1mo", absolute dates, with detailed logging"""
-        if not text:
-            return None
-
-        try:
-            text_lower = text.lower()
-
-            if cls._TODAY_PATTERN.search(text_lower):
-                return 0
-
-            if cls._YESTERDAY_PATTERN.search(text_lower):
-                return 1
-
-            match = cls._HOURS_PATTERN.search(text_lower)
-            if match:
-                return 0
-
-            month_match = re.search(r"(\d+)\+?\s*mo(?:nth)?s?\s*ago", text_lower)
-            if month_match:
-                months = int(month_match.group(1))
-                days = months * 30
-                has_plus = "+" in month_match.group(0)
-
-                context_start = max(0, month_match.start() - 40)
-                context_end = min(len(text_lower), month_match.end() + 40)
-                context = text_lower[context_start:context_end]
-
-                logging.debug(
-                    f"Age extraction: {months}mo ({days} days) | Plus: {has_plus} | Text: '...{context}...'"
+            is_valid_title, reason = TitleProcessor.is_valid_job_title(title)
+            if not is_valid_title:
+                self.outcomes["skipped_invalid_title"] += 1
+                logging.info(
+                    f"REJECTED | {company} | {title} | Invalid title: {reason}"
                 )
+                return None
 
-                if has_plus:
-                    return days + 1
-
-                if 0 <= days <= MAX_REASONABLE_AGE_DAYS:
-                    return days
-                else:
-                    return None
-
-            match = re.search(r"(\d+)(\+)?\s*d(?:ays?)?\s*ago", text_lower)
-            if match:
-                days = int(match.group(1))
-                has_plus = match.group(2) is not None
-
-                context_start = max(0, match.start() - 40)
-                context_end = min(len(text_lower), match.end() + 40)
-                context = text_lower[context_start:context_end]
-
-                logging.debug(
-                    f"Age extraction: {days} days | Plus: {has_plus} | Text: '...{context}...'"
+            is_internship, intern_reason = TitleProcessor.is_internship_role(
+                title, page_text=soup.get_text()[:5000] if soup else ""
+            )
+            if not is_internship:
+                self.outcomes["skipped_senior_role"] += 1
+                self._add_discarded(
+                    company,
+                    title,
+                    location_hint,
+                    "Unknown",
+                    final_url or url,
+                    "N/A",
+                    "Full Time",
+                    source,
+                    intern_reason,
                 )
+                logging.info(f"REJECTED | {company} | {title} | {intern_reason}")
+                return None
 
-                if has_plus:
-                    return days + 1
+            season_ok, season_reason = TitleProcessor.check_season_requirement(
+                title, page_text=soup.get_text()[:5000] if soup else ""
+            )
+            if not season_ok:
+                self.outcomes["skipped_wrong_season"] += 1
+                self._add_discarded(
+                    company,
+                    title,
+                    location_hint,
+                    "Unknown",
+                    final_url or url,
+                    "N/A",
+                    "Internship",
+                    source,
+                    season_reason,
+                )
+                logging.info(f"REJECTED | {company} | {title} | {season_reason}")
+                return None
 
-                if 0 <= days <= MAX_REASONABLE_AGE_DAYS:
-                    return days
-                else:
-                    logging.debug(
-                        f"Age {days} exceeds MAX_REASONABLE_AGE_DAYS ({MAX_REASONABLE_AGE_DAYS})"
-                    )
-                    return None
+            is_tech = TitleProcessor.is_cs_engineering_role(
+                title, description=soup.get_text()[:3000] if soup else ""
+            )
+            if not is_tech:
+                self.outcomes["skipped_non_tech"] += 1
+                self._add_discarded(
+                    company,
+                    title,
+                    location_hint,
+                    "Unknown",
+                    final_url or url,
+                    "N/A",
+                    "Internship",
+                    source,
+                    "Not a CS/Engineering role",
+                )
+                logging.info(
+                    f"REJECTED | {company} | {title} | Not CS/Engineering role"
+                )
+                return None
 
-            if DATEUTIL_AVAILABLE:
-                try:
-                    parsed_date = parse_date_flexible(text)
-                    if parsed_date:
-                        from datetime import datetime
+            company_lower = company.lower().strip()
+            if any(bl.lower() == company_lower for bl in COMPANY_BLACKLIST):
+                reason = COMPANY_BLACKLIST_REASONS.get(company, "Blacklisted company")
+                self.outcomes["skipped_blacklisted"] += 1
+                self._add_discarded(
+                    company,
+                    title,
+                    location_hint,
+                    "Unknown",
+                    final_url or url,
+                    "N/A",
+                    "Internship",
+                    source,
+                    reason,
+                )
+                logging.info(f"REJECTED | {company} | {title} | Blacklisted: {reason}")
+                return None
 
-                        now = datetime.now()
-                        days_diff = (now - parsed_date).days
+            location = LocationExtractor.extract_all_methods(
+                final_url or url,
+                soup,
+                title=title,
+                platform=platform,
+                page_source=page_source or "",
+            )
+            if (
+                (not location or location == "Unknown")
+                and location_hint
+                and location_hint != "Unknown"
+            ):
+                location = location_hint
 
-                        if days_diff < 0:
-                            if days_diff > -7:
-                                logging.debug(
-                                    f"Future date by {abs(days_diff)} days ('{text}') - treating as today"
-                                )
-                                return 0
-                            else:
-                                logging.warning(
-                                    f"Future date: {parsed_date} from '{text}' - ignoring"
-                                )
-                                return None
+            international_check = LocationProcessor.check_if_international(
+                location, soup=soup, url=final_url or url, title=title
+            )
+            if international_check:
+                self.outcomes["skipped_international"] += 1
+                self._add_discarded(
+                    company,
+                    title,
+                    location,
+                    "Unknown",
+                    final_url or url,
+                    "N/A",
+                    "Internship",
+                    source,
+                    international_check,
+                )
+                logging.info(f"REJECTED | {company} | {title} | {international_check}")
+                return None
 
-                        if days_diff < -60:
-                            try:
-                                adjusted_date = parsed_date.replace(
-                                    year=parsed_date.year - 1
-                                )
-                                days_diff = (now - adjusted_date).days
+            company_intl = LocationProcessor.check_company_for_international(company)
+            if company_intl:
+                self.outcomes["skipped_international"] += 1
+                self._add_discarded(
+                    company,
+                    title,
+                    location,
+                    "Unknown",
+                    final_url or url,
+                    "N/A",
+                    "Internship",
+                    source,
+                    company_intl,
+                )
+                logging.info(f"REJECTED | {company} | {title} | {company_intl}")
+                return None
 
-                                if days_diff < 0:
-                                    logging.debug(
-                                        f"Date still future after year adjustment - ignoring"
-                                    )
-                                    return None
+            page_decision, page_reason, _ = ValidationHelper.check_page_restrictions(
+                soup
+            )
+            if page_decision == "REJECT":
+                self.outcomes["skipped_page_restriction"] += 1
+                self._add_discarded(
+                    company,
+                    title,
+                    location,
+                    "Unknown",
+                    final_url or url,
+                    "N/A",
+                    "Internship",
+                    source,
+                    page_reason,
+                )
+                logging.info(f"REJECTED | {company} | {title} | {page_reason}")
+                return None
 
-                            except (ValueError, OverflowError):
-                                return None
+            page_age = ValidationHelper.extract_page_age(soup)
+            if page_age is not None and page_age > PAGE_AGE_THRESHOLD_DAYS:
+                self.outcomes["skipped_too_old"] += 1
+                self._add_discarded(
+                    company,
+                    title,
+                    location,
+                    "Unknown",
+                    final_url or url,
+                    "N/A",
+                    "Internship",
+                    source,
+                    f"Posted {page_age} days ago (max {PAGE_AGE_THRESHOLD_DAYS})",
+                )
+                logging.info(f"REJECTED | {company} | {title} | Posted {page_age}d ago")
+                return None
 
-                        if days_diff > MAX_REASONABLE_AGE_DAYS:
-                            logging.warning(
-                                f"Unreasonably old: {days_diff} days from '{text}' - ignoring"
-                            )
-                            return None
+            remote = LocationProcessor.extract_remote_status_enhanced(
+                soup,
+                location,
+                final_url or url,
+                description=soup.get_text()[:2000] if soup else "",
+            )
+            job_id = PageParser.extract_job_id(soup, final_url or url)
+            sponsorship = ValidationHelper.check_sponsorship_status(soup)
 
-                        if days_diff >= 0 and days_diff <= MAX_REASONABLE_AGE_DAYS:
-                            logging.debug(
-                                f"Absolute date extracted: {days_diff} days from '{text}'"
-                            )
-                            return days_diff
+            job_data = {
+                "company": company,
+                "title": title,
+                "location": location,
+                "remote": remote,
+                "url": final_url or url,
+                "job_id": job_id if job_id else "N/A",
+                "job_type": "Internship",
+                "sponsorship": sponsorship,
+                "entry_date": self._format_date(),
+                "source": source,
+            }
 
-                        return None
+            quality = QualityScorer.calculate_score(job_data)
+            if quality < MIN_QUALITY_SCORE:
+                self.outcomes["skipped_low_quality"] += 1
+                logging.info(f"REJECTED | {company} | {title} | Low quality: {quality}")
+                return None
 
-                except Exception as e:
-                    logging.debug(f"Flexible date parsing failed for '{text}': {e}")
-                    pass
-
-        except Exception as e:
-            logging.debug(f"Date parsing failed for '{text}': {e}")
-
-        return None
-
-
-# ============================================================================
-# Quality Scorer - ORIGINAL
-# ============================================================================
-
-
-class QualityScorer:
-    @staticmethod
-    def calculate_score(job_data):
-        score = 0
-
-        try:
-            company = job_data.get("company", "Unknown")
-            if company and company not in ["Unknown", "N/A"] and len(company) > 2:
-                score += 3
-
-            location = job_data.get("location", "Unknown")
-            if location and location != "Unknown":
-                score += 2
-
-            job_id = job_data.get("job_id", "N/A")
+            self.valid_jobs.append(job_data)
+            self.outcomes["valid"] += 1
+            self.existing_urls.add(URLCleaner.clean_url(final_url or url))
+            self.existing_jobs.add(URLCleaner.normalize_text(f"{company}_{title}"))
             if job_id and job_id != "N/A" and not job_id.startswith("HASH_"):
-                score += 1
+                self.existing_job_ids.add(job_id.lower())
 
-            title = job_data.get("title", "")
-            if 15 < len(title) < 120:
-                score += 1
-
-        except Exception as e:
-            logging.debug(f"Quality scoring failed: {e}")
-
-        return score
-
-    @staticmethod
-    def is_acceptable_quality(score, min_score=4):
-        return score >= min_score
-
-
-class DataSanitizer:
-    _EMOJI_PATTERN = re.compile(
-        "["
-        "\U0001f600-\U0001f64f"
-        "\U0001f300-\U0001f5ff"
-        "\U0001f680-\U0001f6ff"
-        "\U0001f1e0-\U0001f1ff"
-        "\U0001f900-\U0001f9ff"
-        "\U0001fa00-\U0001fa6f"
-        "\U00002600-\U000026ff"
-        "\U00002700-\U000027bf"
-        "\U00002702-\U000027b0"
-        "\U000024c2-\U0001f251"
-        "]+",
-        flags=re.UNICODE,
-    )
-
-    _HTML_ENTITIES = {
-        "&amp;": "&",
-        "&nbsp;": " ",
-        "&quot;": '"',
-        "&apos;": "'",
-        "&lt;": "<",
-        "&gt;": ">",
-        "&#39;": "'",
-        "&#x27;": "'",
-    }
-
-    @classmethod
-    def sanitize_all_fields(cls, job_data):
-        sanitized = {}
-
-        sanitized["company"] = cls.sanitize_company(job_data.get("company", "Unknown"))
-        sanitized["title"] = cls.sanitize_title(job_data.get("title", "Unknown"))
-        sanitized["location"] = cls.sanitize_location(
-            job_data.get("location", "Unknown")
-        )
-        sanitized["remote"] = job_data.get("remote", "Unknown")
-        sanitized["url"] = job_data.get("url", "")
-        sanitized["job_id"] = cls.sanitize_job_id(job_data.get("job_id", "N/A"))
-        sanitized["sponsorship"] = cls.sanitize_sponsorship(
-            job_data.get("sponsorship", "Unknown")
-        )
-        sanitized["job_type"] = job_data.get("job_type", "Internship")
-        sanitized["entry_date"] = job_data.get("entry_date", "")
-        sanitized["source"] = job_data.get("source", "Unknown")
-
-        if "reason" in job_data:
-            sanitized["reason"] = job_data["reason"]
-
-        return sanitized
-
-    @classmethod
-    def sanitize_title(cls, title):
-        if not title or title == "Unknown":
-            return title
-
-        try:
-            text = str(title)
-
-            from config import DATA_SANITIZATION_PREFERENCES, FIELD_PREFIXES_TO_REMOVE
-
-            if DATA_SANITIZATION_PREFERENCES.get("remove_emojis", True):
-                text = cls._remove_emojis(text)
-
-            if DATA_SANITIZATION_PREFERENCES.get("normalize_unicode", True):
-                text = cls._normalize_unicode(text)
-
-            if DATA_SANITIZATION_PREFERENCES.get("decode_html_entities", True):
-                text = cls._decode_html_entities(text)
-
-            if DATA_SANITIZATION_PREFERENCES.get("strip_field_prefixes", True):
-                for prefix in FIELD_PREFIXES_TO_REMOVE:
-                    if text.startswith(prefix):
-                        text = text[len(prefix) :].strip()
-                        break
-
-            if DATA_SANITIZATION_PREFERENCES.get("trim_whitespace", True):
-                text = re.sub(r"\s+", " ", text).strip()
-
-            return text if text else "Unknown"
+            logging.info(f"ACCEPTED | {company} | {title} | {location} | {source}")
+            return job_data
 
         except Exception as e:
-            logging.debug(f"Title sanitization failed: {e}")
-            return title
+            logging.error(f"Processing failed for {url}: {e}", exc_info=True)
+            return None
 
-    @classmethod
-    def sanitize_company(cls, company):
-        if not company or company == "Unknown":
-            return company
-
-        try:
-            text = str(company)
-
-            from config import DATA_SANITIZATION_PREFERENCES, FIELD_PREFIXES_TO_REMOVE
-
-            if DATA_SANITIZATION_PREFERENCES.get("remove_emojis", True):
-                text = cls._remove_emojis(text)
-
-            if DATA_SANITIZATION_PREFERENCES.get("normalize_unicode", True):
-                text = cls._normalize_unicode(text)
-
-            if DATA_SANITIZATION_PREFERENCES.get("decode_html_entities", True):
-                text = cls._decode_html_entities(text)
-
-            if DATA_SANITIZATION_PREFERENCES.get("strip_field_prefixes", True):
-                for prefix in FIELD_PREFIXES_TO_REMOVE:
-                    if text.startswith(prefix):
-                        text = text[len(prefix) :].strip()
-                        break
-
-            if DATA_SANITIZATION_PREFERENCES.get("trim_whitespace", True):
-                text = re.sub(r"\s+", " ", text).strip()
-
-            if not text or len(text) < 2:
-                return "Unknown"
-
-            return text
-
-        except Exception as e:
-            logging.debug(f"Company sanitization failed: {e}")
-            return company
-
-    @classmethod
-    def sanitize_location(cls, location):
-        if not location or location == "Unknown":
-            return "Unknown"
-
-        try:
-            text = str(location)
-
-            from config import (
-                DATA_SANITIZATION_PREFERENCES,
-                FIELD_PREFIXES_TO_REMOVE,
-                FULL_STATE_NAMES,
-                CITY_TO_STATE_FALLBACK,
-                validate_us_state_code,
-            )
-
-            if DATA_SANITIZATION_PREFERENCES.get("remove_emojis", True):
-                text = cls._remove_emojis(text)
-
-            if DATA_SANITIZATION_PREFERENCES.get("normalize_unicode", True):
-                text = cls._normalize_unicode(text)
-
-            if DATA_SANITIZATION_PREFERENCES.get("decode_html_entities", True):
-                text = cls._decode_html_entities(text)
-
-            if DATA_SANITIZATION_PREFERENCES.get("strip_field_prefixes", True):
-                for prefix in FIELD_PREFIXES_TO_REMOVE:
-                    if text.startswith(prefix):
-                        text = text[len(prefix) :].strip()
-                        break
-
-            if DATA_SANITIZATION_PREFERENCES.get("trim_whitespace", True):
-                text = re.sub(r"\s+", " ", text).strip()
-
-            if text and len(text) > 15 and not re.search(r"[,\s-]", text):
-                return "Unknown"
-
-            if DATA_SANITIZATION_PREFERENCES.get("validate_garbage_locations", True):
-                if cls._is_garbage_location(text):
-                    return "Unknown"
-
-            if "," in text and text.count(",") > 1:
-                text = cls._parse_multi_location(text)
-
-            if DATA_SANITIZATION_PREFERENCES.get("standardize_location_format", True):
-                text = cls._standardize_location_format(text)
-
-            return text if text else "Unknown"
-
-        except Exception as e:
-            logging.debug(f"Location sanitization failed: {e}")
-            return location
-
-    @classmethod
-    def sanitize_job_id(cls, job_id):
-        if not job_id:
-            return "N/A"
-
-        try:
-            text = str(job_id).strip()
-
-            from config import JOB_ID_PREFERENCES
-
-            if text.startswith("HASH_"):
-                if not JOB_ID_PREFERENCES.get("hash_fallback_enabled", False):
-                    return JOB_ID_PREFERENCES.get("fallback_value", "N/A")
-
-            return text if text else "N/A"
-
-        except Exception as e:
-            logging.debug(f"Job ID sanitization failed: {e}")
-            return job_id
-
-    @classmethod
-    def sanitize_sponsorship(cls, sponsorship):
-        if not sponsorship:
-            return "Unknown"
-
-        try:
-            text = str(sponsorship).strip()
-
-            from config import DATA_SANITIZATION_PREFERENCES
-
-            if DATA_SANITIZATION_PREFERENCES.get("normalize_sponsorship_values", True):
-                if "unknown" in text.lower():
-                    return "Unknown"
-                if text.lower() in ["yes", "no"]:
-                    return text.capitalize()
-
-            return text if text else "Unknown"
-
-        except Exception as e:
-            logging.debug(f"Sponsorship sanitization failed: {e}")
-            return sponsorship
-
-    @classmethod
-    def _remove_emojis(cls, text):
-        if not text:
-            return text
-        return cls._EMOJI_PATTERN.sub("", text)
-
-    @classmethod
-    def _normalize_unicode(cls, text):
-        if not text:
-            return text
-
-        try:
-            import unicodedata
-
-            nfd = unicodedata.normalize("NFD", text)
-            ascii_text = "".join(
-                char for char in nfd if unicodedata.category(char) != "Mn"
-            )
-            return ascii_text
-        except Exception:
-            return text
-
-    @classmethod
-    def _decode_html_entities(cls, text):
-        if not text:
-            return text
-
-        try:
-            import html
-
-            text = html.unescape(text)
-
-            for entity, replacement in cls._HTML_ENTITIES.items():
-                text = text.replace(entity, replacement)
-
-            return text
-        except Exception:
-            return text
-
-    @classmethod
-    def _is_garbage_location(cls, text):
-        if not text or text == "Unknown":
-            return False
-
-        text_clean = text.strip()
-        text_lower = text_clean.lower()
-
-        if text_clean.startswith(","):
+    def _is_duplicate(self, company, title, url, job_id="N/A"):
+        clean_url = URLCleaner.clean_url(url)
+        if clean_url in self.existing_urls or clean_url in self.processing_lock:
+            self.outcomes["skipped_duplicate_url"] += 1
             return True
 
-        try:
-            from config import US_STATES_FALLBACK
-
-            if text_clean.upper() in US_STATES_FALLBACK and len(text_clean) == 2:
-                return True
-        except (ImportError, AttributeError):
-            pass
-
-        if re.match(r"^\d+", text):
+        norm_key = URLCleaner.normalize_text(f"{company}_{title}")
+        if norm_key in self.existing_jobs:
+            self.outcomes["skipped_duplicate_company_title"] += 1
             return True
 
-        if any(
-            word in text_lower
-            for word in ["hospital", "patient", "office building", "headquarters only"]
+        if (
+            job_id
+            and job_id != "N/A"
+            and not job_id.startswith("HASH_")
+            and job_id.lower() in self.existing_job_ids
         ):
+            self.outcomes["skipped_duplicate_job_id"] += 1
             return True
 
-        if len(text) > 100:
-            return True
-
-        try:
-            from config import GARBAGE_LOCATION_PATTERNS
-
-            if any(phrase in text_lower for phrase in GARBAGE_LOCATION_PATTERNS):
-                return True
-        except (ImportError, AttributeError):
-            pass
-
-        garbage_phrases = [
-            "as well as",
-            "in accordance with",
-            "equal opportunity",
-            "without regard to",
-            "more search options",
-        ]
-        if any(phrase in text_lower for phrase in garbage_phrases):
-            return True
-
+        self.processing_lock.add(clean_url)
         return False
 
-    @classmethod
-    def _parse_multi_location(cls, location_text):
-        if not location_text or "," not in location_text:
-            return location_text
+    def _is_duplicate_url(self, url):
+        clean_url = URLCleaner.clean_url(url)
+        return clean_url in self.existing_urls or clean_url in self.processing_lock
 
-        try:
-            from config import (
-                CITY_TO_STATE_FALLBACK,
-                FULL_STATE_NAMES,
-                validate_us_state_code,
+    def _add_discarded(
+        self,
+        company,
+        title,
+        location,
+        remote,
+        url,
+        job_id,
+        job_type,
+        source,
+        reason,
+    ):
+        self.discarded_jobs.append(
+            {
+                "company": company,
+                "title": title,
+                "location": location,
+                "remote": remote,
+                "url": url,
+                "job_id": job_id,
+                "job_type": job_type,
+                "source": source,
+                "reason": reason,
+                "entry_date": self._format_date(),
+                "sponsorship": "Unknown",
+            }
+        )
+        self.outcomes["discarded"] += 1
+
+    def _ensure_mutual_exclusion(self):
+        if not self.valid_jobs or not self.discarded_jobs:
+            return
+        valid_keys = {
+            (
+                URLCleaner.normalize_text(j["company"]),
+                URLCleaner.normalize_text(j["title"]),
             )
+            for j in self.valid_jobs
+        }
+        discarded_keys = {
+            (
+                URLCleaner.normalize_text(j["company"]),
+                URLCleaner.normalize_text(j["title"]),
+            )
+            for j in self.discarded_jobs
+        }
+        overlap = valid_keys & discarded_keys
+        if overlap:
+            self.valid_jobs = [
+                j
+                for j in self.valid_jobs
+                if (
+                    URLCleaner.normalize_text(j["company"]),
+                    URLCleaner.normalize_text(j["title"]),
+                )
+                not in overlap
+            ]
+            self.outcomes["valid"] = len(self.valid_jobs)
 
-            segments = [s.strip() for s in location_text.split(",")]
+    def _print_summary(self):
+        print("\n" + "=" * 80)
+        print("SUMMARY:")
+        print("=" * 80)
+        summary_items = [
+            ("✓ Valid", self.outcomes["valid"]),
+            ("✗ Discarded", self.outcomes["discarded"]),
+            ("⊘ Duplicate URL", self.outcomes["skipped_duplicate_url"]),
+            ("⊘ Duplicate job", self.outcomes["skipped_duplicate_company_title"]),
+            ("⊘ Duplicate ID", self.outcomes["skipped_duplicate_job_id"]),
+            ("⊘ Too old", self.outcomes["skipped_too_old"]),
+            ("⊘ Wrong season", self.outcomes["skipped_wrong_season"]),
+            ("⊘ Senior role", self.outcomes["skipped_senior_role"]),
+            ("⊘ Non-tech", self.outcomes["skipped_non_tech"]),
+            ("⊘ Invalid title", self.outcomes["skipped_invalid_title"]),
+            ("⊘ International", self.outcomes["skipped_international"]),
+            ("⊘ Blacklisted", self.outcomes["skipped_blacklisted"]),
+            ("⊘ Page restriction", self.outcomes["skipped_page_restriction"]),
+            ("⊘ Low quality", self.outcomes["skipped_low_quality"]),
+            ("✗ HTTP failed", self.outcomes["failed_http"]),
+            ("✗ Parse failed", self.outcomes["failed_parse"]),
+        ]
+        for label, count in summary_items:
+            if count > 0:
+                print(f"  {label}: {count}")
+        print("=" * 80)
 
-            for i in range(len(segments) - 1):
-                city = segments[i]
-                state_candidate = segments[i + 1]
+    @staticmethod
+    def _parse_github_age(age_str):
+        if not age_str:
+            return None
+        match = re.match(r"^(\d+)d$", age_str.lower())
+        if match:
+            return int(match.group(1))
+        match = re.match(r"^(\d+)mo$", age_str.lower())
+        if match:
+            return int(match.group(1)) * 30
+        return DateParser.extract_days_ago(age_str)
 
-                if len(state_candidate) == 2 and validate_us_state_code(
-                    state_candidate
-                ):
-                    return f"{city}, {state_candidate.upper()}"
+    @staticmethod
+    def _format_date():
+        return datetime.datetime.now().strftime("%d %B, %I:%M %p")
 
-            for segment in segments:
-                segment_lower = segment.lower()
+    @staticmethod
+    def _looks_like_title(text):
+        if not text:
+            return False
+        return (
+            sum(
+                1
+                for kw in {"intern", "co-op", "engineer", "developer", "software"}
+                if kw in text.lower()
+            )
+            >= 2
+        )
 
-                if segment_lower in CITY_TO_STATE_FALLBACK:
-                    state = CITY_TO_STATE_FALLBACK[segment_lower]
-                    return f"{segment.title()}, {state}"
-
-                if segment_lower in FULL_STATE_NAMES:
-                    state_code = FULL_STATE_NAMES[segment_lower]
-                    if i > 0:
-                        potential_city = segments[i - 1]
-                        return f"{potential_city}, {state_code}"
-
-            return location_text
-
-        except Exception as e:
-            logging.debug(f"Multi-location parsing failed: {e}")
-            return location_text
-
-    @classmethod
-    def _standardize_location_format(cls, location):
-        if not location or location in ["Unknown", "Remote", "Hybrid"]:
-            return location
-
+    @staticmethod
+    def _safe_scrape(url, source_name):
         try:
-            from config import validate_us_state_code, FULL_STATE_NAMES
-
-            text = location.strip()
-
-            text = re.sub(r"^locations?\s*", "", text, flags=re.I)
-            text = re.sub(r"^location\s+", "", text, flags=re.I)
-
-            text = re.sub(r"\.{2,}", ".", text)
-            text = re.sub(r"\s*\.\s*", ", ", text)
-
-            text = re.sub(r"\s*-\s*", ", ", text)
-
-            match = re.search(r"^([A-Z]{2})\s*[,-]\s*(.+)$", text)
-            if match:
-                state, city = match.groups()
-                if validate_us_state_code(state):
-                    text = f"{city.strip()}, {state}"
-
-            match = re.search(r"(.+?)\s*,\s*([A-Z]{2})(?:\s|$)", text)
-            if match:
-                city, state = match.groups()
-                if validate_us_state_code(state):
-                    return f"{city.strip()}, {state.upper()}"
-
-            for full_name, code in FULL_STATE_NAMES.items():
-                pattern = rf"\b{full_name}\b"
-                if re.search(pattern, text, re.I):
-                    text = re.sub(pattern, code, text, flags=re.I)
-                    break
-
-            text = re.sub(r"\s+", " ", text).strip()
-
-            return text
-
+            return SimplifyGitHubScraper.scrape(url, source_name=source_name)
         except Exception as e:
-            logging.debug(f"Location standardization failed: {e}")
-            return location
+            print(f"  ✗ {source_name} error: {e}")
+            logging.error(f"{source_name} scraping failed: {e}")
+            return []
+
+
+if __name__ == "__main__":
+    aggregator = UnifiedJobAggregator()
+    aggregator.run()
