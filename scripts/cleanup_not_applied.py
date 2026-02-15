@@ -17,7 +17,7 @@ from pathlib import Path
 SHEET_NAME = "H1B visa"
 WORKSHEET_NAME = "Valid Entries"
 REVIEWED_WORKSHEET = "Reviewed - Not Applied"
-CREDS_FILE = "credentials.json"
+CREDS_FILE = os.path.join(".local", "credentials.json")
 
 BACKUP_FOLDER = "../job-tracker-secrets"
 BACKUP_TRACKING_FILE = "last_backup_date.txt"

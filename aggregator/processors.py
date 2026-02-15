@@ -5,7 +5,7 @@ import json
 import logging
 from functools import lru_cache
 
-from config import (
+from aggregator.config import (
     CANADA_PROVINCES,
     CANADA_PROVINCE_NAMES,
     MAJOR_CANADIAN_CITIES,
@@ -44,7 +44,7 @@ from config import (
     MAX_REASONABLE_AGE_DAYS,
 )
 
-from utils import (
+from aggregator.utils import (
     ExtractionResult,
     ExtractionVoter,
     CompanyNormalizer,
@@ -150,7 +150,7 @@ class TitleProcessor:
         title_lower = title.lower()
 
         try:
-            from config import INVALID_TITLE_KEYWORDS
+            from aggregator.config import INVALID_TITLE_KEYWORDS
         except (ImportError, AttributeError):
             INVALID_TITLE_KEYWORDS = []
 
@@ -180,7 +180,7 @@ class TitleProcessor:
         title_lower = title.lower()
 
         try:
-            from config import GUARANTEED_TECHNICAL_PHRASES
+            from aggregator.config import GUARANTEED_TECHNICAL_PHRASES
 
             for phrase in GUARANTEED_TECHNICAL_PHRASES:
                 if phrase in title_lower:
@@ -198,7 +198,7 @@ class TitleProcessor:
                 return True
 
         try:
-            from config import TECHNICAL_PATTERNS
+            from aggregator.config import TECHNICAL_PATTERNS
 
             for pattern in TECHNICAL_PATTERNS:
                 if re.search(pattern, combined_text):
@@ -231,7 +231,7 @@ class TitleProcessor:
     @staticmethod
     def is_internship_role(title, job_type="", page_text=""):
         try:
-            from config import (
+            from aggregator.config import (
                 VALID_INTERNSHIP_TYPES,
                 INTERNSHIP_INDICATORS,
                 GRADUATE_PROGRAM_PATTERNS,
@@ -330,7 +330,7 @@ class TitleProcessor:
     @staticmethod
     def check_season_requirement(title, page_text=""):
         try:
-            from config import PAGE_TEXT_STANDARD_SCAN
+            from aggregator.config import PAGE_TEXT_STANDARD_SCAN
         except (ImportError, AttributeError):
             PAGE_TEXT_STANDARD_SCAN = 5000
 
@@ -498,7 +498,7 @@ class JobIDExtractor:
             return best_result.value
 
         try:
-            from config import JOB_ID_PREFERENCES
+            from aggregator.config import JOB_ID_PREFERENCES
 
             return JOB_ID_PREFERENCES.get("fallback_value", "N/A")
         except (ImportError, AttributeError):
@@ -1048,7 +1048,7 @@ class LocationProcessor:
             page_text = soup.get_text()[:2000].lower()
 
             try:
-                from config import ENHANCED_REMOTE_PATTERNS
+                from aggregator.config import ENHANCED_REMOTE_PATTERNS
 
                 for pattern in ENHANCED_REMOTE_PATTERNS:
                     if pattern in page_text[:500]:
@@ -1075,7 +1075,7 @@ class LocationProcessor:
     @staticmethod
     def check_if_international(location, soup=None, url=None, title=""):
         try:
-            from config import (
+            from aggregator.config import (
                 INTERNATIONAL_URL_INDICATORS,
                 INTERNATIONAL_TEXT_INDICATORS,
             )
@@ -1149,7 +1149,7 @@ class LocationProcessor:
                         return f"Location: Canada ({city.title()})"
 
             try:
-                from config import UK_CITIES
+                from aggregator.config import UK_CITIES
             except (ImportError, AttributeError):
                 UK_CITIES = ["london", "manchester", "edinburgh"]
 
@@ -1361,7 +1361,7 @@ class LocationProcessor:
             return location
 
         try:
-            from config import LOCATION_STOPWORDS, WORK_MODE_KEYWORDS, CURRENCY_CODES
+            from aggregator.config import LOCATION_STOPWORDS, WORK_MODE_KEYWORDS, CURRENCY_CODES
         except (ImportError, AttributeError):
             LOCATION_STOPWORDS = [
                 "responsibilities",
@@ -1399,7 +1399,7 @@ class LocationProcessor:
             return "Unknown"
 
         try:
-            from config import US_STATE_NAME_TO_CODE
+            from aggregator.config import US_STATE_NAME_TO_CODE
         except (ImportError, AttributeError):
             US_STATE_NAME_TO_CODE = {}
 
@@ -1474,7 +1474,7 @@ class ValidationHelper:
             return None, None
 
         try:
-            from config import HIGH_SCHOOL_ONLY_PATTERNS, PAGE_TEXT_FULL_SCAN
+            from aggregator.config import HIGH_SCHOOL_ONLY_PATTERNS, PAGE_TEXT_FULL_SCAN
         except (ImportError, AttributeError):
             return None, None
 
@@ -1516,7 +1516,7 @@ class ValidationHelper:
             return None, None
 
         try:
-            from config import PERMANENT_US_AUTHORIZATION_PATTERNS, PAGE_TEXT_FULL_SCAN
+            from aggregator.config import PERMANENT_US_AUTHORIZATION_PATTERNS, PAGE_TEXT_FULL_SCAN
         except (ImportError, AttributeError):
             return None, None
 
@@ -1558,7 +1558,7 @@ class ValidationHelper:
             return None, None
 
         try:
-            from config import NON_CS_UNDERGRADUATE_DEGREE_PATTERNS, PAGE_TEXT_FULL_SCAN
+            from aggregator.config import NON_CS_UNDERGRADUATE_DEGREE_PATTERNS, PAGE_TEXT_FULL_SCAN
         except (ImportError, AttributeError):
             return None, None
 
@@ -1609,7 +1609,7 @@ class ValidationHelper:
             return None, None
 
         try:
-            from config import PREFERRED_DEGREE_MISMATCH_PATTERNS, PAGE_TEXT_FULL_SCAN
+            from aggregator.config import PREFERRED_DEGREE_MISMATCH_PATTERNS, PAGE_TEXT_FULL_SCAN
         except (ImportError, AttributeError):
             return None, None
 
@@ -1751,8 +1751,8 @@ class ValidationHelper:
             return None
 
         try:
-            from utils import DateParser
-            from config import PAGE_TEXT_STANDARD_SCAN
+            from aggregator.utils import DateParser
+            from aggregator.config import PAGE_TEXT_STANDARD_SCAN
         except (ImportError, AttributeError):
             return None
 
@@ -1809,7 +1809,7 @@ class ValidationHelper:
 
                     if age_days is not None:
                         try:
-                            from config import MAX_REASONABLE_AGE_DAYS
+                            from aggregator.config import MAX_REASONABLE_AGE_DAYS
                         except (ImportError, AttributeError):
                             MAX_REASONABLE_AGE_DAYS = 365
 
@@ -1971,7 +1971,7 @@ class ValidationHelper:
             return None, None
 
         try:
-            from config import (
+            from aggregator.config import (
                 ENHANCED_PHD_PATTERNS,
                 PHD_MS_FLEXIBILITY_KEYWORDS,
                 PAGE_TEXT_FULL_SCAN,
@@ -2088,7 +2088,7 @@ class ValidationHelper:
             return None, None
 
         try:
-            from config import CPT_OPT_EXCLUSION_PATTERNS, PAGE_TEXT_FULL_SCAN
+            from aggregator.config import CPT_OPT_EXCLUSION_PATTERNS, PAGE_TEXT_FULL_SCAN
         except (ImportError, AttributeError):
             return None, None
 
@@ -2145,7 +2145,7 @@ class ValidationHelper:
             return None, None
 
         try:
-            from config import (
+            from aggregator.config import (
                 US_PERSON_DOD_PATTERNS,
                 PAGE_TEXT_FULL_SCAN,
                 EXPORT_CONTROL_EXCLUSION_KEYWORDS,
@@ -2196,7 +2196,7 @@ class ValidationHelper:
             return None, None
 
         try:
-            from config import (
+            from aggregator.config import (
                 GEOGRAPHIC_ENROLLMENT_PATTERNS,
                 PAGE_TEXT_FULL_SCAN,
                 USER_LOCATION,
@@ -2678,7 +2678,7 @@ class CompanyExtractor:
             return name
 
         try:
-            from config import (
+            from aggregator.config import (
                 PORTAL_NAME_INDICATORS,
                 LEGAL_ENTITY_SUFFIXES,
                 DBA_INDICATORS,

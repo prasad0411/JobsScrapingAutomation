@@ -1,60 +1,29 @@
-# Credentials and tokens (CRITICAL!)
-credentials.json
-gmail_credentials.json
-gmail_token.pickle
-jobright_cookies.json
-nu_cookies.json
+# === Local data (secrets + generated) ===
+.local/
 
-# Data tracking files
-processed_emails.json
-failed_simplify_urls.json
-simplify_manual_review.txt
-workday_mapping.json
-last_backup_date.txt
-
-# Backup files
-*_backup.zip
-job_tracker_*.zip
-secrets_*.zip
-backup.log
-backup_cron.log
-
-# Log files
-*.log
-job_scraper.log
-skipped_jobs.log
-
-# Python cache
-__pycache__/
-*.pyc
-*.pyo
-*.pyd
-.Python
-
-# Virtual environment
+# === Environment ===
+.env
 venv/
-venw/
 ENV/
 env/
 
-# IDE settings
+# === Python ===
+__pycache__/
+*.pyc
+*.pyo
+
+# === IDE ===
 .vscode/
 .idea/
 
-# OS files
+# === OS ===
 .DS_Store
 Thumbs.db
 
-# Session files
-*_session.py
-*_session.pkl
-handshake_session.pkl
-capture_handshake_session.py
+# === Migration backup ===
+_backup/
+migrate_structure.py
+migrate_structure_v2.py
 
-# Environment variables
-.env
-
-# Secret logic files (if you create them)
-secret_patterns.py
-validation_rules.py
-proprietary_logic.py
+# === Screenshots ===
+screenshots/

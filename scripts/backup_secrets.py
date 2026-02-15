@@ -25,7 +25,7 @@ def backup_to_private_repo():
     print("AUTOMATED BACKUP TO PRIVATE REPO")
     print("=" * 80)
 
-    project_dir = Path(__file__).parent
+    project_dir = Path(__file__).parent.parent  # scripts/ → root
     backup_dir = project_dir / BACKUP_FOLDER
 
     if not backup_dir.exists():
@@ -37,7 +37,7 @@ def backup_to_private_repo():
     missing = []
 
     for filename in FILES_TO_BACKUP:
-        source = project_dir / filename
+        source = project_dir / ".local" / filename
         destination = backup_dir / filename
 
         if source.exists():

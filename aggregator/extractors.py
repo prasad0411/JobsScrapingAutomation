@@ -32,7 +32,7 @@ from google_auth_oauthlib.flow import InstalledAppFlow
 from google.auth.transport.requests import Request
 from googleapiclient.discovery import build
 
-from config import (
+from aggregator.config import (
     USER_AGENTS,
     GMAIL_CREDS_FILE,
     GMAIL_TOKEN_FILE,
@@ -55,8 +55,8 @@ from config import (
     FAILED_SIMPLIFY_CACHE,
 )
 
-from utils import PlatformDetector, CompanyNormalizer, CompanyValidator, DateParser
-from processors import (
+from aggregator.utils import PlatformDetector, CompanyNormalizer, CompanyValidator, DateParser
+from aggregator.processors import (
     JobIDExtractor,
     LocationExtractor,
     CompanyExtractor,
@@ -241,7 +241,7 @@ class SimplifyRedirectResolver:
                     return response.url
 
             if response and response.status_code == 200:
-                from extractors import safe_parse_html
+                from aggregator.extractors import safe_parse_html
 
                 soup, _ = safe_parse_html(response.text)
                 if soup:

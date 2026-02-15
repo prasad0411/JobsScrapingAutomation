@@ -106,12 +106,12 @@ WORKSHEET_NAME = "Valid Entries"
 DISCARDED_WORKSHEET = "Discarded Entries"
 REVIEWED_WORKSHEET = "Reviewed - Not Applied"
 
-SHEETS_CREDS_FILE = "credentials.json"
-GMAIL_CREDS_FILE = "gmail_credentials.json"
-GMAIL_TOKEN_FILE = "gmail_token.pickle"
-JOBRIGHT_COOKIES_FILE = "jobright_cookies.json"
-PROCESSED_EMAILS_FILE = "processed_emails.json"
-FAILED_SIMPLIFY_CACHE = "failed_simplify_urls.json"
+SHEETS_CREDS_FILE = os.path.join(".local", "credentials.json")
+GMAIL_CREDS_FILE = os.path.join(".local", "gmail_credentials.json")
+GMAIL_TOKEN_FILE = os.path.join(".local", "gmail_token.pickle")
+JOBRIGHT_COOKIES_FILE = os.path.join(".local", "jobright_cookies.json")
+PROCESSED_EMAILS_FILE = os.path.join(".local", "processed_emails.json")
+FAILED_SIMPLIFY_CACHE = os.path.join(".local", "failed_simplify_urls.json")
 
 SIMPLIFY_URL = "https://raw.githubusercontent.com/SimplifyJobs/Summer2026-Internships/master/README.md"
 VANSHB03_URL = (

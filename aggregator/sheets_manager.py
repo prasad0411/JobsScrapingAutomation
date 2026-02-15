@@ -6,7 +6,7 @@ import re
 from functools import lru_cache
 from oauth2client.service_account import ServiceAccountCredentials
 
-from config import (
+from aggregator.config import (
     SHEET_NAME,
     WORKSHEET_NAME,
     DISCARDED_WORKSHEET,
@@ -111,7 +111,7 @@ class SheetsManager:
                 ):
                     existing["job_ids"].add(job_id.lower())
 
-        from config import SHOW_LOADING_STATS
+        from aggregator.config import SHOW_LOADING_STATS
 
         if SHOW_LOADING_STATS:
             print(
@@ -222,7 +222,7 @@ class SheetsManager:
 
         self.ensure_sufficient_rows(self.valid_sheet)
 
-        from utils import DataSanitizer
+        from aggregator.utils import DataSanitizer
 
         sanitized_jobs = [DataSanitizer.sanitize_all_fields(job) for job in jobs]
 
@@ -255,7 +255,7 @@ class SheetsManager:
 
         self.ensure_sufficient_rows(self.discarded_entries)
 
-        from utils import DataSanitizer
+        from aggregator.utils import DataSanitizer
 
         sanitized_jobs = [DataSanitizer.sanitize_all_fields(job) for job in jobs]
 

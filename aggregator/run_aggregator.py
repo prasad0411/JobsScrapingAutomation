@@ -10,7 +10,7 @@ import logging
 from collections import defaultdict
 from bs4 import BeautifulSoup
 
-from config import (
+from aggregator.config import (
     SIMPLIFY_URL,
     VANSHB03_URL,
     MAX_JOB_AGE_DAYS,
@@ -30,7 +30,7 @@ from config import (
     SHOW_GITHUB_COUNTS,
 )
 
-from extractors import (
+from aggregator.extractors import (
     EmailExtractor,
     PageFetcher,
     PageParser,
@@ -43,7 +43,7 @@ from extractors import (
     retry_request,
 )
 
-from processors import (
+from aggregator.processors import (
     TitleProcessor,
     LocationExtractor,
     LocationProcessor,
@@ -53,9 +53,9 @@ from processors import (
     log_detailed_rejection,
 )
 
-from sheets_manager import SheetsManager
+from aggregator.sheets_manager import SheetsManager
 
-from utils import (
+from aggregator.utils import (
     PlatformDetector,
     CompanyNormalizer,
     CompanyValidator,
@@ -67,13 +67,13 @@ from utils import (
 )
 
 logging.basicConfig(
-    filename="skipped_jobs.log",
+    filename=os.path.join(".local", "skipped_jobs.log"),
     level=logging.INFO,
     format="%(asctime)s | %(message)s",
     datefmt="%Y-%m-%d %H:%M:%S",
 )
 
-with open("skipped_jobs.log", "w") as f:
+with open(os.path.join(".local", "skipped_jobs.log"), "w") as f:
     f.write("=" * 100 + "\n")
     f.write(
         f"JOB PROCESSING LOG - {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n"

@@ -7,7 +7,7 @@ from functools import lru_cache
 from collections import Counter
 from operator import attrgetter
 
-from config import (
+from aggregator.config import (
     COMPANY_SLUG_MAPPING,
     COMPANY_NAME_PREFIXES,
     COMPANY_NAME_STOPWORDS,
@@ -647,7 +647,7 @@ class DataSanitizer:
         try:
             text = str(title)
 
-            from config import DATA_SANITIZATION_PREFERENCES, FIELD_PREFIXES_TO_REMOVE
+            from aggregator.config import DATA_SANITIZATION_PREFERENCES, FIELD_PREFIXES_TO_REMOVE
 
             if DATA_SANITIZATION_PREFERENCES.get("remove_emojis", True):
                 text = cls._remove_emojis(text)
@@ -681,7 +681,7 @@ class DataSanitizer:
         try:
             text = str(company)
 
-            from config import DATA_SANITIZATION_PREFERENCES, FIELD_PREFIXES_TO_REMOVE
+            from aggregator.config import DATA_SANITIZATION_PREFERENCES, FIELD_PREFIXES_TO_REMOVE
 
             if DATA_SANITIZATION_PREFERENCES.get("remove_emojis", True):
                 text = cls._remove_emojis(text)
@@ -718,7 +718,7 @@ class DataSanitizer:
         try:
             text = str(location)
 
-            from config import (
+            from aggregator.config import (
                 DATA_SANITIZATION_PREFERENCES,
                 FIELD_PREFIXES_TO_REMOVE,
                 FULL_STATE_NAMES,
@@ -771,7 +771,7 @@ class DataSanitizer:
         try:
             text = str(job_id).strip()
 
-            from config import JOB_ID_PREFERENCES
+            from aggregator.config import JOB_ID_PREFERENCES
 
             if text.startswith("HASH_"):
                 if not JOB_ID_PREFERENCES.get("hash_fallback_enabled", False):
@@ -791,7 +791,7 @@ class DataSanitizer:
         try:
             text = str(sponsorship).strip()
 
-            from config import DATA_SANITIZATION_PREFERENCES
+            from aggregator.config import DATA_SANITIZATION_PREFERENCES
 
             if DATA_SANITIZATION_PREFERENCES.get("normalize_sponsorship_values", True):
                 if "unknown" in text.lower():
@@ -856,7 +856,7 @@ class DataSanitizer:
             return True
 
         try:
-            from config import US_STATES_FALLBACK
+            from aggregator.config import US_STATES_FALLBACK
 
             if text_clean.upper() in US_STATES_FALLBACK and len(text_clean) == 2:
                 return True
@@ -876,7 +876,7 @@ class DataSanitizer:
             return True
 
         try:
-            from config import GARBAGE_LOCATION_PATTERNS
+            from aggregator.config import GARBAGE_LOCATION_PATTERNS
 
             if any(phrase in text_lower for phrase in GARBAGE_LOCATION_PATTERNS):
                 return True
@@ -901,7 +901,7 @@ class DataSanitizer:
             return location_text
 
         try:
-            from config import (
+            from aggregator.config import (
                 CITY_TO_STATE_FALLBACK,
                 FULL_STATE_NAMES,
                 validate_us_state_code,
@@ -943,7 +943,7 @@ class DataSanitizer:
             return location
 
         try:
-            from config import validate_us_state_code, FULL_STATE_NAMES
+            from aggregator.config import validate_us_state_code, FULL_STATE_NAMES
 
             text = location.strip()
 

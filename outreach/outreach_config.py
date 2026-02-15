@@ -6,9 +6,9 @@ import os, datetime
 _DIR = os.path.dirname(os.path.abspath(__file__))
 _ROOT = os.path.dirname(_DIR)
 
-SHEETS_CREDS = os.path.join(_ROOT, "credentials.json")
-GMAIL_CREDS = os.path.join(_ROOT, "gmail_credentials.json")
-GMAIL_TOKEN = os.path.join(_ROOT, "gmail_token.pickle")
+SHEETS_CREDS = os.path.join(_ROOT, ".local", "credentials.json")
+GMAIL_CREDS = os.path.join(_ROOT, ".local", "gmail_credentials.json")
+GMAIL_TOKEN = os.path.join(_ROOT, ".local", "gmail_token.pickle")
 GMAIL_SCOPES = ["https://www.googleapis.com/auth/gmail.send"]
 
 SPREADSHEET = "H1B visa"
@@ -117,9 +117,9 @@ HUNTER_CONF = 70
 WARMUP_ON = True
 WARMUP_START = "2026-02-15"
 WARMUP = [(7, 10), (14, 25), (21, 50), (999, MAX_DAILY)]
-CREDITS_FILE = os.path.join(_ROOT, "outreach_credits.json")
-PATTERNS_FILE = os.path.join(_ROOT, "outreach_patterns.json")
-LOG_FILE = os.path.join(_ROOT, "outreach.log")
+CREDITS_FILE = os.path.join(_ROOT, ".local", "outreach_credits.json")
+PATTERNS_FILE = os.path.join(_ROOT, ".local", "outreach_patterns.json")
+LOG_FILE = os.path.join(_ROOT, ".local", "outreach.log")
 STRIP_PRE = {
     "dr.",
     "dr",
