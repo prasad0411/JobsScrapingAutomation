@@ -61,7 +61,6 @@ class Mailer:
         if os.path.exists(GMAIL_TOKEN):
             with open(GMAIL_TOKEN, "rb") as f:
                 creds = pickle.load(f)
-
         if not creds or not creds.valid:
             if creds and creds.expired and creds.refresh_token:
                 try:
@@ -77,18 +76,15 @@ class Mailer:
                 creds = flow.run_local_server(port=0)
             with open(GMAIL_TOKEN, "wb") as f:
                 pickle.dump(creds, f)
-
         self._svc = build("gmail", "v1", credentials=creds)
         return self._svc
 
     def send(self, to_email, subject, body):
         result = {"success": False, "error": "", "timestamp": ""}
-
         wl, gl = warmup_limit(), self.cr.gmail_left()
         if min(wl, gl) <= 0:
             result["error"] = f"Daily limit (warm-up={wl}, left={gl})"
             return result
-
         now = datetime.datetime.now()
         if (now - self._hour_start).total_seconds() > 3600:
             self._hourly = 0
@@ -96,11 +92,9 @@ class Mailer:
         if self._hourly >= MAX_HOURLY:
             result["error"] = f"Hourly limit ({MAX_HOURLY})"
             return result
-
         if not to_email or "@" not in to_email:
             result["error"] = f"Invalid: {to_email}"
             return result
-
         try:
             svc = self._service()
             msg = MIMEMultipart("alternative")
@@ -109,10 +103,8 @@ class Mailer:
             msg["Subject"] = subject
             msg["Reply-To"] = SENDER_EMAIL
             msg.attach(MIMEText(body, "plain"))
-
             raw = base64.urlsafe_b64encode(msg.as_bytes()).decode()
             svc.users().messages().send(userId="me", body={"raw": raw}).execute()
-
             self._hourly += 1
             self.cr.use_gmail()
             result["success"] = True

@@ -56,7 +56,6 @@ def phase_discover(sheets, finder):
         rn = row["row"]
         print(f"  [{rn}] {row['co']} — {row['title'][:45]}")
         stats["processed"] += 1
-
         hm_res = rec_res = None
 
         if row["need_h"]:
@@ -79,7 +78,6 @@ def phase_discover(sheets, finder):
                 sheets.append_error(rn, f"REC: {rec_res['error']}")
             _count(stats, rec_res)
 
-        # Auto-generate subject + body
         hm_e = row.get("he") or (hm_res["email"] if hm_res else "")
         rec_e = row.get("re") or (rec_res["email"] if rec_res else "")
         if hm_e or rec_e:
@@ -101,21 +99,19 @@ def phase_send(sheets, mailer):
     stats = {"sent": 0, "failed": 0}
     cap = mailer.capacity()
     print(
-        f"  {len(rows)} approved rows | Capacity: {cap['daily']} daily, {cap['hourly']} hourly\n"
+        f"  {len(rows)} approved | Capacity: {cap['daily']} daily, {cap['hourly']} hourly\n"
     )
 
     for row in rows:
         rn = row["row"]
         print(f"  [{rn}] {row['co']} — {row['title'][:45]}")
 
-        # Dedup: same email for HM and recruiter → send HM template only
         both = row["h_ok"] and row["r_ok"]
         if both and row["he"].lower() == row["re"].lower():
             print(f"       ⚠ Same email — HM template only")
             row["r_ok"] = False
 
         sent_any = False
-
         if row["h_ok"]:
             ok = _send_one(sheets, mailer, row, "hm", stats)
             sent_any = sent_any or ok
@@ -124,7 +120,6 @@ def phase_send(sheets, mailer):
                 break
             if row["r_ok"]:
                 mailer.wait()
-
         if row["r_ok"]:
             ok = _send_one(sheets, mailer, row, "rec", stats)
             sent_any = sent_any or ok
@@ -132,10 +127,8 @@ def phase_send(sheets, mailer):
                 print("\n  ⚠ Daily limit.")
                 break
 
-        # Write sent date once (single column for both)
         if sent_any:
             sheets.write_sent(rn, datetime.datetime.now().strftime("%Y-%m-%d %H:%M"))
-
         if row != rows[-1]:
             mailer.wait()
 
@@ -149,7 +142,6 @@ def _send_one(sheets, mailer, row, ct, stats):
         return False
     draft = Drafter.draft(name, ct, row["co"], row["title"])
     subject = row["subj"] or draft["subject"]
-
     result = mailer.send(email, subject, draft["body"])
     if result["success"]:
         stats["sent"] += 1
@@ -199,17 +191,14 @@ def status(sheets, credits, mailer):
 def main():
     banner()
     cmd = sys.argv[1].lower() if len(sys.argv) > 1 else "full"
-
     if cmd == "reset":
         Credits().reset_all()
         print("  Credits reset.")
         return
-
     cr = Credits()
     sh = Sheets()
     fi = Finder(cr)
     ma = Mailer(cr)
-
     if cmd == "status":
         status(sh, cr, ma)
     elif cmd == "discover":
@@ -225,8 +214,9 @@ def main():
         s = phase_send(sh, ma)
         summary(d, s)
     else:
-        print(f"\n  Unknown: {cmd}")
-        print("  Commands: discover | send | full | status | reset")
+        print(
+            f"\n  Unknown: {cmd}\n  Commands: discover | send | full | status | reset"
+        )
         sys.exit(1)
 
 

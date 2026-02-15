@@ -20,7 +20,6 @@ from outreach.outreach_config import (
 from outreach.outreach_data import NameParser, PatternCache, Credits
 
 log = logging.getLogger(__name__)
-
 try:
     import dns.resolver
 
@@ -35,7 +34,7 @@ class Finder:
         self.cr = credits
         self.pc = PatternCache()
         self._reacher = None
-        self._dom_cache = {}
+        self._dom = {}
 
     def find(self, name, company, linkedin=""):
         r = {"email": "", "source": "", "status": "Failed", "error": ""}
@@ -47,42 +46,34 @@ class Finder:
             r["status"] = "Manual Review"
             r["error"] = f"Single name '{name}'"
             return r
-
         domains = self._resolve(company)
         if not domains:
             r["status"] = "Manual Review"
             r["error"] = f"No domain for '{company}'"
             return self._apis(parsed, "", linkedin, r) if linkedin else r
-
-        # 1: Pattern cache hit → 1 check
         if self._rok():
             for d in domains:
                 email = self.pc.gen_single(parsed, d)
                 if email and self._verify(email) == "safe":
                     r.update(email=email, source="cache", status="Valid")
                     return r
-
-        # 2: 3-phase pattern search
         if self._rok():
             pr = self._psearch(parsed, domains)
             if pr["status"] in ("Valid", "Manual Review"):
                 if pr["email"] and pr["status"] == "Valid":
                     self.pc.detect(pr["email"], parsed)
                 return pr
-
-        # 3: API cascade
         result = self._apis(parsed, domains[0], linkedin, r)
         if result["email"] and result["status"] == "Valid":
             self.pc.detect(result["email"], parsed)
         return result
 
-    # === Domain Resolution ===
     def _resolve(self, company):
         if not company:
             return []
         k = company.strip().lower()
-        if k in self._dom_cache:
-            return self._dom_cache[k]
+        if k in self._dom:
+            return self._dom[k]
         doms = []
         try:
             resp = requests.get(
@@ -121,7 +112,7 @@ class Finder:
                 if self._mx(d):
                     doms = [d]
         unique = list(dict.fromkeys(d.lower() for d in doms))
-        self._dom_cache[k] = unique
+        self._dom[k] = unique
         return unique
 
     @staticmethod
@@ -167,7 +158,6 @@ class Finder:
             except:
                 return False
 
-    # === Pattern Search ===
     def _psearch(self, parsed, domains):
         r = {"email": "", "source": "pattern", "status": "Failed", "error": ""}
         if parsed["single"]:
@@ -236,7 +226,6 @@ class Finder:
             }
         return None
 
-    # === Reacher ===
     def _verify(self, email):
         try:
             resp = requests.post(
@@ -261,7 +250,6 @@ class Finder:
             log.warning("Reacher not running. cd outreach && docker compose up -d")
         return self._reacher
 
-    # === API Cascade ===
     def _apis(self, p, dom, li, r):
         for fn in [
             lambda: self._apollo(p, dom, li),

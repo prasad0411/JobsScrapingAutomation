@@ -1,8 +1,5 @@
 #!/usr/bin/env python3
-"""
-Outreach Pipeline — Data Layer
-Sheets (batch writes), credits (JSON), name parsing, pattern cache.
-"""
+"""Outreach Pipeline — Data Layer (Sheets, Credits, NameParser, PatternCache)."""
 
 import os, re, json, time, datetime, logging, unicodedata
 import gspread
@@ -54,13 +51,15 @@ class Sheets:
             log.info(f"Created '{OUTREACH_TAB}'")
 
         row1 = self.ws.row_values(1)
-        if not row1 or not row1[0]:
+        if not row1 or row1[0] != O_HEADERS[0]:
+            # Write headers
             self.ws.update(
                 values=[O_HEADERS],
                 range_name=f"A1:{_cl(len(O_HEADERS)-1)}1",
                 value_input_option="RAW",
             )
-            # Style header
+
+            # Header style — #b2e5b2 light green
             try:
                 end = _cl(len(O_HEADERS) - 1)
                 self.ws.format(
@@ -73,12 +72,84 @@ class Sheets:
                             "fontSize": 13,
                             "bold": True,
                         },
-                        "backgroundColor": {"red": 0.7, "green": 0.85, "blue": 0.95},
+                        "backgroundColor": {
+                            "red": 0.698,
+                            "green": 0.898,
+                            "blue": 0.698,
+                        },  # #b2e5b2
                     },
                 )
             except:
                 pass
-            # Send? dropdown (column O = index 14)
+
+            # All data rows — center aligned, Times New Roman 13
+            try:
+                end = _cl(len(O_HEADERS) - 1)
+                self.ws.format(
+                    f"A2:{end}500",
+                    {
+                        "horizontalAlignment": "CENTER",
+                        "verticalAlignment": "MIDDLE",
+                        "textFormat": {"fontFamily": "Times New Roman", "fontSize": 13},
+                    },
+                )
+            except:
+                pass
+
+            # Column widths — wide enough for 100 chars
+            try:
+                col_widths = []
+                for i in range(len(O_HEADERS)):
+                    col_widths.append(
+                        {
+                            "updateDimensionProperties": {
+                                "range": {
+                                    "sheetId": self.ws.id,
+                                    "dimension": "COLUMNS",
+                                    "startIndex": i,
+                                    "endIndex": i + 1,
+                                },
+                                "properties": {"pixelSize": 250},
+                                "fields": "pixelSize",
+                            }
+                        }
+                    )
+                # Narrower for Sr.No and Send?
+                for i, w in [(0, 80), (3, 120), (12, 90)]:
+                    col_widths.append(
+                        {
+                            "updateDimensionProperties": {
+                                "range": {
+                                    "sheetId": self.ws.id,
+                                    "dimension": "COLUMNS",
+                                    "startIndex": i,
+                                    "endIndex": i + 1,
+                                },
+                                "properties": {"pixelSize": w},
+                                "fields": "pixelSize",
+                            }
+                        }
+                    )
+                # Wider for Email Body
+                col_widths.append(
+                    {
+                        "updateDimensionProperties": {
+                            "range": {
+                                "sheetId": self.ws.id,
+                                "dimension": "COLUMNS",
+                                "startIndex": 11,
+                                "endIndex": 12,
+                            },
+                            "properties": {"pixelSize": 400},
+                            "fields": "pixelSize",
+                        }
+                    }
+                )
+                self.ss.batch_update({"requests": col_widths})
+            except:
+                pass
+
+            # Send? dropdown — ONLY on column M (index 12)
             try:
                 self.ss.batch_update(
                     {
@@ -110,6 +181,27 @@ class Sheets:
                 )
             except:
                 pass
+
+            # Freeze header
+            try:
+                self.ss.batch_update(
+                    {
+                        "requests": [
+                            {
+                                "updateSheetProperties": {
+                                    "properties": {
+                                        "sheetId": self.ws.id,
+                                        "gridProperties": {"frozenRowCount": 1},
+                                    },
+                                    "fields": "gridProperties.frozenRowCount",
+                                }
+                            }
+                        ]
+                    }
+                )
+            except:
+                pass
+
             self._p()
 
     # ---- Pull from Valid Entries ----
@@ -125,50 +217,60 @@ class Sheets:
         odata = self.ws.get_all_values()
         self._p()
 
-        existing_ids = set()
+        # Build set of (company+title) already in outreach — for dedup
+        existing = set()
         for r in odata[1:]:
             r = _pad(r)
-            jid = r[C["job_id"]].strip()
-            if jid:
-                existing_ids.add(jid.lower())
+            co = r[C["company"]].strip().lower()
+            ti = r[C["title"]].strip().lower()
+            jid = r[C["job_id"]].strip().lower()
+            if jid and jid != "n/a":
+                existing.add(("jid", jid))
+            if co:
+                existing.add(("co_ti", f"{co}||{ti}"))
 
         new = []
         sr = len(odata)
 
         for row in vdata[1:]:
-            if len(row) <= V_JOBID:
-                continue
+            # Pad short rows
+            while len(row) <= max(V_COMPANY, V_TITLE, V_JOBID):
+                row = list(row) + [""]
+
             co = row[V_COMPANY].strip()
             ti = row[V_TITLE].strip() if len(row) > V_TITLE else ""
-            jid = row[V_JOBID].strip()
+            jid = row[V_JOBID].strip() if len(row) > V_JOBID else ""
+
             if not co:
                 continue
-            if jid and jid.lower() in existing_ids:
+
+            # Dedup: skip if already pulled
+            jid_clean = jid.lower() if jid and jid.lower() != "n/a" else ""
+            if jid_clean and ("jid", jid_clean) in existing:
                 continue
-            if not jid:
-                # Skip if same company already exists (no Job ID to dedup)
-                existing_cos = {
-                    _pad(r)[C["company"]].strip().lower() for r in odata[1:]
-                }
-                if co.lower() in existing_cos:
-                    continue
+            if not jid_clean and ("co_ti", f"{co.lower()}||{ti.lower()}") in existing:
+                continue
 
             sr += 1
             nr = [""] * len(O_HEADERS)
             nr[C["sr"]] = str(sr - 1)
             nr[C["company"]] = co
             nr[C["title"]] = ti
-            nr[C["job_id"]] = jid
+            nr[C["job_id"]] = jid if jid.lower() != "n/a" else ""
             new.append(nr)
-            if jid:
-                existing_ids.add(jid.lower())
+
+            # Track for dedup within this batch
+            if jid_clean:
+                existing.add(("jid", jid_clean))
+            existing.add(("co_ti", f"{co.lower()}||{ti.lower()}"))
 
         if new:
             start = len(odata) + 1
-            end = start + len(new) - 1
+            end_row = start + len(new) - 1
+            end_col = _cl(len(O_HEADERS) - 1)
             self.ws.update(
                 values=new,
-                range_name=f"A{start}:{_cl(len(O_HEADERS)-1)}{end}",
+                range_name=f"A{start}:{end_col}{end_row}",
                 value_input_option="RAW",
             )
             self._p()
@@ -179,7 +281,6 @@ class Sheets:
         data = self.ws.get_all_values()
         self._p()
 
-        # Dedup cache: (name_lower, company_lower) → email
         ecache = {}
         for r in data[1:]:
             r = _pad(r)
@@ -202,11 +303,9 @@ class Sheets:
             he, re_ = r[C["hm_email"]].strip(), r[C["rec_email"]].strip()
             err = r[C["error"]].strip()
 
-            # Need discovery if: has name, no email, no prior error for this contact
             need_h = bool(hn) and not he and "HM:" not in err
             need_r = bool(rn) and not re_ and "REC:" not in err
 
-            # Dedup: reuse from other rows
             if need_h:
                 dup = ecache.get((hn.lower(), co.lower()))
                 if dup:
@@ -248,7 +347,6 @@ class Sheets:
                 continue
             sent = r[C["sent_dt"]].strip()
             he, re_ = r[C["hm_email"]].strip(), r[C["rec_email"]].strip()
-            # Ready if: has email AND not already sent
             h_ok = bool(he) and not sent
             r_ok = bool(re_) and not sent
             if h_ok or r_ok:
@@ -268,10 +366,8 @@ class Sheets:
                 )
         return rows
 
-    # ---- Writes (batch — 1 API call each) ----
-
+    # ---- Writes ----
     def write_email(self, row, ct, email, source):
-        """Write discovered email to HM Email (I) or Recruiter Email (J)."""
         try:
             col = C["hm_email"] if ct == "hm" else C["rec_email"]
             self.ws.update_acell(f"{_cl(col)}{row}", email)
@@ -281,7 +377,6 @@ class Sheets:
             log.error(f"write_email row {row}: {e}")
 
     def write_subject_body(self, row, subject, body):
-        """Write subject + body (K:L) in one batch call."""
         try:
             s, e = _cl(C["subject"]), _cl(C["body"])
             self.ws.update(
@@ -294,7 +389,6 @@ class Sheets:
             log.error(f"write_subject_body row {row}: {e}")
 
     def write_sent(self, row, timestamp):
-        """Write sent date (M)."""
         try:
             self.ws.update_acell(f"{_cl(C['sent_dt'])}{row}", timestamp)
             self._p()
@@ -302,7 +396,6 @@ class Sheets:
             log.error(f"write_sent row {row}: {e}")
 
     def write_error(self, row, msg):
-        """Write error (N). Prefix with HM: or REC: to prevent re-discovery."""
         try:
             ts = datetime.datetime.now().strftime("%m/%d %H:%M")
             self.ws.update_acell(f"{_cl(C['error'])}{row}", f"[{ts}] {msg}"[:500])
@@ -311,7 +404,6 @@ class Sheets:
             pass
 
     def append_error(self, row, msg):
-        """Append to existing error without replacing."""
         try:
             existing = self.ws.acell(f"{_cl(C['error'])}{row}").value or ""
             ts = datetime.datetime.now().strftime("%m/%d %H:%M")
@@ -326,7 +418,7 @@ class Sheets:
 
 
 # ============================================================================
-# CREDITS (JSON file)
+# CREDITS
 # ============================================================================
 
 
