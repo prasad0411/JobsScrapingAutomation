@@ -229,7 +229,7 @@ class TitleProcessor:
         return True
 
     @staticmethod
-    def is_internship_role(title, job_type="", page_text=""):
+    def is_internship_role(title, job_type="", page_text="", github_category=""):
         try:
             from aggregator.config import (
                 VALID_INTERNSHIP_TYPES,
@@ -269,6 +269,12 @@ class TitleProcessor:
             "architect",
             "director",
         }
+
+        # Trust GitHub internship repo category
+        if github_category and "internship" in github_category.lower():
+            has_senior = any(level in title_lower for level in excluded)
+            if not has_senior:
+                return True, None
 
         if job_type in VALID_INTERNSHIP_TYPES:
             for level in excluded:

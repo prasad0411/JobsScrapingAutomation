@@ -39,6 +39,7 @@ from aggregator.extractors import (
     JobrightRedirectResolver,
     SimplifyRedirectResolver,
     SimplifyGitHubScraper,
+    ZipRecruiterResolver,
     safe_parse_html,
     retry_request,
 )
@@ -380,7 +381,7 @@ class UnifiedJobAggregator:
         if self._is_duplicate(company_from_github, title, resolved_url):
             return
 
-        is_internship, intern_reason = TitleProcessor.is_internship_role(title)
+        is_internship, intern_reason = TitleProcessor.is_internship_role(title, github_category="Software Engineering Internship")
         if not is_internship:
             self.outcomes["skipped_senior_role"] += 1
             self.source_stats[source]["rejected"] += 1
@@ -493,6 +494,12 @@ class UnifiedJobAggregator:
                 logging.info(f"Skipping already processed email: {subject}")
                 continue
 
+            if sender == "ZipRecruiter" and html_content:
+                zr_jobs = ZipRecruiterResolver.parse_email_jobs(html_content)
+                if zr_jobs:
+                    self._ziprecruiter_jobs_cache = zr_jobs
+                    logging.info(f"Pre-parsed {len(zr_jobs)} ZipRecruiter jobs from: {subject}")
+
             if sender == "Jobright" and html_content:
                 parsed_jobs = JobrightEmailParser.parse_email_jobs(html_content)
                 if parsed_jobs:
@@ -571,6 +578,10 @@ class UnifiedJobAggregator:
 
         if "jobright.ai" in url.lower():
             self._process_jobright_url(url, sender, email_html, subject)
+            return
+
+        if "ziprecruiter.com" in url.lower():
+            self._process_ziprecruiter_url(url, sender, email_html, subject)
             return
 
         if self._is_duplicate_url(resolved_url):
@@ -1238,6 +1249,7 @@ class UnifiedJobAggregator:
             ("✗ HTTP failed", self.outcomes["failed_http"]),
             ("✗ Parse failed", self.outcomes["failed_parse"]),
             ("✗ Jobright unresolved", self.outcomes["failed_jobright_resolution"]),
+            ("✗ ZipRecruiter unresolved", self.outcomes.get("failed_ziprecruiter_resolution", 0)),
         ]
         for label, count in summary_items:
             if count > 0:

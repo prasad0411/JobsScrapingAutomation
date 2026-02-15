@@ -112,6 +112,7 @@ GMAIL_TOKEN_FILE = os.path.join(".local", "gmail_token.pickle")
 JOBRIGHT_COOKIES_FILE = os.path.join(".local", "jobright_cookies.json")
 PROCESSED_EMAILS_FILE = os.path.join(".local", "processed_emails.json")
 FAILED_SIMPLIFY_CACHE = os.path.join(".local", "failed_simplify_urls.json")
+FAILED_URLS_FILE = os.path.join(".local", "failed_urls.json")
 
 SIMPLIFY_URL = "https://raw.githubusercontent.com/SimplifyJobs/Summer2026-Internships/master/README.md"
 VANSHB03_URL = (
@@ -703,6 +704,14 @@ GUARANTEED_TECHNICAL_PHRASES = [
     "machine learning engineer",
     "ml engineer",
     "ai engineer",
+    "information services intern",
+    "it intern",
+    "technology intern",
+    "systems engineer intern",
+    "platform engineer intern",
+    "site reliability intern",
+    "solutions engineer intern",
+    "applied scientist intern",
 ]
 
 ENHANCED_REMOTE_PATTERNS = [
@@ -1588,6 +1597,45 @@ TECHNICAL_ROLE_KEYWORDS = {
     "wireless",
     "product management",
     "product manager",
+    "information services",
+    "information systems",
+    "site reliability",
+    "platform engineering",
+    "release engineering",
+    "build engineer",
+    "tools engineer",
+    "infra engineer",
+    "applied scientist",
+    "research intern",
+    "data platform",
+    "data infrastructure",
+    "data operations",
+    "analytics engineer",
+    "analytics engineering",
+    "business analytics",
+    "decision science",
+    "ai/ml",
+    "ml ops",
+    "mlops",
+    "ai ops",
+    "computer vision engineer",
+    "cv engineer",
+    "prompt engineer",
+    "ai research",
+    "technical program",
+    "solutions engineer",
+    "solutions architect",
+    "developer experience",
+    "developer relations",
+    "blockchain",
+    "web3",
+    "smart contract",
+    "ar/vr",
+    "xr engineer",
+    "spatial computing",
+    "iot",
+    "internet of things",
+    "edge computing",
     "application",
     "business intelligence",
     "bi analyst",
@@ -1708,6 +1756,7 @@ JOB_BOARD_DOMAINS = [
     "simplify.jobs",
     "linkedin.com/jobs",
     "jobright.ai",
+    "ziprecruiter.com",
 ]
 
 STATUS_COLORS = {

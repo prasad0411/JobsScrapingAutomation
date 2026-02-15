@@ -994,6 +994,11 @@ class EmailExtractor:
                     if not EmailExtractor._is_non_job_url(url):
                         urls.append(url)
                         seen.add(url)
+                # ZipRecruiter: extract View Details links
+                elif "ziprecruiter.com/jobs/" in url.lower():
+                    if not EmailExtractor._is_non_job_url(url):
+                        urls.append(url)
+                        seen.add(url)
         return urls
 
     @staticmethod
@@ -1036,10 +1041,46 @@ class PageFetcher:
         _URL_HEALTH_CACHE[url] = (False, 0)
         return False, 0
 
+    _failed_urls = None
+
+    @classmethod
+    def _load_failed_urls(cls):
+        if cls._failed_urls is None:
+            try:
+                from aggregator.config import FAILED_URLS_FILE
+                if os.path.exists(FAILED_URLS_FILE):
+                    with open(FAILED_URLS_FILE, "r") as f:
+                        cls._failed_urls = json.load(f)
+                else:
+                    cls._failed_urls = {}
+            except:
+                cls._failed_urls = {}
+        return cls._failed_urls
+
+    @classmethod
+    def _save_failed_url(cls, url):
+        failed = cls._load_failed_urls()
+        import time as _t
+        failed[url] = _t.strftime("%Y-%m-%d")
+        try:
+            from aggregator.config import FAILED_URLS_FILE
+            with open(FAILED_URLS_FILE, "w") as f:
+                json.dump(failed, f, indent=2)
+        except:
+            pass
+
     def fetch_page(self, url):
         if url in _HTTP_RESPONSE_CACHE:
             cached = _HTTP_RESPONSE_CACHE[url]
             return cached["response"], cached["final_url"], cached["page_source"]
+
+        # Check failed URL cache (skip URLs that failed before today)
+        failed = self._load_failed_urls()
+        import time as _t
+        today = _t.strftime("%Y-%m-%d")
+        if url in failed and failed[url] == today:
+            logging.debug(f"Skipping previously failed URL: {url[:60]}")
+            return None, None, None
 
         is_healthy, status = self.check_url_health(url)
         if not is_healthy and status in [404, 403, 405]:
@@ -1088,21 +1129,28 @@ class PageFetcher:
             "final_url": None,
             "page_source": None,
         }
+        self._save_failed_url(url)
         return None, None, None
 
     @staticmethod
     def _is_js_heavy_platform(url):
         if not url:
             return False
+        # Strict gating: only use Selenium for platforms that truly need it
         js_platforms = [
             "workday",
             "myworkdayjobs",
-            "greenhouse.io",
             "oracle",
             "oraclecloud",
             "ashbyhq",
         ]
-        return any(platform in url.lower() for platform in js_platforms)
+        # Greenhouse rarely needs Selenium — only job-boards subdomain
+        url_lower = url.lower()
+        if "job-boards.greenhouse.io" in url_lower or "job-boards.eu.greenhouse.io" in url_lower:
+            return True
+        if "boards.greenhouse.io" in url_lower:
+            return False  # Standard greenhouse works without Selenium
+        return any(platform in url_lower for platform in js_platforms)
 
     @staticmethod
     def _try_selenium(url):
@@ -1135,27 +1183,29 @@ class PageFetcher:
             _SELENIUM_LAST_USED = time.time()
 
             url_lower = url.lower()
-            if "oracle" in url_lower or "oraclecloud" in url_lower:
-                time.sleep(15)
-                try:
-                    WebDriverWait(_SELENIUM_DRIVER, 10).until(
-                        EC.presence_of_element_located((By.TAG_NAME, "h1"))
-                    )
-                except:
-                    pass
-            elif "workday" in url_lower:
-                time.sleep(15)
-            elif "greenhouse" in url_lower:
-                time.sleep(10)
-            elif "ashby" in url_lower:
-                time.sleep(6)
-            else:
-                time.sleep(3)
+            # Adaptive wait: wait for content instead of fixed sleep
+            max_wait = 15 if ("oracle" in url_lower or "workday" in url_lower) else (8 if "greenhouse" in url_lower else (6 if "ashby" in url_lower else 5))
+            try:
+                WebDriverWait(_SELENIUM_DRIVER, max_wait).until(
+                    lambda d: d.execute_script("return document.readyState") == "complete"
+                )
+            except:
+                pass
+            # Short extra wait for JS rendering
+            extra = 3 if ("oracle" in url_lower or "workday" in url_lower) else 1
+            time.sleep(extra)
+            # Wait for job content element
+            try:
+                WebDriverWait(_SELENIUM_DRIVER, 5).until(
+                    EC.presence_of_element_located((By.CSS_SELECTOR, "h1, h2, [data-automation-id], .job-title, .posting-headline"))
+                )
+            except:
+                pass
 
             _SELENIUM_DRIVER.execute_script(
                 "window.scrollTo(0, document.body.scrollHeight);"
             )
-            time.sleep(2)
+            time.sleep(1)
             page_source = _SELENIUM_DRIVER.page_source
             current_url = _SELENIUM_DRIVER.current_url
 
@@ -1696,6 +1746,166 @@ class SourceParsers:
     def parse_adzuna_email(soup, url):
         return None
 
+
+
+
+class ZipRecruiterResolver:
+    """Resolves ZipRecruiter job pages to actual company URLs."""
+
+    @staticmethod
+    def resolve(ziprecruiter_url):
+        """Fetch ZipRecruiter page, find Apply button, extract actual company URL."""
+        try:
+            response = retry_request(ziprecruiter_url, max_retries=2)
+            if not response or response.status_code != 200:
+                return None
+
+            soup, _ = safe_parse_html(response.text)
+            if not soup:
+                return None
+
+            # Method 1: Find Apply button with job-redirect href
+            apply_link = soup.find("a", href=re.compile(r"ziprecruiter\.com/job-redirect"))
+            if apply_link:
+                redirect_url = apply_link.get("href", "")
+                actual = ZipRecruiterResolver._extract_from_redirect(redirect_url)
+                if actual:
+                    logging.info(f"ZipRecruiter Apply button → {actual[:80]}")
+                    return actual
+
+            # Method 2: Find any external apply link
+            for link in soup.find_all("a", href=True):
+                href = link.get("href", "")
+                link_text = link.get_text(strip=True).lower()
+                if "apply" in link_text and "ziprecruiter" not in href:
+                    if href.startswith("http"):
+                        logging.info(f"ZipRecruiter external apply → {href[:80]}")
+                        return href
+
+            # Method 3: Follow the redirect URL
+            actual = ZipRecruiterResolver._follow_redirect(ziprecruiter_url)
+            if actual:
+                return actual
+
+        except Exception as e:
+            logging.debug(f"ZipRecruiter resolve failed: {e}")
+        return None
+
+    @staticmethod
+    def _extract_from_redirect(redirect_url):
+        """Decode the match_token to get ExternalApplyUrl."""
+        try:
+            import urllib.parse
+            parsed = urllib.parse.urlparse(redirect_url)
+            params = urllib.parse.parse_qs(parsed.query)
+            token = params.get("match_token", [None])[0]
+            if token:
+                import base64
+                # Add padding if needed
+                padding = 4 - len(token) % 4
+                if padding != 4:
+                    token += "=" * padding
+                decoded = base64.urlsafe_b64decode(token).decode("utf-8")
+                data = json.loads(decoded)
+                ext_url = data.get("ExternalApplyUrl", "")
+                if ext_url and ext_url.startswith("http"):
+                    return ext_url
+        except Exception as e:
+            logging.debug(f"ZipRecruiter token decode failed: {e}")
+        return None
+
+    @staticmethod
+    def _follow_redirect(url):
+        """Follow HTTP redirects to get final URL."""
+        try:
+            response = requests.get(url, allow_redirects=True, timeout=15,
+                                    headers={"User-Agent": USER_AGENTS[0]})
+            if response and response.url != url:
+                final = response.url
+                if "ziprecruiter.com" not in final:
+                    return final
+        except:
+            pass
+        return None
+
+    @staticmethod
+    def parse_email_jobs(email_html):
+        """Parse ZipRecruiter email HTML to extract job metadata for pre-filtering."""
+        if not email_html:
+            return []
+        try:
+            soup, _ = safe_parse_html(email_html)
+            if not soup:
+                return []
+
+            jobs = []
+            # ZipRecruiter emails have job cards as table rows or div blocks
+            # Each job has: title, company, location, salary, "View Details" link
+
+            # Find all "View Details" links
+            view_links = soup.find_all("a", href=re.compile(r"ziprecruiter\.com/jobs/"))
+            if not view_links:
+                # Try redirect links
+                view_links = soup.find_all("a", href=re.compile(r"ziprecruiter\.com/k/"))
+
+            for link in view_links:
+                try:
+                    href = link.get("href", "")
+                    if not href:
+                        continue
+
+                    # Walk up to find the job card container
+                    container = link
+                    for _ in range(8):
+                        parent = container.parent
+                        if parent and len(parent.get_text(strip=True)) > 50:
+                            container = parent
+                        else:
+                            break
+
+                    card_text = container.get_text(separator="|||", strip=True)
+                    parts = [p.strip() for p in card_text.split("|||") if p.strip()]
+
+                    if len(parts) < 2:
+                        continue
+
+                    # Extract metadata from card
+                    title = ""
+                    company = ""
+                    location = ""
+
+                    for i, part in enumerate(parts):
+                        part_lower = part.lower()
+                        # Skip noise
+                        if any(skip in part_lower for skip in ["view details", "apply now", "be seen first", "$", "/hr", "/yr", "/wk", "/mo"]):
+                            continue
+                        if "•" in part:
+                            # "Company • City, State • Remote" format
+                            sub_parts = [s.strip() for s in part.split("•")]
+                            if len(sub_parts) >= 2:
+                                company = sub_parts[0]
+                                location = sub_parts[1] if len(sub_parts) > 1 else ""
+                            continue
+                        if not title and len(part) > 10 and i < 3:
+                            title = part
+                        elif not company and len(part) > 2 and i < 5:
+                            company = part
+
+                    if title:
+                        jobs.append({
+                            "title": title,
+                            "company": company or "Unknown",
+                            "location": location or "Unknown",
+                            "url": href,
+                        })
+                except Exception:
+                    continue
+
+            logging.info(f"ZipRecruiter email parser: extracted {len(jobs)} job cards")
+            return jobs
+        except Exception as e:
+            logging.debug(f"ZipRecruiter email parsing failed: {e}")
+            return []
 
 class SimplifyGitHubScraper:
     @staticmethod
