@@ -114,8 +114,10 @@ class Sheets:
                             }
                         }
                     )
-                # Narrower for Sr.No and Send?
-                for i, w in [(0, 80), (3, 120), (12, 90)]:
+                # Narrower for specific columns
+                # F(5)=HM LinkedIn, H(7)=Rec LinkedIn → 150px (URLs, not wide)
+                # K(10)=Subject, L(11)=Body → 150px
+                for i, w in [(0, 80), (3, 120), (5, 150), (7, 150), (10, 150), (11, 150), (12, 90), (13, 120), (14, 200)]:
                     col_widths.append(
                         {
                             "updateDimensionProperties": {
@@ -130,30 +132,28 @@ class Sheets:
                             }
                         }
                     )
-                # Wider for Email Body
-                col_widths.append(
-                    {
-                        "updateDimensionProperties": {
-                            "range": {
-                                "sheetId": self.ws.id,
-                                "dimension": "COLUMNS",
-                                "startIndex": 11,
-                                "endIndex": 12,
-                            },
-                            "properties": {"pixelSize": 400},
-                            "fields": "pixelSize",
-                        }
-                    }
-                )
+                # (Email Body width handled in per-column loop above)
                 self.ss.batch_update({"requests": col_widths})
             except:
                 pass
 
-            # Send? dropdown — ONLY on column M (index 12)
+            # Clear ALL data validation first (removes stale dropdowns)
             try:
                 self.ss.batch_update(
                     {
                         "requests": [
+                            {
+                                "setDataValidation": {
+                                    "range": {
+                                        "sheetId": self.ws.id,
+                                        "startRowIndex": 1,
+                                        "endRowIndex": 500,
+                                        "startColumnIndex": 0,
+                                        "endColumnIndex": len(O_HEADERS),
+                                    },
+                                    "rule": None,
+                                }
+                            },
                             {
                                 "setDataValidation": {
                                     "range": {
@@ -175,7 +175,7 @@ class Sheets:
                                         "strict": False,
                                     },
                                 }
-                            }
+                            },
                         ]
                     }
                 )
@@ -256,7 +256,7 @@ class Sheets:
             nr[C["sr"]] = str(sr - 1)
             nr[C["company"]] = co
             nr[C["title"]] = ti
-            nr[C["job_id"]] = jid if jid.lower() != "n/a" else ""
+            nr[C["job_id"]] = jid
             new.append(nr)
 
             # Track for dedup within this batch
@@ -303,6 +303,12 @@ class Sheets:
             he, re_ = r[C["hm_email"]].strip(), r[C["rec_email"]].strip()
             err = r[C["error"]].strip()
 
+            # Split comma-separated names (process each separately)
+            hn_list = [n.strip() for n in hn.split(",") if n.strip()] if hn else []
+            rn_list = [n.strip() for n in rn.split(",") if n.strip()] if rn else []
+            hn = hn_list[0] if hn_list else ""
+            rn = rn_list[0] if rn_list else ""
+
             need_h = bool(hn) and not he and "HM:" not in err
             need_r = bool(rn) and not re_ and "REC:" not in err
 
@@ -332,6 +338,8 @@ class Sheets:
                         "need_r": need_r,
                         "he": he,
                         "re": re_,
+                        "hn_extra": hn_list[1:] if len(hn_list) > 1 else [],
+                        "rn_extra": rn_list[1:] if len(rn_list) > 1 else [],
                     }
                 )
         return rows

@@ -16,6 +16,17 @@ from outreach.outreach_finder import Finder
 from outreach.outreach_mailer import Drafter, Mailer
 
 logging.basicConfig(
+
+# Debug file logging for discovery diagnostics
+try:
+    import os as _os
+    _log_dir = _os.path.join(_os.path.dirname(_os.path.dirname(_os.path.abspath(__file__))), ".local")
+    _fh = logging.FileHandler(_os.path.join(_log_dir, "outreach.log"))
+    _fh.setLevel(logging.DEBUG)
+    _fh.setFormatter(logging.Formatter("%(asctime)s | %(name)s | %(levelname)s | %(message)s"))
+    logging.getLogger().addHandler(_fh)
+except:
+    pass
     filename=LOG_FILE,
     level=logging.INFO,
     format="%(asctime)s | %(levelname)s | %(name)s | %(message)s",

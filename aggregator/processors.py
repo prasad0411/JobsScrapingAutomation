@@ -2250,6 +2250,53 @@ class ValidationHelper:
                         required_location.lower().replace("/", " ").replace("-", " ")
                     )
 
+                    # Validate captured text is actually a geographic location
+                    geo_stopwords = {
+                        "organization", "last year", "following", "program", "university",
+                        "degree", "field", "company", "team", "department", "within",
+                        "accredited", "recognized", "approved", "completed", "enrolled",
+                        "pursuing", "graduating", "year", "semester", "quarter",
+                    }
+                    if any(sw in required_normalized for sw in geo_stopwords):
+                        logging.debug(
+                            f"Geographic check: '{required_location}' is not a location — skipping"
+                        )
+                        continue
+
+                    # Must contain at least one real geographic indicator
+                    import string
+                    has_geo = False
+                    # Check US states
+                    for state_name in ["massachusetts", "california", "new york", "texas",
+                                       "florida", "illinois", "washington", "michigan",
+                                       "ohio", "pennsylvania", "georgia", "virginia",
+                                       "north carolina", "new jersey", "arizona", "colorado",
+                                       "minnesota", "wisconsin", "oregon", "maryland",
+                                       "connecticut", "indiana", "missouri", "tennessee"]:
+                        if state_name in required_normalized:
+                            has_geo = True
+                            break
+                    # Check 2-letter state codes
+                    if not has_geo and re.search(r'[A-Z]{2}', required_location):
+                        code = re.search(r'([A-Z]{2})', required_location)
+                        if code and validate_us_state_code(code.group(1)):
+                            has_geo = True
+                    # Check city names and region words
+                    region_words = ["area", "region", "metro", "bay area", "tri-state",
+                                    "detroit", "chicago", "boston", "seattle", "denver",
+                                    "atlanta", "houston", "dallas", "phoenix", "portland"]
+                    if not has_geo:
+                        for rw in region_words:
+                            if rw in required_normalized:
+                                has_geo = True
+                                break
+
+                    if not has_geo:
+                        logging.debug(
+                            f"Geographic check: '{required_location}' has no recognized location — skipping"
+                        )
+                        continue
+
                     if (
                         "united states" in required_normalized
                         and USER_COUNTRY == "United States"

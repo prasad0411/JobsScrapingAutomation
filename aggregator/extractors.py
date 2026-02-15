@@ -223,7 +223,12 @@ class SimplifyRedirectResolver:
         except Exception:
             pass
 
-        logging.warning(f"All 4 methods failed: {simplify_url[:60]}")
+        actual_url = SimplifyRedirectResolver._method_5_page_apply_button(simplify_url)
+        if actual_url:
+            logging.info(f"Simplify Page: {actual_url[:70]}")
+            return actual_url, True
+
+        logging.warning(f"All 5 methods failed: {simplify_url[:60]}")
         return simplify_url, False
 
     @staticmethod
@@ -319,6 +324,54 @@ class SimplifyRedirectResolver:
                     pass
                 _SELENIUM_DRIVER = None
 
+        return None
+
+
+    @staticmethod
+    def _method_5_page_apply_button(simplify_url):
+        """NEW: Parse the Simplify job page directly for Apply/company link."""
+        try:
+            response = requests.get(
+                simplify_url,
+                timeout=15,
+                headers={"User-Agent": USER_AGENTS[0]},
+            )
+            if not response or response.status_code != 200:
+                return None
+
+            # Look for company application URLs in the page
+            text = response.text
+
+            # Method A: Find lever/greenhouse/workday URLs in page source
+            job_board_patterns = [
+                r'https?://jobs\.lever\.co/[^\s"'<>]+',
+                r'https?://[a-z0-9-]+\.myworkdayjobs\.com/[^\s"'<>]+',
+                r'https?://boards\.greenhouse\.io/[^\s"'<>]+',
+                r'https?://[a-z0-9-]+\.ashbyhq\.com/[^\s"'<>]+',
+                r'https?://[a-z0-9-]+\.smartrecruiters\.com/[^\s"'<>]+',
+                r'https?://[a-z0-9-]+\.icims\.com/[^\s"'<>]+',
+            ]
+            for pattern in job_board_patterns:
+                matches = re.findall(pattern, text)
+                for match in matches:
+                    clean = match.rstrip('"').rstrip("'").rstrip("\\")
+                    if "/job/" in clean or "/jobs/" in clean or "/apply" in clean:
+                        logging.info(f"Simplify page Apply: {clean[:80]}")
+                        return clean
+
+            # Method B: Find any external URL that looks like a job application
+            from aggregator.extractors import safe_parse_html
+            soup, _ = safe_parse_html(text)
+            if soup:
+                for link in soup.find_all("a", href=True):
+                    href = link.get("href", "")
+                    link_text = link.get_text(strip=True).lower()
+                    if "apply" in link_text and href.startswith("http") and "simplify" not in href:
+                        logging.info(f"Simplify page Apply button: {href[:80]}")
+                        return href
+
+        except Exception as e:
+            logging.debug(f"Simplify page parse failed: {e}")
         return None
 
     @staticmethod
@@ -878,7 +931,7 @@ class EmailExtractor:
 
     def fetch_job_emails(self, max_results=100):
         if not self.service:
-            print("[Gmail] Authenticating...")
+            # (auth silently)
             if not self.authenticate():
                 return []
         if not self.service:
@@ -994,11 +1047,13 @@ class EmailExtractor:
                     if not EmailExtractor._is_non_job_url(url):
                         urls.append(url)
                         seen.add(url)
-                # ZipRecruiter: extract View Details links
-                elif "ziprecruiter.com/jobs/" in url.lower():
-                    if not EmailExtractor._is_non_job_url(url):
-                        urls.append(url)
-                        seen.add(url)
+                # ZipRecruiter: extract tracking redirect links (/km/, /ekm/, /jobs/)
+                elif "ziprecruiter.com/" in url.lower():
+                    url_path = url.lower()
+                    if any(p in url_path for p in ["/km/", "/ekm/", "/jobs/", "/k/"]):
+                        if not EmailExtractor._is_non_job_url(url):
+                            urls.append(url)
+                            seen.add(url)
         return urls
 
     @staticmethod
@@ -1842,11 +1897,8 @@ class ZipRecruiterResolver:
             # ZipRecruiter emails have job cards as table rows or div blocks
             # Each job has: title, company, location, salary, "View Details" link
 
-            # Find all "View Details" links
-            view_links = soup.find_all("a", href=re.compile(r"ziprecruiter\.com/jobs/"))
-            if not view_links:
-                # Try redirect links
-                view_links = soup.find_all("a", href=re.compile(r"ziprecruiter\.com/k/"))
+            # Find all job links (View Details, Apply Now, Be Seen First)
+            view_links = soup.find_all("a", href=re.compile(r"ziprecruiter\.com/(?:jobs/|km/|ekm/|k/)"))
 
             for link in view_links:
                 try:

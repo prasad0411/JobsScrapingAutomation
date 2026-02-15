@@ -246,7 +246,7 @@ class UnifiedJobAggregator:
         self.source_stats = defaultdict(lambda: defaultdict(int))
 
         print(
-            f"Loaded: {len(self.existing_jobs)} jobs, {len(self.existing_urls)} URLs, {len(self.existing_job_ids)} IDs"
+            # (loaded silently)
         )
         logging.info(f"Loaded {len(self.existing_jobs)} existing jobs from sheets")
 
@@ -256,7 +256,7 @@ class UnifiedJobAggregator:
         if not self.jobright_auth.cookies:
             self.jobright_auth.login_interactive()
 
-        print("Scraping GitHub repositories...")
+        # (silent)
         self._scrape_simplify_github()
 
         print("\nProcessing email jobs...")
@@ -298,7 +298,7 @@ class UnifiedJobAggregator:
         vanshb03_jobs = self._safe_scrape(VANSHB03_URL, "vanshb03")
 
         print(
-            f"  Total: {len(simplify_jobs)} SimplifyJobs + {len(vanshb03_jobs)} vanshb03\n"
+            f"  Scraping SimplifyJobs ({len(simplify_jobs)} jobs) + vanshb03 ({len(vanshb03_jobs)} jobs)\n"
         )
         logging.info(
             f"GitHub: {len(simplify_jobs)} SimplifyJobs + {len(vanshb03_jobs)} vanshb03"
@@ -751,6 +751,49 @@ class UnifiedJobAggregator:
         self._print_rejected("Jobright", "URL unresolvable")
         self.outcomes["failed_jobright_resolution"] += 1
         self.source_stats[sender]["failed"] += 1
+
+
+    def _process_ziprecruiter_url(self, url, sender, email_html, subject):
+        """Process a ZipRecruiter job URL: follow redirect chain to actual company page."""
+        try:
+            # ZipRecruiter emails use /km/ and /ekm/ tracking redirects
+            # Follow the redirect to get to the ZipRecruiter job page
+            actual_url = None
+            try:
+                import requests as _req
+                resp = _req.get(url, allow_redirects=True, timeout=15,
+                               headers={"User-Agent": "Mozilla/5.0"})
+                if resp and resp.url != url:
+                    final = resp.url
+                    # If we landed on a ZipRecruiter job page, try to extract the Apply URL
+                    if "ziprecruiter.com" in final:
+                        actual_url = ZipRecruiterResolver.resolve(final)
+                    elif "ziprecruiter.com" not in final:
+                        # Redirected directly to company page
+                        actual_url = final
+            except Exception as e:
+                logging.debug(f"ZipRecruiter redirect follow failed: {e}")
+
+            if not actual_url:
+                logging.info(f"ZipRecruiter: Could not resolve {url[:60]}")
+                self.outcomes["failed_ziprecruiter_resolution"] = self.outcomes.get("failed_ziprecruiter_resolution", 0) + 1
+                return
+
+            if self._is_duplicate_url(actual_url):
+                self.outcomes["skipped_duplicate_url"] += 1
+                return
+
+            result = self._process_single_job_comprehensive(
+                actual_url, source=sender, email_html=email_html
+            )
+            if result:
+                alert = RoleCategorizer.get_terminal_alert(result["title"])
+                print(f"    {result['company'][:50]}: ✓ Valid {alert} (ZipRecruiter→original)")
+                self.source_stats[sender]["valid"] += 1
+            else:
+                self.source_stats[sender]["rejected"] += 1
+        except Exception as e:
+            logging.error(f"ZipRecruiter processing failed: {e}")
 
     def _get_jobright_email_fallback(self, url):
         if not hasattr(self, "_jobright_email_map"):
@@ -1237,14 +1280,14 @@ class UnifiedJobAggregator:
             ("⊘ Duplicate URL", self.outcomes["skipped_duplicate_url"]),
             ("⊘ Duplicate job", self.outcomes["skipped_duplicate_company_title"]),
             ("⊘ Duplicate ID", self.outcomes["skipped_duplicate_job_id"]),
-            ("⊘ Too old", self.outcomes["skipped_too_old"]),
+            # ("⊘ Too old", self.outcomes["skipped_too_old"]),  # hidden — always large
             ("⊘ Wrong season", self.outcomes["skipped_wrong_season"]),
             ("⊘ Senior role", self.outcomes["skipped_senior_role"]),
             ("⊘ Non-tech", self.outcomes["skipped_non_tech"]),
-            ("⊘ Invalid title", self.outcomes["skipped_invalid_title"]),
-            ("⊘ International", self.outcomes["skipped_international"]),
+            # ("⊘ Invalid title", self.outcomes["skipped_invalid_title"]),
+            # ("⊘ International", self.outcomes["skipped_international"]),
             ("⊘ Blacklisted", self.outcomes["skipped_blacklisted"]),
-            ("⊘ Page restriction", self.outcomes["skipped_page_restriction"]),
+            # ("⊘ Page restriction", self.outcomes["skipped_page_restriction"]),
             ("⊘ Low quality", self.outcomes["skipped_low_quality"]),
             ("✗ HTTP failed", self.outcomes["failed_http"]),
             ("✗ Parse failed", self.outcomes["failed_parse"]),
@@ -1279,7 +1322,7 @@ class UnifiedJobAggregator:
             rejection_reasons[short] += 1
 
         if rejection_reasons:
-            print("\n  TOP REJECTION REASONS:")
+            # print("\n  TOP REJECTION REASONS:")
             sorted_reasons = sorted(
                 rejection_reasons.items(), key=lambda x: x[1], reverse=True
             )

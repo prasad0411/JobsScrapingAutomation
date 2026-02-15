@@ -1,3 +1,4 @@
+import os
 #!/usr/bin/env python3
 """Outreach Pipeline — Email Finder (cache → Reacher → API cascade)."""
 
@@ -246,8 +247,34 @@ class Finder:
             resp = requests.get(REACHER_URL.replace("/v0/check_email", "/"), timeout=3)
             self._reacher = resp.status_code in (200, 404, 405)
         except:
+            # Auto-start Reacher via Docker
+            log.info("Reacher not running — attempting to start Docker...")
+            try:
+                import subprocess
+                # Try from project root
+                root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+                result = subprocess.run(
+                    ["docker", "compose", "up", "-d"],
+                    cwd=root, capture_output=True, text=True, timeout=30
+                )
+                if result.returncode == 0:
+                    log.info("Docker Reacher started. Waiting 5s for boot...")
+                    import time; time.sleep(5)
+                    try:
+                        resp = requests.get(REACHER_URL.replace("/v0/check_email", "/"), timeout=3)
+                        self._reacher = resp.status_code in (200, 404, 405)
+                        if self._reacher:
+                            log.info("Reacher is now running ✓")
+                            return self._reacher
+                    except:
+                        pass
+                else:
+                    log.warning(f"Docker start failed: {result.stderr[:100]}")
+            except FileNotFoundError:
+                log.warning("Docker not found. Install Docker Desktop.")
+            except Exception as e:
+                log.warning(f"Auto-start failed: {e}")
             self._reacher = False
-            log.warning("Reacher not running. cd outreach && docker compose up -d")
         return self._reacher
 
     def _apis(self, p, dom, li, r):
