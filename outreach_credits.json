@@ -1,0 +1,26 @@
+{
+  "apollo": {
+    "lim": 120,
+    "used": 0,
+    "reset": "2026-02-15",
+    "ok": true
+  },
+  "hunter": {
+    "lim": 25,
+    "used": 0,
+    "reset": "2026-02-15",
+    "ok": true
+  },
+  "snov": {
+    "lim": 50,
+    "used": 0,
+    "reset": "2026-02-15",
+    "ok": true
+  },
+  "gmail": {
+    "lim": 450,
+    "used": 0,
+    "reset": "2026-02-15",
+    "ok": true
+  }
+}

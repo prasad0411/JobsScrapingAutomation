@@ -80,6 +80,21 @@ with open("skipped_jobs.log", "w") as f:
     )
     f.write("=" * 100 + "\n\n")
 
+GARBAGE_COMPANY_NAMES = {
+    "myworkdayjobs",
+    "www",
+    "job-boards",
+    "company",
+    "unknown",
+    "careers",
+    "jobs",
+    "external",
+    "portal",
+    "applicant",
+    "job-boards.greenhouse.io",
+    "job-boards.eu.greenhouse.io",
+}
+
 
 class JobrightEmailParser:
     @staticmethod
@@ -227,6 +242,7 @@ class UnifiedJobAggregator:
         self.duplicate_jobs = []
 
         self.outcomes = defaultdict(int)
+        self.source_stats = defaultdict(lambda: defaultdict(int))
 
         print(
             f"Loaded: {len(self.existing_jobs)} jobs, {len(self.existing_urls)} URLs, {len(self.existing_job_ids)} IDs"
@@ -287,29 +303,43 @@ class UnifiedJobAggregator:
             f"GitHub: {len(simplify_jobs)} SimplifyJobs + {len(vanshb03_jobs)} vanshb03"
         )
 
+        consecutive_old = 0
         for i, job in enumerate(simplify_jobs):
             try:
                 age_days = self._parse_github_age(job["age"])
                 if age_days is not None and age_days > MAX_JOB_AGE_DAYS:
-                    skipped = len(simplify_jobs) - i
-                    logging.info(
-                        f"SimplifyJobs: Early exit - skipped {skipped} old jobs"
-                    )
-                    self.outcomes["skipped_too_old"] += skipped
-                    break
+                    consecutive_old += 1
+                    if consecutive_old >= 10:
+                        skipped = len(simplify_jobs) - i - 1
+                        logging.info(
+                            f"SimplifyJobs: Early exit after 10 consecutive old - skipped {skipped}"
+                        )
+                        self.outcomes["skipped_too_old"] += skipped
+                        break
+                    continue
+                else:
+                    consecutive_old = 0
                 self._process_single_github_job(job)
             except Exception as e:
                 logging.error(f"Failed to process SimplifyJobs job: {e}", exc_info=True)
                 continue
 
+        consecutive_old = 0
         for i, job in enumerate(vanshb03_jobs):
             try:
                 age_days = self._parse_github_age(job["age"])
                 if age_days is not None and age_days > MAX_JOB_AGE_DAYS:
-                    skipped = len(vanshb03_jobs) - i
-                    logging.info(f"vanshb03: Early exit - skipped {skipped} old jobs")
-                    self.outcomes["skipped_too_old"] += skipped
-                    break
+                    consecutive_old += 1
+                    if consecutive_old >= 10:
+                        skipped = len(vanshb03_jobs) - i - 1
+                        logging.info(
+                            f"vanshb03: Early exit after 10 consecutive old - skipped {skipped}"
+                        )
+                        self.outcomes["skipped_too_old"] += skipped
+                        break
+                    continue
+                else:
+                    consecutive_old = 0
                 self._process_single_github_job(job)
             except Exception as e:
                 logging.error(f"Failed to process vanshb03 job: {e}", exc_info=True)
@@ -334,6 +364,8 @@ class UnifiedJobAggregator:
         is_valid_title, reason = TitleProcessor.is_valid_job_title(title)
         if not is_valid_title:
             self.outcomes["skipped_invalid_title"] += 1
+            self.source_stats[source]["rejected"] += 1
+            self._print_rejected(company_from_github, f"Invalid title: {reason}")
             logging.info(
                 f"REJECTED | {company_from_github} | {title} | Invalid title: {reason}"
             )
@@ -351,6 +383,8 @@ class UnifiedJobAggregator:
         is_internship, intern_reason = TitleProcessor.is_internship_role(title)
         if not is_internship:
             self.outcomes["skipped_senior_role"] += 1
+            self.source_stats[source]["rejected"] += 1
+            self._print_rejected(company_from_github, intern_reason)
             logging.info(
                 f"REJECTED | {company_from_github} | {title} | {intern_reason}"
             )
@@ -359,6 +393,8 @@ class UnifiedJobAggregator:
         season_ok, season_reason = TitleProcessor.check_season_requirement(title)
         if not season_ok:
             self.outcomes["skipped_wrong_season"] += 1
+            self.source_stats[source]["rejected"] += 1
+            self._print_rejected(company_from_github, season_reason)
             logging.info(
                 f"REJECTED | {company_from_github} | {title} | {season_reason}"
             )
@@ -367,6 +403,8 @@ class UnifiedJobAggregator:
         is_tech = TitleProcessor.is_cs_engineering_role(title)
         if not is_tech:
             self.outcomes["skipped_non_tech"] += 1
+            self.source_stats[source]["rejected"] += 1
+            self._print_rejected(company_from_github, "Not CS/Engineering")
             logging.info(
                 f"REJECTED | {company_from_github} | {title} | Not a CS/Engineering role"
             )
@@ -378,6 +416,7 @@ class UnifiedJobAggregator:
                 company_from_github, "Blacklisted company"
             )
             self.outcomes["skipped_blacklisted"] += 1
+            self.source_stats[source]["rejected"] += 1
             self._add_discarded(
                 company_from_github,
                 title,
@@ -389,6 +428,7 @@ class UnifiedJobAggregator:
                 source,
                 reason,
             )
+            self._print_rejected(company_from_github, f"Blacklisted")
             logging.info(
                 f"REJECTED | {company_from_github} | {title} | Blacklisted: {reason}"
             )
@@ -399,6 +439,7 @@ class UnifiedJobAggregator:
         )
         if international_check:
             self.outcomes["skipped_international"] += 1
+            self.source_stats[source]["rejected"] += 1
             self._add_discarded(
                 company_from_github,
                 title,
@@ -410,6 +451,8 @@ class UnifiedJobAggregator:
                 source,
                 international_check,
             )
+            short_reason = international_check.replace("Location: ", "")
+            self._print_rejected(company_from_github, short_reason)
             logging.info(
                 f"REJECTED | {company_from_github} | {title} | {international_check}"
             )
@@ -427,9 +470,9 @@ class UnifiedJobAggregator:
             alert = RoleCategorizer.get_terminal_alert(result["title"])
             company_display = result["company"][:TERMINAL_COMPANY_WIDTH]
             print(f"  {company_display}: ✓ Valid {alert}")
+            self.source_stats[source]["valid"] += 1
         else:
-            if not any(resolved_url in d.get("url", "") for d in self.discarded_jobs):
-                pass
+            self.source_stats[source]["rejected"] += 1
 
     def _process_emails_grouped(self, emails_data):
         processed_emails = ProcessedEmailTracker.load()
@@ -437,6 +480,7 @@ class UnifiedJobAggregator:
 
         self._jobright_email_map = {}
         seen_jobright_urls = set()
+        seen_jobright_company_titles = set()
 
         for email in emails_data:
             email_id = email["email_id"]
@@ -453,9 +497,8 @@ class UnifiedJobAggregator:
                 parsed_jobs = JobrightEmailParser.parse_email_jobs(html_content)
                 if parsed_jobs:
                     self._jobright_email_map.update(parsed_jobs)
-                    logging.info(
-                        f"Pre-parsed {len(parsed_jobs) // 2} Jobright jobs from: {subject}"
-                    )
+                    unique = len(set(id(v) for v in parsed_jobs.values()))
+                    logging.info(f"Pre-parsed {unique} Jobright jobs from: {subject}")
 
             deduped_urls = []
             for url in urls:
@@ -465,6 +508,20 @@ class UnifiedJobAggregator:
                         self.outcomes["skipped_duplicate_url"] += 1
                         continue
                     seen_jobright_urls.add(clean)
+
+                    fallback = self._get_jobright_email_fallback(url)
+                    if fallback:
+                        ct_key = URLCleaner.normalize_text(
+                            f"{fallback.get('company', '')}_{fallback.get('title', '')}"
+                        )
+                        if (
+                            ct_key in seen_jobright_company_titles
+                            or ct_key in self.existing_jobs
+                        ):
+                            self.outcomes["skipped_duplicate_company_title"] += 1
+                            continue
+                        seen_jobright_company_titles.add(ct_key)
+
                 deduped_urls.append(url)
 
             email_counter += 1
@@ -474,9 +531,16 @@ class UnifiedJobAggregator:
                 f"\n  Email #{email_counter}: {subject} ({sender}) - {len(deduped_urls)} URLs{skip_msg}"
             )
 
-            for url in deduped_urls:
+            for idx, url in enumerate(deduped_urls):
                 try:
-                    self._process_single_email_url(url, sender, html_content, subject)
+                    self._process_single_email_url(
+                        url,
+                        sender,
+                        html_content,
+                        subject,
+                        url_idx=idx + 1,
+                        url_total=len(deduped_urls),
+                    )
                 except Exception as e:
                     logging.error(f"Failed to process email URL {url}: {e}")
                     continue
@@ -487,7 +551,9 @@ class UnifiedJobAggregator:
 
         ProcessedEmailTracker.save(processed_emails)
 
-    def _process_single_email_url(self, url, sender, email_html, subject):
+    def _process_single_email_url(
+        self, url, sender, email_html, subject, url_idx=0, url_total=0
+    ):
         if any(domain in url.lower() for domain in BLACKLIST_DOMAINS):
             return
 
@@ -504,154 +570,11 @@ class UnifiedJobAggregator:
                 resolved_url = url
 
         if "jobright.ai" in url.lower():
-            resolved_url, is_company_site = JobrightRedirectResolver.resolve(
-                url, email_html=email_html
-            )
-
-            if "jobright.ai" in resolved_url.lower():
-                email_fallback = self._get_jobright_email_fallback(url)
-                if (
-                    email_fallback
-                    and email_fallback.get("title", "Unknown") != "Unknown"
-                ):
-                    logging.info(
-                        f"Jobright email data: {email_fallback['company']} | {email_fallback['title']} | {email_fallback.get('location', 'Unknown')}"
-                    )
+            self._process_jobright_url(url, sender, email_html, subject)
+            return
 
         if self._is_duplicate_url(resolved_url):
             self.outcomes["skipped_duplicate_url"] += 1
-            return
-
-        if "jobright.ai" in resolved_url.lower() and sender == "Jobright":
-            email_fallback = self._get_jobright_email_fallback(url)
-
-            if email_fallback and email_fallback.get("title", "Unknown") != "Unknown":
-                company = email_fallback.get("company", "Unknown")
-                title = TitleProcessor.clean_title_aggressive(
-                    email_fallback.get("title", "Unknown")
-                )
-                location = email_fallback.get("location", "Unknown")
-
-                if self._is_duplicate(company, title, resolved_url):
-                    return
-
-                is_internship, intern_reason = TitleProcessor.is_internship_role(title)
-                if not is_internship:
-                    self.outcomes["skipped_senior_role"] += 1
-                    logging.info(
-                        f"REJECTED | {company} | {title} | {intern_reason} | Email: {subject}"
-                    )
-                    return
-
-                actual_url = self._extract_original_job_post_url(resolved_url)
-
-                if actual_url:
-                    if self._is_duplicate_url(actual_url):
-                        self.outcomes["skipped_duplicate_url"] += 1
-                        return
-
-                    result = self._process_single_job_comprehensive(
-                        actual_url,
-                        company_hint=company,
-                        title_hint=title,
-                        location_hint=location,
-                        source=sender,
-                        email_html=email_html,
-                    )
-                    if result:
-                        alert = RoleCategorizer.get_terminal_alert(result["title"])
-                        print(
-                            f"    {result['company'][:50]}: ✓ Valid {alert} (email→original)"
-                        )
-                    return
-
-                jobright_data = None
-                try:
-                    response = retry_request(resolved_url, max_retries=2)
-                    if response and response.status_code == 200:
-                        soup, _ = safe_parse_html(response.content)
-                        if soup:
-                            jobright_data = PageParser.extract_jobright_data(
-                                soup, resolved_url, self.jobright_auth
-                            )
-                except Exception:
-                    pass
-
-                if jobright_data:
-                    actual_url = jobright_data.get("url", resolved_url)
-                    if "jobright.ai" not in actual_url:
-                        resolved_url = actual_url
-
-                    result = self._process_single_job_comprehensive(
-                        resolved_url,
-                        company_hint=company,
-                        title_hint=title,
-                        location_hint=location,
-                        source=sender,
-                        email_html=email_html,
-                    )
-                    if result:
-                        alert = RoleCategorizer.get_terminal_alert(result["title"])
-                        print(f"    {result['company'][:50]}: ✓ Valid {alert}")
-                    return
-
-                logging.info(
-                    f"SKIPPED | {company} | {title} | Jobright resolution failed, no apply URL in email"
-                )
-                self.outcomes["failed_jobright_resolution"] += 1
-                return
-
-            jobright_data = None
-            try:
-                response = retry_request(resolved_url, max_retries=2)
-                if response and response.status_code == 200:
-                    soup, _ = safe_parse_html(response.content)
-                    if soup:
-                        jobright_data = PageParser.extract_jobright_data(
-                            soup, resolved_url, self.jobright_auth
-                        )
-            except Exception:
-                pass
-
-            if jobright_data:
-                actual_url = jobright_data.get("url", resolved_url)
-                if "jobright.ai" not in actual_url and jobright_data.get(
-                    "is_company_site", False
-                ):
-                    resolved_url = actual_url
-
-                company = jobright_data.get("company", "Unknown")
-                title = TitleProcessor.clean_title_aggressive(
-                    jobright_data.get("title", "Unknown")
-                )
-                location = jobright_data.get("location", "Unknown")
-
-                if self._is_duplicate(company, title, resolved_url):
-                    return
-
-                is_internship, intern_reason = TitleProcessor.is_internship_role(title)
-                if not is_internship:
-                    self.outcomes["skipped_senior_role"] += 1
-                    logging.info(
-                        f"REJECTED | {company} | {title} | {intern_reason} | Email: {subject}"
-                    )
-                    return
-
-                result = self._process_single_job_comprehensive(
-                    resolved_url,
-                    company_hint=company,
-                    title_hint=title,
-                    location_hint=location,
-                    source=sender,
-                    email_html=email_html,
-                )
-                if result:
-                    alert = RoleCategorizer.get_terminal_alert(result["title"])
-                    print(f"    {result['company'][:50]}: ✓ Valid {alert}")
-                return
-
-            logging.info(f"SKIPPED | Jobright URL unresolvable | {resolved_url[:60]}")
-            self.outcomes["failed_jobright_resolution"] += 1
             return
 
         result = self._process_single_job_comprehensive(
@@ -662,6 +585,161 @@ class UnifiedJobAggregator:
         if result:
             alert = RoleCategorizer.get_terminal_alert(result["title"])
             print(f"    {result['company'][:50]}: ✓ Valid {alert}")
+            self.source_stats[sender]["valid"] += 1
+        else:
+            self.source_stats[sender]["rejected"] += 1
+
+    def _process_jobright_url(self, url, sender, email_html, subject):
+        email_fallback = self._get_jobright_email_fallback(url)
+
+        if email_fallback and email_fallback.get("title", "Unknown") != "Unknown":
+            company = email_fallback.get("company", "Unknown")
+            title = TitleProcessor.clean_title_aggressive(
+                email_fallback.get("title", "Unknown")
+            )
+            location = email_fallback.get("location", "Unknown")
+
+            logging.info(
+                f"STEP 1 | Jobright email data: {company} | {title} | {location}"
+            )
+
+            if self._is_duplicate(company, title, url):
+                logging.info(f"STEP 2 | Duplicate: {company} | {title}")
+                return
+
+            is_internship, intern_reason = TitleProcessor.is_internship_role(title)
+            if not is_internship:
+                self.outcomes["skipped_senior_role"] += 1
+                self.source_stats[sender]["rejected"] += 1
+                self._print_rejected(company, intern_reason)
+                logging.info(
+                    f"STEP 2 | REJECTED | {company} | {title} | {intern_reason}"
+                )
+                return
+
+            is_tech = TitleProcessor.is_cs_engineering_role(title)
+            if not is_tech:
+                self.outcomes["skipped_non_tech"] += 1
+                self.source_stats[sender]["rejected"] += 1
+                self._print_rejected(company, "Not CS/Engineering")
+                logging.info(
+                    f"STEP 2 | REJECTED | {company} | {title} | Not CS/Engineering"
+                )
+                return
+
+            company_lower = company.lower().strip()
+            if any(bl.lower() == company_lower for bl in COMPANY_BLACKLIST):
+                reason = COMPANY_BLACKLIST_REASONS.get(company, "Blacklisted")
+                self.outcomes["skipped_blacklisted"] += 1
+                self.source_stats[sender]["rejected"] += 1
+                self._add_discarded(
+                    company,
+                    title,
+                    location,
+                    "Unknown",
+                    url,
+                    "N/A",
+                    "Internship",
+                    sender,
+                    reason,
+                )
+                self._print_rejected(company, "Blacklisted")
+                logging.info(f"STEP 2 | REJECTED | {company} | Blacklisted: {reason}")
+                return
+
+            international_check = LocationProcessor.check_if_international(
+                location, url=url, title=title
+            )
+            if international_check:
+                self.outcomes["skipped_international"] += 1
+                self.source_stats[sender]["rejected"] += 1
+                self._add_discarded(
+                    company,
+                    title,
+                    location,
+                    "Unknown",
+                    url,
+                    "N/A",
+                    "Internship",
+                    sender,
+                    international_check,
+                )
+                short_reason = international_check.replace("Location: ", "")
+                self._print_rejected(company, short_reason)
+                logging.info(f"STEP 2 | REJECTED | {company} | {international_check}")
+                return
+
+            logging.info(f"STEP 3 | Extracting original URL for: {company} | {title}")
+            actual_url = self._extract_original_job_post_url(url)
+
+            if actual_url:
+                logging.info(f"STEP 4 | Original URL found: {actual_url[:80]}")
+
+                if self._is_duplicate_url(actual_url):
+                    self.outcomes["skipped_duplicate_url"] += 1
+                    logging.info(f"STEP 5 | Duplicate URL: {actual_url[:60]}")
+                    return
+
+                result = self._process_single_job_comprehensive(
+                    actual_url,
+                    company_hint=company,
+                    title_hint=title,
+                    location_hint=location,
+                    source=sender,
+                    email_html=email_html,
+                )
+                if result:
+                    alert = RoleCategorizer.get_terminal_alert(result["title"])
+                    print(
+                        f"    {result['company'][:50]}: ✓ Valid {alert} (email→original)"
+                    )
+                    self.source_stats[sender]["valid"] += 1
+                else:
+                    self.source_stats[sender]["rejected"] += 1
+                return
+
+            logging.info(f"STEP 4 | Original URL NOT found for: {company} | {title}")
+            logging.info(
+                f"SKIPPED | {company} | {title} | Jobright original URL extraction failed"
+            )
+            self._print_rejected(company, "Jobright URL unresolved")
+            self.outcomes["failed_jobright_resolution"] += 1
+            self.source_stats[sender]["failed"] += 1
+            return
+
+        logging.info(f"STEP 1 | No email data for Jobright URL: {url[:60]}")
+
+        if self._is_duplicate_url(url):
+            self.outcomes["skipped_duplicate_url"] += 1
+            return
+
+        actual_url = self._extract_original_job_post_url(url)
+        if actual_url:
+            logging.info(f"STEP 2 | Original URL (no email data): {actual_url[:80]}")
+
+            if self._is_duplicate_url(actual_url):
+                self.outcomes["skipped_duplicate_url"] += 1
+                return
+
+            result = self._process_single_job_comprehensive(
+                actual_url,
+                source=sender,
+                email_html=email_html,
+            )
+            if result:
+                alert = RoleCategorizer.get_terminal_alert(result["title"])
+                print(
+                    f"    {result['company'][:50]}: ✓ Valid {alert} (jobright→original)"
+                )
+                self.source_stats[sender]["valid"] += 1
+            else:
+                self.source_stats[sender]["rejected"] += 1
+            return
+
+        logging.info(f"SKIPPED | Jobright URL unresolvable | {url[:60]}")
+        self._print_rejected("Jobright", "URL unresolvable")
+        self.outcomes["failed_jobright_resolution"] += 1
+        self.source_stats[sender]["failed"] += 1
 
     def _get_jobright_email_fallback(self, url):
         if not hasattr(self, "_jobright_email_map"):
@@ -694,7 +772,7 @@ class UnifiedJobAggregator:
                 soup, _ = safe_parse_html(auth_response.content)
                 logging.info(f"Jobright auth fetch OK: {jobright_url[:60]}")
         except Exception as e:
-            logging.debug(f"Jobright auth fetch failed: {e}")
+            logging.info(f"Jobright auth fetch failed: {e}")
 
         if soup:
             url = self._parse_original_url_from_soup(soup)
@@ -716,7 +794,7 @@ class UnifiedJobAggregator:
                     if url:
                         return url
         except Exception as e:
-            logging.debug(f"Jobright Selenium fetch failed: {e}")
+            logging.info(f"Jobright Selenium fetch failed: {e}")
 
         logging.info(f"Jobright original URL not found: {jobright_url[:60]}")
         return None
@@ -745,8 +823,6 @@ class UnifiedJobAggregator:
 
             script_tag = soup.find("script", {"id": "__NEXT_DATA__"})
             if script_tag:
-                import json
-
                 data = json.loads(script_tag.string)
                 job_result = (
                     data.get("props", {})
@@ -782,7 +858,8 @@ class UnifiedJobAggregator:
 
             if not response:
                 self.outcomes["failed_http"] += 1
-                logging.info(f"HTTP FAIL | {url[:80]}")
+                self._print_rejected(company_hint or "Unknown", "HTTP fetch failed")
+                logging.info(f"HTTP FAIL | {company_hint} | {url[:80]}")
                 return None
 
             soup, _ = safe_parse_html(
@@ -790,19 +867,26 @@ class UnifiedJobAggregator:
             )
             if not soup:
                 self.outcomes["failed_parse"] += 1
+                logging.info(f"PARSE FAIL | {url[:80]}")
                 return None
 
             company = CompanyExtractor.extract_all_methods(final_url or url, soup)
-            if not company or company == "Unknown":
-                company = company_hint if company_hint else "Unknown"
 
-            company_clean = CompanyExtractor.clean_company_name(company)
-            if company_clean and company_clean != "Unknown":
-                company = company_clean
+            if self._is_garbage_company(company) and company_hint:
+                company = company_hint
+            elif not company or company == "Unknown":
+                company = company_hint if company_hint else "Unknown"
+            else:
+                company_clean = CompanyExtractor.clean_company_name(company)
+                if company_clean and not self._is_garbage_company(company_clean):
+                    company = company_clean
 
             normalized = CompanyNormalizer.normalize(company, url)
-            if normalized:
+            if normalized and not self._is_garbage_company(normalized):
                 company = normalized
+
+            if self._is_garbage_company(company) and company_hint:
+                company = company_hint
 
             title = PageParser.extract_title(soup)
             if not title or title == "Unknown":
@@ -815,6 +899,7 @@ class UnifiedJobAggregator:
             is_valid_title, reason = TitleProcessor.is_valid_job_title(title)
             if not is_valid_title:
                 self.outcomes["skipped_invalid_title"] += 1
+                self._print_rejected(company, f"Invalid title: {reason}")
                 logging.info(
                     f"REJECTED | {company} | {title} | Invalid title: {reason}"
                 )
@@ -836,6 +921,7 @@ class UnifiedJobAggregator:
                     source,
                     intern_reason,
                 )
+                self._print_rejected(company, intern_reason)
                 logging.info(f"REJECTED | {company} | {title} | {intern_reason}")
                 return None
 
@@ -855,6 +941,7 @@ class UnifiedJobAggregator:
                     source,
                     season_reason,
                 )
+                self._print_rejected(company, season_reason)
                 logging.info(f"REJECTED | {company} | {title} | {season_reason}")
                 return None
 
@@ -874,6 +961,7 @@ class UnifiedJobAggregator:
                     source,
                     "Not a CS/Engineering role",
                 )
+                self._print_rejected(company, "Not CS/Engineering")
                 logging.info(
                     f"REJECTED | {company} | {title} | Not CS/Engineering role"
                 )
@@ -894,6 +982,7 @@ class UnifiedJobAggregator:
                     source,
                     reason,
                 )
+                self._print_rejected(company, "Blacklisted")
                 logging.info(f"REJECTED | {company} | {title} | Blacklisted: {reason}")
                 return None
 
@@ -927,6 +1016,8 @@ class UnifiedJobAggregator:
                     source,
                     international_check,
                 )
+                short_reason = international_check.replace("Location: ", "")
+                self._print_rejected(company, short_reason)
                 logging.info(f"REJECTED | {company} | {title} | {international_check}")
                 return None
 
@@ -944,6 +1035,7 @@ class UnifiedJobAggregator:
                     source,
                     company_intl,
                 )
+                self._print_rejected(company, "International (company name)")
                 logging.info(f"REJECTED | {company} | {title} | {company_intl}")
                 return None
 
@@ -963,6 +1055,7 @@ class UnifiedJobAggregator:
                     source,
                     page_reason,
                 )
+                self._print_rejected(company, page_reason[:50])
                 logging.info(f"REJECTED | {company} | {title} | {page_reason}")
                 return None
 
@@ -980,6 +1073,7 @@ class UnifiedJobAggregator:
                     source,
                     f"Posted {page_age} days ago (max {PAGE_AGE_THRESHOLD_DAYS})",
                 )
+                self._print_rejected(company, f"Posted {page_age}d ago")
                 logging.info(f"REJECTED | {company} | {title} | Posted {page_age}d ago")
                 return None
 
@@ -1008,6 +1102,7 @@ class UnifiedJobAggregator:
             quality = QualityScorer.calculate_score(job_data)
             if quality < MIN_QUALITY_SCORE:
                 self.outcomes["skipped_low_quality"] += 1
+                self._print_rejected(company, f"Low quality ({quality})")
                 logging.info(f"REJECTED | {company} | {title} | Low quality: {quality}")
                 return None
 
@@ -1024,6 +1119,11 @@ class UnifiedJobAggregator:
         except Exception as e:
             logging.error(f"Processing failed for {url}: {e}", exc_info=True)
             return None
+
+    def _is_garbage_company(self, name):
+        if not name:
+            return True
+        return name.lower().strip() in GARBAGE_COMPANY_NAMES
 
     def _is_duplicate(self, company, title, url, job_id="N/A"):
         clean_url = URLCleaner.clean_url(url)
@@ -1081,6 +1181,10 @@ class UnifiedJobAggregator:
         )
         self.outcomes["discarded"] += 1
 
+    def _print_rejected(self, company, reason):
+        display = (company or "Unknown")[:40]
+        print(f"    {display}: ✗ {reason}")
+
     def _ensure_mutual_exclusion(self):
         if not self.valid_jobs or not self.discarded_jobs:
             return
@@ -1115,6 +1219,7 @@ class UnifiedJobAggregator:
         print("\n" + "=" * 80)
         print("SUMMARY:")
         print("=" * 80)
+
         summary_items = [
             ("✓ Valid", self.outcomes["valid"]),
             ("✗ Discarded", self.outcomes["discarded"]),
@@ -1137,6 +1242,38 @@ class UnifiedJobAggregator:
         for label, count in summary_items:
             if count > 0:
                 print(f"  {label}: {count}")
+
+        if self.source_stats:
+            print("\n  BY SOURCE:")
+            for source_name in sorted(self.source_stats.keys()):
+                stats = self.source_stats[source_name]
+                v = stats.get("valid", 0)
+                r = stats.get("rejected", 0)
+                f_count = stats.get("failed", 0)
+                parts = []
+                if v:
+                    parts.append(f"{v} valid")
+                if r:
+                    parts.append(f"{r} rejected")
+                if f_count:
+                    parts.append(f"{f_count} failed")
+                if parts:
+                    print(f"    {source_name}: {', '.join(parts)}")
+
+        rejection_reasons = defaultdict(int)
+        for job in self.discarded_jobs:
+            reason = job.get("reason", "Unknown")
+            short = reason.split(":")[0].split("(")[0].strip()[:40]
+            rejection_reasons[short] += 1
+
+        if rejection_reasons:
+            print("\n  TOP REJECTION REASONS:")
+            sorted_reasons = sorted(
+                rejection_reasons.items(), key=lambda x: x[1], reverse=True
+            )
+            for reason, count in sorted_reasons[:10]:
+                print(f"    {reason}: {count}")
+
         print("=" * 80)
 
     @staticmethod
