@@ -76,10 +76,10 @@ def phase_discover(sheets, finder):
         hm_e = row.get("he") or (hm_res["email"] if hm_res else "")
         rec_e = row.get("re") or (rec_res["email"] if rec_res else "")
         if hm_e or rec_e:
-            name = row["hn"] or row["rn"]
-            ct = "hm" if row["hn"] else "rec"
-            draft = Drafter.draft(name, ct, row["co"], row["title"])
-            sheets.write_subject_body(rn, draft["subject"], draft["body"])
+            jid = row.get("jid", "")
+            hm_d = Drafter.draft(row["hn"] or row["rn"], "hm", row["co"], row["title"], jid)
+            rec_d = Drafter.draft(row["rn"] or row["hn"], "rec", row["co"], row["title"], jid)
+            sheets.write_subject_body(rn, hm_d["subject"], hm_d["body"], rec_d["subject"], rec_d["body"])
 
     return stats
 
@@ -133,9 +133,11 @@ def _send_one(sheets, mailer, row, ct, stats):
     email = row["he"] if ct == "hm" else row["re"]
     if not name or not email:
         return False
-    draft = Drafter.draft(name, ct, row["co"], row["title"])
-    subject = row["subj"] or draft["subject"]
-    result = mailer.send(email, subject, draft["body"])
+    jid = row.get("jid", "")
+    draft = Drafter.draft(name, ct, row["co"], row["title"], jid)
+    subject = row.get("subj") or draft["subject"]
+    resume_type = sheets.get_resume_type(row["co"], row["title"])
+    result = mailer.send(email, subject, draft["body"], resume_type)
     if result["success"]:
         stats["sent"] += 1
         return True

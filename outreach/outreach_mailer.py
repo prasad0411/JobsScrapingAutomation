@@ -17,8 +17,12 @@ from outreach.outreach_config import (
     HM_BODY,
     REC_SUBJ,
     REC_BODY,
+    RESUME_SDE,
+    RESUME_ML,
     warmup_limit,
 )
+from email.mime.base import MIMEBase
+from email import encoders
 from outreach.outreach_data import Credits, NameParser
 
 log = logging.getLogger(__name__)
@@ -26,20 +30,19 @@ log = logging.getLogger(__name__)
 
 class Drafter:
     @staticmethod
-    def draft(name, contact_type, company, title):
+    def draft(name, contact_type, company, title, job_id=""):
         parsed = NameParser.parse(name)
         first = parsed["first"] if parsed else name.split()[0]
         st, bt = (HM_SUBJ, HM_BODY) if contact_type == "hm" else (REC_SUBJ, REC_BODY)
-        vals = {
-            "first": first,
-            "title": title,
-            "company": company,
-            "sender": SENDER_NAME,
-        }
+        jid = job_id if job_id and job_id not in ("N/A", "") else ""
+        vals = {"first": first, "title": title, "job_id": jid, "company": company, "sender": SENDER_NAME}
         subj, body = st, bt
         for k, v in vals.items():
             subj = subj.replace(f"{{{k}}}", v)
             body = body.replace(f"{{{k}}}", v)
+        if not jid:
+            subj = subj.replace(" | ", "")
+            body = body.replace(" | ", " ")
         return {"subject": subj, "body": body.replace("\n\n\n", "\n\n")}
 
 
@@ -79,8 +82,9 @@ class Mailer:
         self._svc = build("gmail", "v1", credentials=creds)
         return self._svc
 
-    def send(self, to_email, subject, body):
+    def send(self, to_email, subject, body, resume_type="SDE"):
         result = {"success": False, "error": "", "timestamp": ""}
+        resume_path = RESUME_ML if resume_type == "ML" else RESUME_SDE
         wl, gl = warmup_limit(), self.cr.gmail_left()
         if min(wl, gl) <= 0:
             result["error"] = f"Daily limit (warm-up={wl}, left={gl})"
@@ -97,19 +101,28 @@ class Mailer:
             return result
         try:
             svc = self._service()
-            msg = MIMEMultipart("alternative")
+            msg = MIMEMultipart()
             msg["From"] = f"{SENDER_NAME} <{SENDER_EMAIL}>"
             msg["To"] = to_email
             msg["Subject"] = subject
             msg["Reply-To"] = SENDER_EMAIL
             msg.attach(MIMEText(body, "plain"))
+            if os.path.exists(resume_path):
+                with open(resume_path, "rb") as rf:
+                    part = MIMEBase("application", "pdf")
+                    part.set_payload(rf.read())
+                    encoders.encode_base64(part)
+                    part.add_header("Content-Disposition", f"attachment; filename={os.path.basename(resume_path)}")
+                    msg.attach(part)
+            else:
+                log.warning(f"Resume not found: {resume_path}")
             raw = base64.urlsafe_b64encode(msg.as_bytes()).decode()
-            svc.users().messages().send(userId="me", body={"raw": raw}).execute()
+            svc.users().drafts().create(userId="me", body={"message": {"raw": raw}}).execute()
             self._hourly += 1
             self.cr.use_gmail()
             result["success"] = True
             result["timestamp"] = now.strftime("%Y-%m-%d %H:%M:%S")
-            log.info(f"Sent → {to_email}")
+            log.info(f"Draft created → {to_email}")
             print(f"    ✓ Sent → {to_email}")
         except Exception as e:
             result["error"] = f"Send failed: {str(e)[:120]}"

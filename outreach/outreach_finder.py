@@ -282,7 +282,8 @@ class Finder:
                 root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
                 result = subprocess.run(
                     ["docker", "compose", "up", "-d"],
-                    cwd=root, capture_output=True, text=True, timeout=30
+                    cwd=str(root), capture_output=True, text=True, timeout=30,
+                    env={**os.environ, "COMPOSE_PROJECT_NAME": "outreach"}
                 )
                 if result.returncode == 0:
                     log.info("Docker Reacher started. Waiting 5s for boot...")

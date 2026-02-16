@@ -9,69 +9,74 @@ _ROOT = os.path.dirname(_DIR)
 SHEETS_CREDS = os.path.join(_ROOT, ".local", "credentials.json")
 GMAIL_CREDS = os.path.join(_ROOT, ".local", "gmail_credentials.json")
 GMAIL_TOKEN = os.path.join(_ROOT, ".local", "gmail_token.pickle")
-GMAIL_SCOPES = ["https://www.googleapis.com/auth/gmail.send"]
+GMAIL_SCOPES = ["https://www.googleapis.com/auth/gmail.send", "https://www.googleapis.com/auth/gmail.compose"]
 
 SPREADSHEET = "H1B visa"
 VALID_TAB = "Valid Entries"
 OUTREACH_TAB = "Outreach Tracker"
 
-V_COMPANY, V_TITLE, V_JOBID = 2, 3, 6
+V_COMPANY, V_TITLE, V_JOBID, V_RESUME = 2, 3, 6, 9
 
 O_HEADERS = [
-    "Sr. No.",  # A (0)
-    "Company",  # B (1)
-    "Job Title",  # C (2)
-    "Job ID",  # D (3)
-    "HM Name",  # E (4)
-    "HM LinkedIn URL",  # F (5)
-    "Recruiter Name",  # G (6)
-    "Recruiter LinkedIn URL",  # H (7)
-    "HM Email",  # I (8)
-    "Recruiter Email",  # J (9)
-    "Email Subject",  # K (10)
-    "Email Body",  # L (11)
-    "Send?",  # M (12)
-    "Sent Date",  # N (13)
-    "Error Log",  # O (14)
+    "Sr. No.",                # A (0)
+    "Company",                # B (1)
+    "Job Title",              # C (2)
+    "Job ID",                 # D (3)
+    "HM Name",                # E (4)
+    "HM LinkedIn URL",        # F (5)
+    "Recruiter Name",         # G (6)
+    "Recruiter LinkedIn URL", # H (7)
+    "HM Email",               # I (8)
+    "Recruiter Email",        # J (9)
+    "HM Subject",             # K (10)
+    "HM Body",                # L (11)
+    "Rec Subject",            # M (12)
+    "Rec Body",               # N (13)
+    "Send?",                  # O (14)
+    "Sent Date",              # P (15)
+    "Error Log",              # Q (16)
 ]
 
 C = {
-    "sr": 0,
-    "company": 1,
-    "title": 2,
-    "job_id": 3,
-    "hm_name": 4,
-    "hm_li": 5,
-    "rec_name": 6,
-    "rec_li": 7,
-    "hm_email": 8,
-    "rec_email": 9,
-    "subject": 10,
-    "body": 11,
-    "send": 12,
-    "sent_dt": 13,
-    "error": 14,
+    "sr": 0, "company": 1, "title": 2, "job_id": 3,
+    "hm_name": 4, "hm_li": 5, "rec_name": 6, "rec_li": 7,
+    "hm_email": 8, "rec_email": 9,
+    "hm_subject": 10, "hm_body": 11, "rec_subject": 12, "rec_body": 13,
+    "send": 14, "sent_dt": 15, "error": 16,
 }
 
 SENDER_NAME = "Prasad Kanade"
 SENDER_EMAIL = "prasadkanade@gmail.com"
 
-_PS = "\n\nP.S. If you'd prefer I not follow up, just let me know — happy to respect that."
-HM_SUBJ = "Regarding {title} at {company}"
+HM_SUBJ = "Prasad Kanade \u2014 Application for {title} | {job_id}"
 HM_BODY = (
-    "Hi {first},\n\nI came across the {title} role at {company} and wanted to reach out directly. "
-    "I'm a CS Master's student at Northeastern University with hands-on experience in software engineering, "
-    "and I believe my background aligns well with what your team is looking for.\n\n"
-    "I've applied through the portal and would welcome the chance to connect if you think there could be a fit.\n\n"
-    "Best regards,\n{sender}" + _PS
+    "Hi {first},\n\n"
+    "I hope you're doing well. I recently applied for the {title} | {job_id} role at {company} "
+    "and wanted to reach out personally because I am genuinely enthusiastic about this opportunity.\n\n"
+    "I am pursuing my Master's in Computer Science at Northeastern University and bring 1.5 years "
+    "of professional experience at Amdocs, where I built and optimized large-scale backend systems "
+    "and delivered measurable performance improvements in production environments.\n\n"
+    "I am driven by growth, accountability, and impact. Given the opportunity, I will approach this "
+    "role with full ownership and a commitment to delivering beyond expectations \u2014 learning quickly, "
+    "contributing immediately, and pushing myself to add real value to your team.\n\n"
+    "I have attached my resume and would truly appreciate the chance to connect.\n\n"
+    "Best regards,\nPrasad Kanade"
 )
-REC_SUBJ = "Regarding {title} at {company}"
+REC_SUBJ = "Prasad Kanade \u2014 Application for {title} | {job_id}"
 REC_BODY = (
-    "Hi {first},\n\nI recently applied for the {title} position at {company} and wanted to briefly introduce myself. "
-    "I'm pursuing my Master's in Computer Science at Northeastern University, and I'm actively seeking summer 2026 SDE internship opportunities.\n\n"
-    "I'd love the chance to discuss how my background could be a good fit for this role. "
-    "Please let me know if there's a convenient time to connect.\n\n"
-    "Best regards,\n{sender}" + _PS
+    "Hi {first},\n\n"
+    "I hope you're doing well. I recently applied for the {title} | {job_id} role at {company} "
+    "and wanted to reach out personally because I am genuinely enthusiastic about this opportunity.\n\n"
+    "I'm pursuing my Master's in Computer Science at Northeastern University and bring 1.5 years "
+    "of professional experience at Amdocs, where I worked on large-scale backend systems in "
+    "production environments and contributed to measurable performance improvements.\n\n"
+    "I am at a stage where I am eager to fully invest my skills and energy into the right "
+    "opportunity - one where I can grow within a strong team, take on real responsibility, and "
+    "make a meaningful impact from day one. I take my work seriously and approach every challenge "
+    "with discipline and drive.\n\n"
+    "I have attached my resume and would genuinely love the chance to discuss how I can contribute "
+    "and what the next steps look like.\n\n"
+    "Best regards,\nPrasad Kanade"
 )
 
 PAT_A = ["{first}.{last}", "{f}{last}", "{first}{last}"]
@@ -120,6 +125,8 @@ WARMUP = [(7, 10), (14, 25), (21, 50), (999, MAX_DAILY)]
 CREDITS_FILE = os.path.join(_ROOT, ".local", "outreach_credits.json")
 PATTERNS_FILE = os.path.join(_ROOT, ".local", "outreach_patterns.json")
 LOG_FILE = os.path.join(_ROOT, ".local", "outreach.log")
+RESUME_SDE = os.path.join(_ROOT, ".local", "Prasad Kanade SDE Resume.pdf")
+RESUME_ML = os.path.join(_ROOT, ".local", "Prasad Kanade ML Resume.pdf")
 STRIP_PRE = {
     "dr.",
     "dr",

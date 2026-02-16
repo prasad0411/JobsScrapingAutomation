@@ -205,6 +205,20 @@ class Sheets:
             self._p()
 
     # ---- Pull from Valid Entries ----
+
+    def get_resume_type(self, company, title):
+        try:
+            valid = self.ss.worksheet("Valid Entries")
+            data = valid.get_all_values()
+            self._p()
+            for row in data[1:]:
+                if len(row) > 9 and row[2].strip().lower() == company.strip().lower() and row[3].strip().lower() == title.strip().lower():
+                    r = row[9].strip()
+                    return r if r in ("SDE", "ML") else "SDE"
+            return "SDE"
+        except:
+            return "SDE"
+
     def pull(self):
         try:
             valid = self.ss.worksheet(VALID_TAB)
@@ -367,7 +381,7 @@ class Sheets:
                         "he": he,
                         "rn": r[C["rec_name"]].strip(),
                         "re": re_,
-                        "subj": r[C["subject"]].strip(),
+                        "subj": r[C["hm_subject"]].strip(),
                         "h_ok": h_ok,
                         "r_ok": r_ok,
                     }
@@ -384,12 +398,12 @@ class Sheets:
         except Exception as e:
             log.error(f"write_email row {row}: {e}")
 
-    def write_subject_body(self, row, subject, body):
+    def write_subject_body(self, row, hm_subj, hm_body, rec_subj="", rec_body=""):
         try:
-            s, e = _cl(C["subject"]), _cl(C["body"])
+            s = _cl(C["hm_subject"])
             self.ws.update(
-                values=[[subject, body]],
-                range_name=f"{s}{row}:{e}{row}",
+                values=[[hm_subj, hm_body, rec_subj, rec_body]],
+                range_name=f"{s}{row}:{_cl(C["rec_body"])}{row}",
                 value_input_option="RAW",
             )
             self._p()

@@ -237,6 +237,7 @@ class SheetsManager:
                 job["job_id"],
                 job["job_type"],
                 job["location"],
+                self._classify_resume(job["title"]),
                 job["remote"],
                 job["entry_date"],
                 job["source"],
@@ -246,7 +247,7 @@ class SheetsManager:
         ]
 
         self._batch_write(self.valid_sheet, start_row, rows, is_valid_sheet=True)
-        self._auto_resize_columns(self.valid_sheet, 13)
+        self._auto_resize_columns(self.valid_sheet, 14)
         return len(jobs)
 
     def add_discarded_jobs(self, jobs, start_row, start_sr_no):
@@ -279,7 +280,7 @@ class SheetsManager:
         ]
 
         self._batch_write(self.discarded_entries, start_row, rows, is_valid_sheet=False)
-        self._auto_resize_columns(self.discarded_entries, 13)
+        self._auto_resize_columns(self.discarded_entries, 14)
         return len(jobs)
 
     def _batch_write(self, sheet, start_row, rows_data, is_valid_sheet):
@@ -289,13 +290,13 @@ class SheetsManager:
         end_row = start_row + len(rows_data) - 1
         sheet.update(
             values=rows_data,
-            range_name=f"A{start_row}:M{end_row}",
+            range_name=f"A{start_row}:N{end_row}",
             value_input_option="RAW",
         )
         time.sleep(1)
 
         sheet.format(
-            f"A{start_row}:M{end_row}",
+            f"A{start_row}:N{end_row}",
             {
                 "horizontalAlignment": "CENTER",
                 "verticalAlignment": "MIDDLE",
@@ -340,7 +341,23 @@ class SheetsManager:
 
         if is_valid_sheet:
             self._add_status_dropdowns(sheet, start_row, len(rows_data))
+            self._add_resume_dropdowns(sheet, start_row, len(rows_data))
             self._apply_status_colors(sheet, start_row, end_row)
+
+    def _add_resume_dropdowns(self, sheet, start_row, num_rows):
+        reqs = [{
+            "setDataValidation": {
+                "range": {"sheetId": sheet.id, "startRowIndex": start_row+i-1, "endRowIndex": start_row+i,
+                          "startColumnIndex": 9, "endColumnIndex": 10},
+                "rule": {"condition": {"type": "ONE_OF_LIST",
+                         "values": [{"userEnteredValue": "SDE"}, {"userEnteredValue": "ML"}]},
+                         "showCustomUi": True, "strict": False},
+            }
+        } for i in range(num_rows)]
+        if reqs:
+            for i in range(0, len(reqs), 100):
+                self.spreadsheet.batch_update({"requests": reqs[i:i+100]})
+                import time; time.sleep(1)
 
     def _add_status_dropdowns(self, sheet, start_row, num_rows):
         requests = [
@@ -446,10 +463,11 @@ class SheetsManager:
                 6: 120,
                 7: 120,
                 8: 220,
-                9: 100,
-                10: 190,
-                11: 130,
-                12: 150,
+                9: 80,
+                10: 100,
+                11: 190,
+                12: 130,
+                13: 150,
             }
 
             widths = []
