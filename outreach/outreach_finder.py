@@ -37,9 +37,36 @@ class Finder:
         self._reacher = None
         self._dom = {}
 
+    @staticmethod
+    def _extract_name_from_linkedin_url(linkedin_url):
+        """Extract full name from LinkedIn URL slug. e.g. /in/chira-kingpin/ → Chira Kingpin"""
+        if not linkedin_url:
+            return None
+        import re
+        m = re.search(r"linkedin\.com/in/([a-zA-Z0-9-]+)", linkedin_url)
+        if not m:
+            return None
+        slug = m.group(1)
+        # Remove trailing numbers (LinkedIn IDs like madeline-batista-72930372)
+        slug = re.sub(r"-\d{5,}$", "", slug)
+        # Convert slug to name
+        parts = [p.capitalize() for p in slug.split("-") if p and len(p) > 1]
+        if len(parts) >= 2:
+            return " ".join(parts)
+        return None
+
     def find(self, name, company, linkedin=""):
         r = {"email": "", "source": "", "status": "Failed", "error": ""}
+
+        # If name is incomplete (single name or initial), try LinkedIn URL
         parsed = NameParser.parse(name)
+        if parsed and (parsed["single"] or (parsed["last"] and len(parsed["last"]) <= 2)):
+            li_name = self._extract_name_from_linkedin_url(linkedin)
+            if li_name:
+                log.info(f"Enriched name: '{name}' → '{li_name}' (from LinkedIn URL)")
+                parsed = NameParser.parse(li_name)
+                name = li_name
+
         if not parsed:
             r["error"] = "Cannot parse name"
             return r

@@ -396,8 +396,11 @@ class Sheets:
         except Exception as e:
             log.error(f"write_subject_body row {row}: {e}")
 
-    def write_sent(self, row, timestamp):
+    def write_sent(self, row, timestamp=""):
         try:
+            # Format: "15 February, 2026"
+            if not timestamp:
+                timestamp = datetime.datetime.now().strftime("%d %B, %Y")
             self.ws.update_acell(f"{_cl(C['sent_dt'])}{row}", timestamp)
             self._p()
         except Exception as e:
@@ -405,8 +408,17 @@ class Sheets:
 
     def write_error(self, row, msg):
         try:
+            existing = self.ws.acell(f"{_cl(C['error'])}{row}").value or ""
             ts = datetime.datetime.now().strftime("%m/%d %H:%M")
-            self.ws.update_acell(f"{_cl(C['error'])}{row}", f"[{ts}] {msg}"[:500])
+            tagged = f"[{ts}] {msg}"
+            # If both HM and REC failed, combine into one line
+            if existing and "All methods exhausted" in existing and "All methods exhausted" in msg:
+                combined = f"[{ts}] HM+REC: All methods exhausted"
+                self.ws.update_acell(f"{_cl(C['error'])}{row}", combined[:500])
+            elif existing and msg not in existing:
+                self.ws.update_acell(f"{_cl(C['error'])}{row}", f"{existing}; {tagged}"[:500])
+            elif not existing:
+                self.ws.update_acell(f"{_cl(C['error'])}{row}", tagged[:500])
             self._p()
         except:
             pass
@@ -415,6 +427,9 @@ class Sheets:
         try:
             existing = self.ws.acell(f"{_cl(C['error'])}{row}").value or ""
             ts = datetime.datetime.now().strftime("%m/%d %H:%M")
+            # Deduplicate: don't repeat same message
+            if msg in existing:
+                return
             new = f"{existing}; [{ts}] {msg}" if existing else f"[{ts}] {msg}"
             self.ws.update_acell(f"{_cl(C['error'])}{row}", new[:500])
             self._p()
