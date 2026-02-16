@@ -206,18 +206,25 @@ class Sheets:
 
     # ---- Pull from Valid Entries ----
 
+    _resume_cache = None
+
     def get_resume_type(self, company, title):
-        try:
-            valid = self.ss.worksheet("Valid Entries")
-            data = valid.get_all_values()
-            self._p()
-            for row in data[1:]:
-                if len(row) > 9 and row[2].strip().lower() == company.strip().lower() and row[3].strip().lower() == title.strip().lower():
-                    r = row[9].strip()
-                    return r if r in ("SDE", "ML") else "SDE"
-            return "SDE"
-        except:
-            return "SDE"
+        if Sheets._resume_cache is None:
+            try:
+                valid = self.ss.worksheet("Valid Entries")
+                rows = valid.get_all_values()
+                self._p()
+                Sheets._resume_cache = {}
+                for row in rows[1:]:
+                    if len(row) > 9:
+                        key = (row[2].strip().lower(), row[3].strip().lower())
+                        r = row[9].strip()
+                        Sheets._resume_cache[key] = r if r in ("SDE", "ML") else "SDE"
+            except:
+                Sheets._resume_cache = {}
+        return Sheets._resume_cache.get(
+            (company.strip().lower(), title.strip().lower()), "SDE"
+        )
 
     def pull(self):
         try:
@@ -395,6 +402,12 @@ class Sheets:
             self.ws.update_acell(f"{_cl(col)}{row}", email)
             log.info(f"Row {row} {ct}: {email} (via {source})")
             self._p()
+            existing_err = self.ws.acell(f"{_cl(C['error'])}{row}").value or ""
+            tag = "HM:" if ct == "hm" else "REC:"
+            if tag in existing_err:
+                cleaned = "; ".join(p.strip() for p in existing_err.split(";") if tag not in p)
+                self.ws.update_acell(f"{_cl(C['error'])}{row}", cleaned)
+                self._p()
         except Exception as e:
             log.error(f"write_email row {row}: {e}")
 
@@ -449,6 +462,23 @@ class Sheets:
             self._p()
         except:
             pass
+
+
+    @staticmethod
+    def _retry_update(func, *args, retries=3, **kwargs):
+        import time as _t
+        for attempt in range(retries):
+            try:
+                return func(*args, **kwargs)
+            except Exception as e:
+                if "429" in str(e) or "RESOURCE_EXHAUSTED" in str(e):
+                    wait = 2 ** (attempt + 1)
+                    log.warning(f"Sheets rate limit, retrying in {wait}s...")
+                    _t.sleep(wait)
+                elif attempt < retries - 1:
+                    _t.sleep(1)
+                else:
+                    raise
 
     def _p(self):
         time.sleep(SHEET_PAUSE)

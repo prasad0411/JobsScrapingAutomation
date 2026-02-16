@@ -279,8 +279,23 @@ class SheetsManager:
             for idx, job in enumerate(sanitized_jobs)
         ]
 
-        self._batch_write(self.discarded_entries, start_row, rows, is_valid_sheet=False)
-        self._auto_resize_columns(self.discarded_entries, 14)
+        end_row = start_row + len(rows) - 1
+        self.discarded_entries.update(
+            values=rows,
+            range_name=f"A{start_row}:M{end_row}",
+            value_input_option="RAW",
+        )
+        import time; time.sleep(1)
+        self.discarded_entries.format(
+            f"A{start_row}:M{end_row}",
+            {
+                "horizontalAlignment": "CENTER",
+                "verticalAlignment": "MIDDLE",
+                "textFormat": {"fontFamily": "Times New Roman", "fontSize": 13},
+            },
+        )
+        import time; time.sleep(1)
+        self._auto_resize_columns(self.discarded_entries, 13)
         return len(jobs)
 
     def _batch_write(self, sheet, start_row, rows_data, is_valid_sheet):

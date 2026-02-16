@@ -148,7 +148,7 @@ def _send_one(sheets, mailer, row, ct, stats):
 
 
 def _count(s, r):
-    if r["status"] == "Valid":
+    if r["email"]:
         s["valid"] += 1
     elif r["status"] == "Manual Review":
         s["review"] += 1

@@ -280,11 +280,17 @@ class Finder:
                 import subprocess
                 # Try from project root
                 root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-                result = subprocess.run(
-                    ["docker", "compose", "up", "-d"],
-                    cwd=str(root), capture_output=True, text=True, timeout=30,
-                    env={**os.environ, "COMPOSE_PROJECT_NAME": "outreach"}
-                )
+                compose_file = os.path.join(root, "docker-compose.yml")
+                if os.path.exists(compose_file):
+                    result = subprocess.run(
+                        ["docker", "compose", "-f", compose_file, "up", "-d"],
+                        capture_output=True, text=True, timeout=30
+                    )
+                else:
+                    result = subprocess.run(
+                        ["docker", "compose", "up", "-d"],
+                        capture_output=True, text=True, timeout=30
+                    )
                 if result.returncode == 0:
                     log.info("Docker Reacher started. Waiting 5s for boot...")
                     import time; time.sleep(5)
