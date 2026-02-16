@@ -9,7 +9,11 @@ _ROOT = os.path.dirname(_DIR)
 SHEETS_CREDS = os.path.join(_ROOT, ".local", "credentials.json")
 GMAIL_CREDS = os.path.join(_ROOT, ".local", "gmail_credentials.json")
 GMAIL_TOKEN = os.path.join(_ROOT, ".local", "gmail_token.pickle")
-GMAIL_SCOPES = ["https://www.googleapis.com/auth/gmail.send", "https://www.googleapis.com/auth/gmail.compose"]
+GMAIL_SCOPES = [
+    "https://www.googleapis.com/auth/gmail.send",
+    "https://www.googleapis.com/auth/gmail.compose",
+    "https://www.googleapis.com/auth/gmail.readonly",
+]
 
 SPREADSHEET = "H1B visa"
 VALID_TAB = "Valid Entries"
@@ -18,31 +22,37 @@ OUTREACH_TAB = "Outreach Tracker"
 V_COMPANY, V_TITLE, V_JOBID, V_RESUME = 2, 3, 6, 9
 
 O_HEADERS = [
-    "Sr. No.",                # A (0)
-    "Company",                # B (1)
-    "Job Title",              # C (2)
-    "Job ID",                 # D (3)
-    "HM Name",                # E (4)
-    "HM LinkedIn URL",        # F (5)
-    "Recruiter Name",         # G (6)
-    "Recruiter LinkedIn URL", # H (7)
-    "HM Email",               # I (8)
-    "Recruiter Email",        # J (9)
-    "HM Subject",             # K (10)
-    "HM Body",                # L (11)
-    "Rec Subject",            # M (12)
-    "Rec Body",               # N (13)
-    "Send?",                  # O (14)
-    "Sent Date",              # P (15)
-    "Error Log",              # Q (16)
+    "Sr. No.",  # A (0)
+    "Company",  # B (1)
+    "Job Title",  # C (2)
+    "Job ID",  # D (3)
+    "HM Name",  # E (4)
+    "HM LinkedIn URL",  # F (5)
+    "Recruiter Name",  # G (6)
+    "Recruiter LinkedIn URL",  # H (7)
+    "HM Email",  # I (8)
+    "Recruiter Email",  # J (9)
+    "Send?",  # K (10)
+    "Send At",  # L (11)
+    "Sent Date",  # M (12)
+    "Error Log",  # N (13)
 ]
 
 C = {
-    "sr": 0, "company": 1, "title": 2, "job_id": 3,
-    "hm_name": 4, "hm_li": 5, "rec_name": 6, "rec_li": 7,
-    "hm_email": 8, "rec_email": 9,
-    "hm_subject": 10, "hm_body": 11, "rec_subject": 12, "rec_body": 13,
-    "send": 14, "sent_dt": 15, "error": 16,
+    "sr": 0,
+    "company": 1,
+    "title": 2,
+    "job_id": 3,
+    "hm_name": 4,
+    "hm_li": 5,
+    "rec_name": 6,
+    "rec_li": 7,
+    "hm_email": 8,
+    "rec_email": 9,
+    "send": 10,
+    "send_at": 11,
+    "sent_dt": 12,
+    "error": 13,
 }
 
 SENDER_NAME = "Prasad Kanade"
@@ -62,6 +72,7 @@ HM_BODY = (
     "I have attached my resume and would truly appreciate the chance to connect.\n\n"
     "Best regards,\nPrasad Kanade"
 )
+
 REC_SUBJ = "Prasad Kanade \u2014 Application for {title} | {job_id}"
 REC_BODY = (
     "Hi {first},\n\n"
@@ -102,11 +113,13 @@ PAT_C = [
 
 CLEARBIT_URL = "https://autocomplete.clearbit.com/v1/companies/suggest"
 TLDS = [".com", ".io", ".co", ".us", ".org", ".ai", ".dev"]
+
 APIS = {
     "apollo": {"limit": 120, "url": "https://api.apollo.io/api/v1/people/match"},
     "hunter": {"limit": 25, "url": "https://api.hunter.io/v2/email-finder"},
     "snov": {"limit": 50, "url": "https://api.snov.io/v1/get-emails-from-names"},
 }
+
 REACHER_URL = "http://localhost:8080/v0/check_email"
 REACHER_FROM = "test@example.org"
 REACHER_TIMEOUT = 15
@@ -119,14 +132,18 @@ API_TIMEOUT = 10
 API_RETRIES = 3
 SHEET_PAUSE = 1.5
 HUNTER_CONF = 70
+
 WARMUP_ON = True
 WARMUP_START = "2026-02-15"
 WARMUP = [(7, 10), (14, 25), (21, 50), (999, MAX_DAILY)]
+
 CREDITS_FILE = os.path.join(_ROOT, ".local", "outreach_credits.json")
 PATTERNS_FILE = os.path.join(_ROOT, ".local", "outreach_patterns.json")
 LOG_FILE = os.path.join(_ROOT, ".local", "outreach.log")
+DRAFT_HISTORY_FILE = os.path.join(_ROOT, ".local", "draft_history.json")
 RESUME_SDE = os.path.join(_ROOT, ".local", "Prasad Kanade SDE Resume.pdf")
 RESUME_ML = os.path.join(_ROOT, ".local", "Prasad Kanade ML Resume.pdf")
+
 STRIP_PRE = {
     "dr.",
     "dr",
@@ -160,6 +177,71 @@ STRIP_SUF = {
     "cpa",
     "c.p.a.",
 }
+
+STATE_TO_TIMEZONE = {
+    "AL": "US/Central",
+    "AK": "US/Alaska",
+    "AZ": "US/Mountain",
+    "AR": "US/Central",
+    "CA": "US/Pacific",
+    "CO": "US/Mountain",
+    "CT": "US/Eastern",
+    "DE": "US/Eastern",
+    "FL": "US/Eastern",
+    "GA": "US/Eastern",
+    "HI": "US/Hawaii",
+    "ID": "US/Mountain",
+    "IL": "US/Central",
+    "IN": "US/Eastern",
+    "IA": "US/Central",
+    "KS": "US/Central",
+    "KY": "US/Eastern",
+    "LA": "US/Central",
+    "ME": "US/Eastern",
+    "MD": "US/Eastern",
+    "MA": "US/Eastern",
+    "MI": "US/Eastern",
+    "MN": "US/Central",
+    "MS": "US/Central",
+    "MO": "US/Central",
+    "MT": "US/Mountain",
+    "NE": "US/Central",
+    "NV": "US/Pacific",
+    "NH": "US/Eastern",
+    "NJ": "US/Eastern",
+    "NM": "US/Mountain",
+    "NY": "US/Eastern",
+    "NC": "US/Eastern",
+    "ND": "US/Central",
+    "OH": "US/Eastern",
+    "OK": "US/Central",
+    "OR": "US/Pacific",
+    "PA": "US/Eastern",
+    "RI": "US/Eastern",
+    "SC": "US/Eastern",
+    "SD": "US/Central",
+    "TN": "US/Central",
+    "TX": "US/Central",
+    "UT": "US/Mountain",
+    "VT": "US/Eastern",
+    "VA": "US/Eastern",
+    "WA": "US/Pacific",
+    "WV": "US/Eastern",
+    "WI": "US/Central",
+    "WY": "US/Mountain",
+    "DC": "US/Eastern",
+}
+
+TZ_DISPLAY = {
+    "US/Eastern": "ET",
+    "US/Central": "CT",
+    "US/Mountain": "MT",
+    "US/Pacific": "PT",
+    "US/Alaska": "AKT",
+    "US/Hawaii": "HT",
+}
+
+SEND_HOUR = 10
 
 
 def _load_env():

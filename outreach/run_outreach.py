@@ -2,9 +2,7 @@
 """
 Outreach Pipeline
 
-    python3 -m outreach              # Full: pull + discover + send
-    python3 -m outreach discover     # Pull + discover only
-    python3 -m outreach send         # Send approved only
+    python3 -m outreach              # Full: pull + extract + draft
     python3 -m outreach status       # Show status
     python3 -m outreach reset        # Reset API credits
 """
@@ -37,12 +35,70 @@ def phase_pull(sheets):
     return sheets.pull()
 
 
-def phase_discover(sheets, finder):
-    rows = sheets.rows_for_discovery()
-    if not rows:
-        return {"processed": 0, "valid": 0, "review": 0, "failed": 0}
 
-    stats = {"processed": 0, "valid": 0, "review": 0, "failed": 0}
+def phase_draft_existing(sheets, mailer):
+    from outreach.outreach_data import _pad, C
+    data = sheets.ws.get_all_values()
+    sheets._p()
+    stats = {"drafts": 0, "draft_failed": 0}
+    for i, r in enumerate(data[1:], start=2):
+        r = _pad(r)
+        he = r[C["hm_email"]].strip()
+        re_ = r[C["rec_email"]].strip()
+        send_at = r[C["send_at"]].strip()
+        co = r[C["company"]].strip()
+        title = r[C["title"]].strip()
+        jid = r[C["job_id"]].strip()
+        if (not he and not re_) or send_at:
+            continue
+        resume_type = sheets.get_resume_type(co, title)
+        parts = []
+        if he:
+            hn = r[C["hm_name"]].strip() or co
+            draft = Drafter.draft(hn, "hm", co, title, jid)
+            result = mailer.send(he, draft["subject"], draft["body"], resume_type)
+            if result["success"]:
+                parts.append("HM draft created")
+                stats["drafts"] += 1
+            elif "Duplicate" not in result.get("error", ""):
+                parts.append("HM draft failed")
+                stats["draft_failed"] += 1
+        if re_:
+            rn = r[C["rec_name"]].strip() or co
+            draft = Drafter.draft(rn, "rec", co, title, jid)
+            result = mailer.send(re_, draft["subject"], draft["body"], resume_type)
+            if result["success"]:
+                parts.append("Recruiter draft created")
+                stats["drafts"] += 1
+            elif "Duplicate" not in result.get("error", ""):
+                parts.append("Recruiter draft failed")
+                stats["draft_failed"] += 1
+        if parts:
+            print(f"  {co}: {', '.join(parts)}")
+        location = sheets.get_location(co, title)
+        sa = sheets.compute_send_at(location)
+        sheets.write_send_at(i, sa)
+    return stats
+
+
+def phase_extract_and_draft(sheets, finder, mailer):
+    rows = sheets.rows_for_extraction()
+    if not rows:
+        return {
+            "extracted": 0,
+            "extract_failed": 0,
+            "processed": 0,
+            "drafts": 0,
+            "draft_failed": 0,
+        }
+
+    stats = {
+        "extracted": 0,
+        "extract_failed": 0,
+        "processed": 0,
+        "drafts": 0,
+        "draft_failed": 0,
+    }
 
     for row in rows:
         rn = row["row"]
@@ -55,116 +111,85 @@ def phase_discover(sheets, finder):
             if hm_res["email"]:
                 sheets.write_email(rn, "hm", hm_res["email"], hm_res["source"])
                 parts.append("HM email extracted")
+                stats["extracted"] += 1
             else:
                 sheets.write_error(rn, f"HM: {hm_res['error']}")
                 parts.append("HM email failed")
-            _count(stats, hm_res)
+                stats["extract_failed"] += 1
 
         if row["need_r"]:
             rec_res = finder.find(row["rn"], row["co"], row["rli"])
             if rec_res["email"]:
                 sheets.write_email(rn, "rec", rec_res["email"], rec_res["source"])
                 parts.append("Recruiter email extracted")
+                stats["extracted"] += 1
             else:
                 sheets.append_error(rn, f"REC: {rec_res['error']}")
                 parts.append("Recruiter email failed")
-            _count(stats, rec_res)
+                stats["extract_failed"] += 1
 
         if parts:
             print(f"  {row['co']}: {', '.join(parts)}")
 
         hm_e = row.get("he") or (hm_res["email"] if hm_res else "")
         rec_e = row.get("re") or (rec_res["email"] if rec_res else "")
+        jid = row.get("jid", "")
+        resume_type = sheets.get_resume_type(row["co"], row["title"])
+
+        draft_parts = []
+        if hm_e:
+            hm_draft = Drafter.draft(
+                row["hn"] or row["rn"], "hm", row["co"], row["title"], jid
+            )
+            result = mailer.send(
+                hm_e, hm_draft["subject"], hm_draft["body"], resume_type
+            )
+            if result["success"]:
+                draft_parts.append("HM draft created")
+                stats["drafts"] += 1
+            else:
+                if "Duplicate" not in result["error"]:
+                    draft_parts.append("HM draft failed")
+                    stats["draft_failed"] += 1
+                else:
+                    draft_parts.append("HM draft exists")
+
+        if rec_e:
+            rec_draft = Drafter.draft(
+                row["rn"] or row["hn"], "rec", row["co"], row["title"], jid
+            )
+            result = mailer.send(
+                rec_e, rec_draft["subject"], rec_draft["body"], resume_type
+            )
+            if result["success"]:
+                draft_parts.append("Recruiter draft created")
+                stats["drafts"] += 1
+            else:
+                if "Duplicate" not in result["error"]:
+                    draft_parts.append("Recruiter draft failed")
+                    stats["draft_failed"] += 1
+                else:
+                    draft_parts.append("Recruiter draft exists")
+
+        if draft_parts:
+            print(f"  {row['co']}: {', '.join(draft_parts)}")
+
         if hm_e or rec_e:
-            jid = row.get("jid", "")
-            hm_d = Drafter.draft(row["hn"] or row["rn"], "hm", row["co"], row["title"], jid)
-            rec_d = Drafter.draft(row["rn"] or row["hn"], "rec", row["co"], row["title"], jid)
-            sheets.write_subject_body(rn, hm_d["subject"], hm_d["body"], rec_d["subject"], rec_d["body"])
+            location = sheets.get_location(row["co"], row["title"])
+            send_at = sheets.compute_send_at(location)
+            sheets.write_send_at(rn, send_at)
 
     return stats
-
-
-def phase_send(sheets, mailer):
-    rows = sheets.rows_for_send()
-    if not rows:
-        return {"sent": 0, "failed": 0}
-
-    stats = {"sent": 0, "failed": 0}
-
-    for row in rows:
-        rn = row["row"]
-        parts = []
-
-        both = row["h_ok"] and row["r_ok"]
-        if both and row["he"].lower() == row["re"].lower():
-            row["r_ok"] = False
-
-        sent_any = False
-        if row["h_ok"]:
-            ok = _send_one(sheets, mailer, row, "hm", stats)
-            sent_any = sent_any or ok
-            parts.append("HM sent" if ok else "HM send failed")
-            if mailer.capacity()["daily"] <= 0:
-                print("  Daily send limit reached")
-                break
-            if row["r_ok"]:
-                mailer.wait()
-        if row["r_ok"]:
-            ok = _send_one(sheets, mailer, row, "rec", stats)
-            sent_any = sent_any or ok
-            parts.append("Recruiter sent" if ok else "Recruiter send failed")
-            if mailer.capacity()["daily"] <= 0:
-                print("  Daily send limit reached")
-                break
-
-        if parts:
-            print(f"  {row['co']}: {', '.join(parts)}")
-
-        if sent_any:
-            sheets.write_sent(rn)
-        if row != rows[-1]:
-            mailer.wait()
-
-    return stats
-
-
-def _send_one(sheets, mailer, row, ct, stats):
-    name = row["hn"] if ct == "hm" else row["rn"]
-    email = row["he"] if ct == "hm" else row["re"]
-    if not name or not email:
-        return False
-    jid = row.get("jid", "")
-    draft = Drafter.draft(name, ct, row["co"], row["title"], jid)
-    subject = row.get("subj") or draft["subject"]
-    resume_type = sheets.get_resume_type(row["co"], row["title"])
-    result = mailer.send(email, subject, draft["body"], resume_type)
-    if result["success"]:
-        stats["sent"] += 1
-        return True
-    else:
-        sheets.append_error(row["row"], f"{ct.upper()}: {result['error']}")
-        stats["failed"] += 1
-        return False
-
-
-def _count(s, r):
-    if r["email"]:
-        s["valid"] += 1
-    elif r["status"] == "Manual Review":
-        s["review"] += 1
-    else:
-        s["failed"] += 1
 
 
 def status(sheets, credits, mailer):
-    print(f"  Discovery queue: {len(sheets.rows_for_discovery())}")
-    print(f"  Send queue:      {len(sheets.rows_for_send())}")
+    print(f"  Extraction queue: {len(sheets.rows_for_extraction())}")
     c = mailer.capacity()
     print(f"  Capacity: {c['daily']} daily, {c['hourly']} hourly")
 
 
 def main():
-    now = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    now = datetime.datetime.now().strftime("%d %B, %Y")
     cmd = sys.argv[1].lower() if len(sys.argv) > 1 else "full"
 
     if cmd == "reset":
@@ -180,31 +205,21 @@ def main():
     fi = Finder(cr)
     ma = Mailer(cr)
 
-    d = {"processed": 0, "valid": 0, "review": 0, "failed": 0}
-    s = {"sent": 0, "failed": 0}
-
     if cmd == "status":
         status(sh, cr, ma)
         return
-    elif cmd == "discover":
-        phase_pull(sh)
-        d = phase_discover(sh, fi)
-    elif cmd == "send":
-        s = phase_send(sh, ma)
-    elif cmd in ("full", "run"):
-        phase_pull(sh)
-        d = phase_discover(sh, fi)
-        s = phase_send(sh, ma)
-    else:
-        print(f"Unknown: {cmd}")
-        print("Commands: discover | send | full | status | reset")
-        sys.exit(1)
 
+    phase_pull(sh)
+    s = phase_extract_and_draft(sh, fi, ma)
+
+    d = phase_draft_existing(sh, ma)
+    s["drafts"] += d["drafts"]
+    s["draft_failed"] += d["draft_failed"]
     print("-" * 40)
     print(
-        f"Discovery: {d['valid']} found, {d['failed']} failed ({d['processed']} processed)"
+        f"Email IDs: {s['extracted']} extracted, {s['extract_failed']} failed ({s['processed']} processed)"
     )
-    print(f"Sending:   {s['sent']} sent, {s['failed']} failed")
+    print(f"Drafts:    {s['drafts']} created, {s['draft_failed']} failed")
 
 
 if __name__ == "__main__":

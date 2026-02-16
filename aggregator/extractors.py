@@ -344,12 +344,12 @@ class SimplifyRedirectResolver:
 
             # Method A: Find lever/greenhouse/workday URLs in page source
             job_board_patterns = [
-                r'https?://jobs\.lever\.co/[^\s"'<>]+',
-                r'https?://[a-z0-9-]+\.myworkdayjobs\.com/[^\s"'<>]+',
-                r'https?://boards\.greenhouse\.io/[^\s"'<>]+',
-                r'https?://[a-z0-9-]+\.ashbyhq\.com/[^\s"'<>]+',
-                r'https?://[a-z0-9-]+\.smartrecruiters\.com/[^\s"'<>]+',
-                r'https?://[a-z0-9-]+\.icims\.com/[^\s"'<>]+',
+                r'https?://jobs\.lever\.co/[^\s<>]+',
+                r'https?://[a-z0-9-]+\.myworkdayjobs\.com/[^\s<>]+',
+                r'https?://boards\.greenhouse\.io/[^\s<>]+',
+                r'https?://[a-z0-9-]+\.ashbyhq\.com/[^\s<>]+',
+                r'https?://[a-z0-9-]+\.smartrecruiters\.com/[^\s<>]+',
+                r'https?://[a-z0-9-]+\.icims\.com/[^\s<>]+',
             ]
             for pattern in job_board_patterns:
                 matches = re.findall(pattern, text)

@@ -14,6 +14,7 @@ from outreach.outreach_config import (
     V_COMPANY,
     V_TITLE,
     V_JOBID,
+    V_RESUME,
     SHEET_PAUSE,
     CREDITS_FILE,
     APIS,
@@ -24,16 +25,18 @@ from outreach.outreach_config import (
     PAT_C,
     STRIP_PRE,
     STRIP_SUF,
+    STATE_TO_TIMEZONE,
+    TZ_DISPLAY,
+    SEND_HOUR,
 )
 
 log = logging.getLogger(__name__)
 
-# ============================================================================
-# SHEETS
-# ============================================================================
-
 
 class Sheets:
+    _resume_cache = None
+    _location_cache = None
+
     def __init__(self):
         scope = [
             "https://spreadsheets.google.com/feeds",
@@ -52,14 +55,13 @@ class Sheets:
 
         row1 = self.ws.row_values(1)
         if not row1 or row1[0] != O_HEADERS[0]:
-            # Write headers
-            self.ws.update(
+            self._retry(
+                self.ws.update,
                 values=[O_HEADERS],
                 range_name=f"A1:{_cl(len(O_HEADERS)-1)}1",
                 value_input_option="RAW",
             )
 
-            # Header style — #b2e5b2 light green
             try:
                 end = _cl(len(O_HEADERS) - 1)
                 self.ws.format(
@@ -76,13 +78,12 @@ class Sheets:
                             "red": 0.698,
                             "green": 0.898,
                             "blue": 0.698,
-                        },  # #b2e5b2
+                        },
                     },
                 )
             except:
                 pass
 
-            # All data rows — center aligned, Times New Roman 13
             try:
                 end = _cl(len(O_HEADERS) - 1)
                 self.ws.format(
@@ -96,48 +97,6 @@ class Sheets:
             except:
                 pass
 
-            # Column widths — wide enough for 100 chars
-            try:
-                col_widths = []
-                for i in range(len(O_HEADERS)):
-                    col_widths.append(
-                        {
-                            "updateDimensionProperties": {
-                                "range": {
-                                    "sheetId": self.ws.id,
-                                    "dimension": "COLUMNS",
-                                    "startIndex": i,
-                                    "endIndex": i + 1,
-                                },
-                                "properties": {"pixelSize": 250},
-                                "fields": "pixelSize",
-                            }
-                        }
-                    )
-                # Narrower for specific columns
-                # F(5)=HM LinkedIn, H(7)=Rec LinkedIn → 150px (URLs, not wide)
-                # K(10)=Subject, L(11)=Body → 150px
-                for i, w in [(0, 80), (3, 120), (5, 150), (7, 150), (10, 150), (11, 150), (12, 90), (13, 120), (14, 200)]:
-                    col_widths.append(
-                        {
-                            "updateDimensionProperties": {
-                                "range": {
-                                    "sheetId": self.ws.id,
-                                    "dimension": "COLUMNS",
-                                    "startIndex": i,
-                                    "endIndex": i + 1,
-                                },
-                                "properties": {"pixelSize": w},
-                                "fields": "pixelSize",
-                            }
-                        }
-                    )
-                # (Email Body width handled in per-column loop above)
-                self.ss.batch_update({"requests": col_widths})
-            except:
-                pass
-
-            # Clear ALL data validation first (removes stale dropdowns)
             try:
                 self.ss.batch_update(
                     {
@@ -182,7 +141,43 @@ class Sheets:
             except:
                 pass
 
-            # Freeze header
+            try:
+                widths = []
+                sizes = {
+                    0: 60,
+                    1: 200,
+                    2: 250,
+                    3: 100,
+                    4: 140,
+                    5: 150,
+                    6: 140,
+                    7: 150,
+                    8: 180,
+                    9: 180,
+                    10: 60,
+                    11: 180,
+                    12: 140,
+                    13: 200,
+                }
+                for i in range(len(O_HEADERS)):
+                    widths.append(
+                        {
+                            "updateDimensionProperties": {
+                                "range": {
+                                    "sheetId": self.ws.id,
+                                    "dimension": "COLUMNS",
+                                    "startIndex": i,
+                                    "endIndex": i + 1,
+                                },
+                                "properties": {"pixelSize": sizes.get(i, 150)},
+                                "fields": "pixelSize",
+                            }
+                        }
+                    )
+                self.ss.batch_update({"requests": widths})
+            except:
+                pass
+
             try:
                 self.ss.batch_update(
                     {
@@ -204,28 +199,6 @@ class Sheets:
 
             self._p()
 
-    # ---- Pull from Valid Entries ----
-
-    _resume_cache = None
-
-    def get_resume_type(self, company, title):
-        if Sheets._resume_cache is None:
-            try:
-                valid = self.ss.worksheet("Valid Entries")
-                rows = valid.get_all_values()
-                self._p()
-                Sheets._resume_cache = {}
-                for row in rows[1:]:
-                    if len(row) > 9:
-                        key = (row[2].strip().lower(), row[3].strip().lower())
-                        r = row[9].strip()
-                        Sheets._resume_cache[key] = r if r in ("SDE", "ML") else "SDE"
-            except:
-                Sheets._resume_cache = {}
-        return Sheets._resume_cache.get(
-            (company.strip().lower(), title.strip().lower()), "SDE"
-        )
-
     def pull(self):
         try:
             valid = self.ss.worksheet(VALID_TAB)
@@ -238,7 +211,6 @@ class Sheets:
         odata = self.ws.get_all_values()
         self._p()
 
-        # Build set of (company+title) already in outreach — for dedup
         existing = set()
         for r in odata[1:]:
             r = _pad(r)
@@ -254,24 +226,18 @@ class Sheets:
         sr = len(odata)
 
         for row in vdata[1:]:
-            # Pad short rows
             while len(row) <= max(V_COMPANY, V_TITLE, V_JOBID):
                 row = list(row) + [""]
-
             co = row[V_COMPANY].strip()
             ti = row[V_TITLE].strip() if len(row) > V_TITLE else ""
             jid = row[V_JOBID].strip() if len(row) > V_JOBID else ""
-
             if not co:
                 continue
-
-            # Dedup: skip if already pulled
             jid_clean = jid.lower() if jid and jid.lower() != "n/a" else ""
             if jid_clean and ("jid", jid_clean) in existing:
                 continue
             if not jid_clean and ("co_ti", f"{co.lower()}||{ti.lower()}") in existing:
                 continue
-
             sr += 1
             nr = [""] * len(O_HEADERS)
             nr[C["sr"]] = str(sr - 1)
@@ -279,8 +245,6 @@ class Sheets:
             nr[C["title"]] = ti
             nr[C["job_id"]] = jid
             new.append(nr)
-
-            # Track for dedup within this batch
             if jid_clean:
                 existing.add(("jid", jid_clean))
             existing.add(("co_ti", f"{co.lower()}||{ti.lower()}"))
@@ -289,7 +253,8 @@ class Sheets:
             start = len(odata) + 1
             end_row = start + len(new) - 1
             end_col = _cl(len(O_HEADERS) - 1)
-            self.ws.update(
+            self._retry(
+                self.ws.update,
                 values=new,
                 range_name=f"A{start}:{end_col}{end_row}",
                 value_input_option="RAW",
@@ -297,8 +262,7 @@ class Sheets:
             self._p()
         return len(new)
 
-    # ---- Read rows needing discovery ----
-    def rows_for_discovery(self):
+    def rows_for_extraction(self):
         data = self.ws.get_all_values()
         self._p()
 
@@ -324,7 +288,6 @@ class Sheets:
             he, re_ = r[C["hm_email"]].strip(), r[C["rec_email"]].strip()
             err = r[C["error"]].strip()
 
-            # Split comma-separated names (process each separately)
             hn_list = [n.strip() for n in hn.split(",") if n.strip()] if hn else []
             rn_list = [n.strip() for n in rn.split(",") if n.strip()] if rn else []
             hn = hn_list[0] if hn_list else ""
@@ -359,93 +322,58 @@ class Sheets:
                         "need_r": need_r,
                         "he": he,
                         "re": re_,
-                        "hn_extra": hn_list[1:] if len(hn_list) > 1 else [],
-                        "rn_extra": rn_list[1:] if len(rn_list) > 1 else [],
                     }
                 )
         return rows
 
-    # ---- Read rows needing send ----
-    def rows_for_send(self):
-        data = self.ws.get_all_values()
-        self._p()
-        rows = []
-        for i, r in enumerate(data[1:], start=2):
-            r = _pad(r)
-            if r[C["send"]].strip().lower() != "yes":
-                continue
-            sent = r[C["sent_dt"]].strip()
-            he, re_ = r[C["hm_email"]].strip(), r[C["rec_email"]].strip()
-            h_ok = bool(he) and not sent
-            r_ok = bool(re_) and not sent
-            if h_ok or r_ok:
-                rows.append(
-                    {
-                        "row": i,
-                        "co": r[C["company"]].strip(),
-                        "title": r[C["title"]].strip(),
-                        "hn": r[C["hm_name"]].strip(),
-                        "he": he,
-                        "rn": r[C["rec_name"]].strip(),
-                        "re": re_,
-                        "subj": r[C["hm_subject"]].strip(),
-                        "h_ok": h_ok,
-                        "r_ok": r_ok,
-                    }
-                )
-        return rows
-
-    # ---- Writes ----
     def write_email(self, row, ct, email, source):
         try:
             col = C["hm_email"] if ct == "hm" else C["rec_email"]
-            self.ws.update_acell(f"{_cl(col)}{row}", email)
+            self._retry(self.ws.update_acell, f"{_cl(col)}{row}", email)
             log.info(f"Row {row} {ct}: {email} (via {source})")
             self._p()
             existing_err = self.ws.acell(f"{_cl(C['error'])}{row}").value or ""
             tag = "HM:" if ct == "hm" else "REC:"
             if tag in existing_err:
-                cleaned = "; ".join(p.strip() for p in existing_err.split(";") if tag not in p)
-                self.ws.update_acell(f"{_cl(C['error'])}{row}", cleaned)
+                cleaned = "; ".join(
+                    p.strip() for p in existing_err.split(";") if tag not in p
+                )
+                self._retry(self.ws.update_acell, f"{_cl(C['error'])}{row}", cleaned)
                 self._p()
         except Exception as e:
             log.error(f"write_email row {row}: {e}")
 
-    def write_subject_body(self, row, hm_subj, hm_body, rec_subj="", rec_body=""):
+    def write_send_at(self, row, send_at_text):
         try:
-            s = _cl(C["hm_subject"])
-            self.ws.update(
-                values=[[hm_subj, hm_body, rec_subj, rec_body]],
-                range_name=f"{s}{row}:{_cl(C["rec_body"])}{row}",
-                value_input_option="RAW",
-            )
+            self._retry(self.ws.update_acell, f"{_cl(C['send_at'])}{row}", send_at_text)
             self._p()
         except Exception as e:
-            log.error(f"write_subject_body row {row}: {e}")
-
-    def write_sent(self, row, timestamp=""):
-        try:
-            # Format: "15 February, 2026"
-            if not timestamp:
-                timestamp = datetime.datetime.now().strftime("%d %B, %Y")
-            self.ws.update_acell(f"{_cl(C['sent_dt'])}{row}", timestamp)
-            self._p()
-        except Exception as e:
-            log.error(f"write_sent row {row}: {e}")
+            log.error(f"write_send_at row {row}: {e}")
 
     def write_error(self, row, msg):
         try:
             existing = self.ws.acell(f"{_cl(C['error'])}{row}").value or ""
             ts = datetime.datetime.now().strftime("%m/%d %H:%M")
             tagged = f"[{ts}] {msg}"
-            # If both HM and REC failed, combine into one line
-            if existing and "All methods exhausted" in existing and "All methods exhausted" in msg:
+            if (
+                existing
+                and "All methods exhausted" in existing
+                and "All methods exhausted" in msg
+            ):
                 combined = f"[{ts}] HM+REC: All methods exhausted"
-                self.ws.update_acell(f"{_cl(C['error'])}{row}", combined[:500])
+                self._retry(
+                    self.ws.update_acell, f"{_cl(C['error'])}{row}", combined[:500]
+                )
             elif existing and msg not in existing:
-                self.ws.update_acell(f"{_cl(C['error'])}{row}", f"{existing}; {tagged}"[:500])
+                self._retry(
+                    self.ws.update_acell,
+                    f"{_cl(C['error'])}{row}",
+                    f"{existing}; {tagged}"[:500],
+                )
             elif not existing:
-                self.ws.update_acell(f"{_cl(C['error'])}{row}", tagged[:500])
+                self._retry(
+                    self.ws.update_acell, f"{_cl(C['error'])}{row}", tagged[:500]
+                )
             self._p()
         except:
             pass
@@ -454,19 +382,110 @@ class Sheets:
         try:
             existing = self.ws.acell(f"{_cl(C['error'])}{row}").value or ""
             ts = datetime.datetime.now().strftime("%m/%d %H:%M")
-            # Deduplicate: don't repeat same message
             if msg in existing:
                 return
             new = f"{existing}; [{ts}] {msg}" if existing else f"[{ts}] {msg}"
-            self.ws.update_acell(f"{_cl(C['error'])}{row}", new[:500])
+            self._retry(self.ws.update_acell, f"{_cl(C['error'])}{row}", new[:500])
             self._p()
         except:
             pass
 
+    def get_resume_type(self, company, title):
+        if Sheets._resume_cache is None:
+            try:
+                valid = self.ss.worksheet("Valid Entries")
+                rows = valid.get_all_values()
+                self._p()
+                Sheets._resume_cache = {}
+                for row in rows[1:]:
+                    if len(row) > V_RESUME:
+                        key = (
+                            row[V_COMPANY].strip().lower(),
+                            row[V_TITLE].strip().lower(),
+                        )
+                        r = row[V_RESUME].strip()
+                        Sheets._resume_cache[key] = r if r in ("SDE", "ML") else "SDE"
+            except:
+                Sheets._resume_cache = {}
+        return Sheets._resume_cache.get(
+            (company.strip().lower(), title.strip().lower()), "SDE"
+        )
+
+    def get_location(self, company, title):
+        if Sheets._location_cache is None:
+            try:
+                valid = self.ss.worksheet("Valid Entries")
+                rows = valid.get_all_values()
+                self._p()
+                Sheets._location_cache = {}
+                for row in rows[1:]:
+                    if len(row) > 8:
+                        key = (
+                            row[V_COMPANY].strip().lower(),
+                            row[V_TITLE].strip().lower(),
+                        )
+                        Sheets._location_cache[key] = row[8].strip()
+            except:
+                Sheets._location_cache = {}
+        return Sheets._location_cache.get(
+            (company.strip().lower(), title.strip().lower()), ""
+        )
+
+    def compute_send_at(self, location):
+        try:
+            from zoneinfo import ZoneInfo
+        except ImportError:
+            try:
+                from backports.zoneinfo import ZoneInfo
+            except ImportError:
+                return self._fallback_send_at()
+
+        try:
+            tz_name = "US/Eastern"
+            state_code = None
+
+            if location:
+                m = re.search(r",\s*([A-Z]{2})\b", location)
+                if m:
+                    state_code = m.group(1)
+                if not state_code:
+                    try:
+                        from aggregator.config import FULL_STATE_NAMES
+
+                        for name, code in FULL_STATE_NAMES.items():
+                            if name in location.lower():
+                                state_code = code
+                                break
+                    except:
+                        pass
+                if state_code and state_code in STATE_TO_TIMEZONE:
+                    tz_name = STATE_TO_TIMEZONE[state_code]
+
+            tz = ZoneInfo(tz_name)
+            now = datetime.datetime.now(tz)
+            target = now.replace(hour=SEND_HOUR, minute=0, second=0, microsecond=0)
+
+            if now.hour >= SEND_HOUR:
+                target += datetime.timedelta(days=1)
+            while target.weekday() >= 5:
+                target += datetime.timedelta(days=1)
+
+            display_tz = TZ_DISPLAY.get(tz_name, "ET")
+            return target.strftime(f"%a %b %d, {SEND_HOUR}:00 AM {display_tz}")
+        except Exception as e:
+            log.debug(f"Timezone calc failed: {e}")
+            return self._fallback_send_at()
 
     @staticmethod
-    def _retry_update(func, *args, retries=3, **kwargs):
-        import time as _t
+    def _fallback_send_at():
+        now = datetime.datetime.now()
+        target = now.replace(hour=10, minute=0) + datetime.timedelta(days=1)
+        while target.weekday() >= 5:
+            target += datetime.timedelta(days=1)
+        return target.strftime("%a %b %d, 10:00 AM ET")
+
+    @staticmethod
+    def _retry(func, *args, retries=3, **kwargs):
         for attempt in range(retries):
             try:
                 return func(*args, **kwargs)
@@ -474,19 +493,14 @@ class Sheets:
                 if "429" in str(e) or "RESOURCE_EXHAUSTED" in str(e):
                     wait = 2 ** (attempt + 1)
                     log.warning(f"Sheets rate limit, retrying in {wait}s...")
-                    _t.sleep(wait)
+                    time.sleep(wait)
                 elif attempt < retries - 1:
-                    _t.sleep(1)
+                    time.sleep(1)
                 else:
                     raise
 
     def _p(self):
         time.sleep(SHEET_PAUSE)
-
-
-# ============================================================================
-# CREDITS
-# ============================================================================
 
 
 class Credits:
@@ -589,11 +603,6 @@ class Credits:
         self._save()
 
 
-# ============================================================================
-# NAME PARSER
-# ============================================================================
-
-
 class NameParser:
     @staticmethod
     def parse(name):
@@ -685,10 +694,6 @@ class NameParser:
 
         return emails(pa), emails(pb), emails(pc)
 
-
-# ============================================================================
-# PATTERN CACHE
-# ============================================================================
 
 _SEED = {
     "google.com": "{first}.{last}",
@@ -784,11 +789,6 @@ class PatternCache:
             .replace("{l}", li)
         )
         return f"{lp}@{domain}" if lp and len(lp) >= 2 else None
-
-
-# ============================================================================
-# HELPERS
-# ============================================================================
 
 
 def _cl(idx):

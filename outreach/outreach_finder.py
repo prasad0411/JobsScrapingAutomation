@@ -23,11 +23,9 @@ from outreach.outreach_data import NameParser, PatternCache, Credits
 log = logging.getLogger(__name__)
 try:
     import dns.resolver
-
     _DNS = True
 except ImportError:
     _DNS = False
-    log.warning("pip install dnspython for better MX checks")
 
 
 class Finder:
