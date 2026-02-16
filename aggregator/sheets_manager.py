@@ -549,6 +549,17 @@ class SheetsManager:
         except:
             pass
 
+
+    @staticmethod
+    def _classify_resume(title):
+        t = title.lower() if title else ''
+        for kw in ['machine learning', ' ml ', 'ml ', ' ai ', 'ai ', 'data science',
+                    'nlp', 'computer vision', 'deep learning', 'genai', 'neural',
+                    'llm', 'natural language', 'reinforcement learning']:
+            if kw in t:
+                return 'ML'
+        return 'SDE'
+
     @staticmethod
     @lru_cache(maxsize=2048)
     def _normalize(text):

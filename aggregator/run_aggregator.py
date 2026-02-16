@@ -754,47 +754,112 @@ class UnifiedJobAggregator:
 
 
     def _process_ziprecruiter_url(self, url, sender, email_html, subject):
-        """Process a ZipRecruiter job URL: follow redirect chain to actual company page."""
+        """Process ZipRecruiter URL: try HTTP redirect first, fall back to pre-parsed email data."""
         try:
-            # ZipRecruiter emails use /km/ and /ekm/ tracking redirects
-            # Follow the redirect to get to the ZipRecruiter job page
             actual_url = None
             try:
                 import requests as _req
-                resp = _req.get(url, allow_redirects=True, timeout=15,
-                               headers={"User-Agent": "Mozilla/5.0"})
-                if resp and resp.url != url:
-                    final = resp.url
-                    # If we landed on a ZipRecruiter job page, try to extract the Apply URL
-                    if "ziprecruiter.com" in final:
-                        actual_url = ZipRecruiterResolver.resolve(final)
-                    elif "ziprecruiter.com" not in final:
-                        # Redirected directly to company page
-                        actual_url = final
+                resp = _req.get(url, allow_redirects=True, timeout=10,
+                               headers={"User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)"})
+                if resp and resp.status_code == 200 and resp.url != url and "ziprecruiter.com" not in resp.url:
+                    actual_url = resp.url
+                elif resp and resp.status_code == 200 and "ziprecruiter.com" in resp.url:
+                    actual_url = ZipRecruiterResolver.resolve(resp.url)
             except Exception as e:
-                logging.debug(f"ZipRecruiter redirect follow failed: {e}")
+                logging.debug(f"ZipRecruiter redirect failed: {e}")
 
-            if not actual_url:
-                logging.info(f"ZipRecruiter: Could not resolve {url[:60]}")
+            if actual_url:
+                if self._is_duplicate_url(actual_url):
+                    self.outcomes["skipped_duplicate_url"] += 1
+                    return
+                result = self._process_single_job_comprehensive(
+                    actual_url, source=sender, email_html=email_html
+                )
+                if result:
+                    alert = RoleCategorizer.get_terminal_alert(result["title"])
+                    print(f"    {result['company'][:50]}: ✓ Valid {alert} (ZipRecruiter→resolved)")
+                    self.source_stats[sender]["valid"] += 1
+                else:
+                    self.source_stats[sender]["rejected"] += 1
+                return
+
+            cached = self._match_ziprecruiter_cache(url)
+            if not cached:
                 self.outcomes["failed_ziprecruiter_resolution"] = self.outcomes.get("failed_ziprecruiter_resolution", 0) + 1
                 return
 
-            if self._is_duplicate_url(actual_url):
-                self.outcomes["skipped_duplicate_url"] += 1
+            company = cached.get("company", "").strip()
+            title = cached.get("title", "").strip()
+            location = cached.get("location", "Unknown").strip()
+
+            if not title or not company or company == "Unknown":
+                self.outcomes["failed_ziprecruiter_resolution"] = self.outcomes.get("failed_ziprecruiter_resolution", 0) + 1
                 return
 
-            result = self._process_single_job_comprehensive(
-                actual_url, source=sender, email_html=email_html
-            )
-            if result:
-                alert = RoleCategorizer.get_terminal_alert(result["title"])
-                print(f"    {result['company'][:50]}: ✓ Valid {alert} (ZipRecruiter→original)")
-                self.source_stats[sender]["valid"] += 1
-            else:
-                self.source_stats[sender]["rejected"] += 1
-        except Exception as e:
-            logging.error(f"ZipRecruiter processing failed: {e}")
+            ct_key = URLCleaner.normalize_text(f"{company}_{title}")
+            if ct_key in self.existing_jobs:
+                self.outcomes["skipped_duplicate_company_title"] += 1
+                return
 
+            is_valid_title, reason = TitleProcessor.is_valid_job_title(title)
+            if not is_valid_title:
+                self.outcomes["skipped_invalid_title"] += 1
+                self._print_rejected(company, f"Invalid title: {reason}")
+                logging.info(f"REJECTED | {company} | {title} | Invalid title: {reason} | ZipRecruiter")
+                self.source_stats[sender]["rejected"] += 1
+                return
+
+            is_intern = any(ind in title.lower() for ind in ["intern", "co-op", "coop", "apprentice"])
+            if not is_intern:
+                self.outcomes["skipped_not_internship"] = self.outcomes.get("skipped_not_internship", 0) + 1
+                self._print_rejected(company, "Not internship")
+                logging.info(f"REJECTED | {company} | {title} | Not internship | ZipRecruiter")
+                self.source_stats[sender]["rejected"] += 1
+                return
+
+            remote = "Remote" if "remote" in location.lower() else "Unknown"
+            if location.lower() in ("unknown", "", "n/a"):
+                location = "Unknown"
+
+            job_data = {
+                "company": company,
+                "title": title,
+                "location": location,
+                "remote": remote,
+                "url": url,
+                "job_id": "N/A",
+                "job_type": "Internship",
+                "sponsorship": "Unknown",
+                "entry_date": self._format_date(),
+                "source": sender,
+            }
+
+            quality = QualityScorer.calculate_score(job_data)
+            if quality < MIN_QUALITY_SCORE:
+                self.outcomes["skipped_low_quality"] += 1
+                self._print_rejected(company, f"Low quality ({quality})")
+                logging.info(f"REJECTED | {company} | {title} | Low quality: {quality} | ZipRecruiter")
+                self.source_stats[sender]["rejected"] += 1
+                return
+
+            self.valid_jobs.append(job_data)
+            self.outcomes["valid"] += 1
+            self.existing_jobs.add(ct_key)
+            alert = RoleCategorizer.get_terminal_alert(title)
+            print(f"    {company[:50]}: ✓ Valid {alert} (ZipRecruiter)")
+            self.source_stats[sender]["valid"] += 1
+            logging.info(f"ACCEPTED | {company} | {title} | {location} | ZipRecruiter (email data)")
+
+        except Exception as e:
+            logging.error(f"ZipRecruiter processing failed for {url[:60]}: {e}")
+
+    def _match_ziprecruiter_cache(self, url):
+        if not hasattr(self, "_ziprecruiter_jobs_cache") or not self._ziprecruiter_jobs_cache:
+            return None
+        for job in self._ziprecruiter_jobs_cache:
+            if job.get("url", "") == url:
+                return job
+        return None
     def _get_jobright_email_fallback(self, url):
         if not hasattr(self, "_jobright_email_map"):
             return None
