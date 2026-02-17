@@ -1926,6 +1926,7 @@ class ZipRecruiterResolver:
                     location = ""
                     skip_words = {"view details", "apply now", "be seen first", "estimated pay", "show me more", "view more", "not quite right"}
 
+                    badge_words = {"new", "hot", "featured", "urgent", "sponsored", "just posted", "hiring"}
                     clean_parts = []
                     for part in parts:
                         pl = part.lower().strip()
@@ -1934,6 +1935,8 @@ class ZipRecruiterResolver:
                         if pl.startswith("$") or "/hr" in pl or "/yr" in pl or "/wk" in pl or "/mo" in pl:
                             continue
                         if len(part) < 3:
+                            continue
+                        if pl in badge_words:
                             continue
                         clean_parts.append(part)
 

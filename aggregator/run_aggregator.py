@@ -297,14 +297,14 @@ class UnifiedJobAggregator:
         simplify_jobs = self._safe_scrape(SIMPLIFY_URL, "SimplifyJobs")
         vanshb03_jobs = self._safe_scrape(VANSHB03_URL, "vanshb03")
 
-        print(
-            f"  Scraping SimplifyJobs ({len(simplify_jobs)} jobs) + vanshb03 ({len(vanshb03_jobs)} jobs)\n"
-        )
         logging.info(
             f"GitHub: {len(simplify_jobs)} SimplifyJobs + {len(vanshb03_jobs)} vanshb03"
         )
 
+        print(f"\n  SimplifyJobs ({len(simplify_jobs)} jobs)")
         consecutive_old = 0
+        simplify_valid = 0
+        simplify_rejected = 0
         for i, job in enumerate(simplify_jobs):
             try:
                 age_days = self._parse_github_age(job["age"])
@@ -325,6 +325,7 @@ class UnifiedJobAggregator:
                 logging.error(f"Failed to process SimplifyJobs job: {e}", exc_info=True)
                 continue
 
+        print(f"\n  vanshb03 ({len(vanshb03_jobs)} jobs)")
         consecutive_old = 0
         for i, job in enumerate(vanshb03_jobs):
             try:
@@ -349,7 +350,7 @@ class UnifiedJobAggregator:
         github_valid = sum(
             1 for j in self.valid_jobs if j["source"] in ["SimplifyJobs", "vanshb03"]
         )
-        print(f"  GitHub summary: {github_valid} valid jobs\n")
+        print(f"\n  GitHub: {github_valid} valid jobs total")
         logging.info(f"GitHub summary: {github_valid} valid jobs")
 
     def _process_single_github_job(self, job):
@@ -532,15 +533,19 @@ class UnifiedJobAggregator:
                 deduped_urls.append(url)
 
             email_counter += 1
-            skipped = len(urls) - len(deduped_urls)
-            skip_msg = f" ({skipped} deduped)" if skipped > 0 else ""
+            pre_dedup = len(urls) - len(deduped_urls)
+            dedup_parts = []
+            if pre_dedup > 0:
+                dedup_parts.append(f"{pre_dedup} pre-deduped")
+            pre_msg = f" ({', '.join(dedup_parts)})" if dedup_parts else ""
             print(
-                f"\n  Email #{email_counter}: {subject} ({sender}) - {len(deduped_urls)} URLs{skip_msg}"
+                f"\n  Email #{email_counter}: {subject} ({sender}) - {len(deduped_urls)} URLs{pre_msg}"
             )
 
+            inline_dups = 0
             for idx, url in enumerate(deduped_urls):
                 try:
-                    self._process_single_email_url(
+                    result = self._process_single_email_url(
                         url,
                         sender,
                         html_content,
@@ -548,9 +553,13 @@ class UnifiedJobAggregator:
                         url_idx=idx + 1,
                         url_total=len(deduped_urls),
                     )
+                    if result == "duplicate":
+                        inline_dups += 1
                 except Exception as e:
                     logging.error(f"Failed to process email URL {url}: {e}")
                     continue
+            if inline_dups > 0:
+                print(f"    [{inline_dups} duplicates skipped]")
 
             ProcessedEmailTracker.mark_email_processed(
                 processed_emails, email_id, subject, len(urls)
@@ -562,11 +571,11 @@ class UnifiedJobAggregator:
         self, url, sender, email_html, subject, url_idx=0, url_total=0
     ):
         if any(domain in url.lower() for domain in BLACKLIST_DOMAINS):
-            return
+            return "skipped"
 
         is_valid_url, url_reason = ValidationHelper.is_valid_job_url(url)
         if not is_valid_url:
-            return
+            return "skipped"
 
         resolved_url = url
         is_company_site = False
@@ -578,15 +587,15 @@ class UnifiedJobAggregator:
 
         if "jobright.ai" in url.lower():
             self._process_jobright_url(url, sender, email_html, subject)
-            return
+            return "processed"
 
         if "ziprecruiter.com" in url.lower():
             self._process_ziprecruiter_url(url, sender, email_html, subject)
-            return
+            return "processed"
 
         if self._is_duplicate_url(resolved_url):
             self.outcomes["skipped_duplicate_url"] += 1
-            return
+            return "duplicate"
 
         result = self._process_single_job_comprehensive(
             resolved_url,
@@ -597,8 +606,10 @@ class UnifiedJobAggregator:
             alert = RoleCategorizer.get_terminal_alert(result["title"])
             print(f"    {result['company'][:50]}: ✓ Valid {alert}")
             self.source_stats[sender]["valid"] += 1
+            return "valid"
         else:
             self.source_stats[sender]["rejected"] += 1
+            return "rejected"
 
     def _process_jobright_url(self, url, sender, email_html, subject):
         email_fallback = self._get_jobright_email_fallback(url)

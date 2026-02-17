@@ -272,41 +272,73 @@ class Finder:
             resp = requests.get(REACHER_URL.replace("/v0/check_email", "/"), timeout=3)
             self._reacher = resp.status_code in (200, 404, 405)
         except:
-            # Auto-start Reacher via Docker
-            log.info("Reacher not running — attempting to start Docker...")
+            # Auto-start Docker Desktop + Reacher on macOS
+            log.info("Reacher not running — attempting to start Docker Desktop...")
             try:
-                import subprocess
-                # Try from project root
+                import subprocess, platform
+
                 root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
                 compose_file = os.path.join(root, "docker-compose.yml")
-                if os.path.exists(compose_file):
-                    result = subprocess.run(
-                        ["docker", "compose", "-f", compose_file, "up", "-d"],
-                        capture_output=True, text=True, timeout=30
-                    )
-                else:
-                    result = subprocess.run(
-                        ["docker", "compose", "up", "-d"],
-                        capture_output=True, text=True, timeout=30
-                    )
-                if result.returncode == 0:
-                    log.info("Docker Reacher started. Waiting 5s for boot...")
-                    import time; time.sleep(5)
-                    try:
-                        resp = requests.get(REACHER_URL.replace("/v0/check_email", "/"), timeout=3)
-                        self._reacher = resp.status_code in (200, 404, 405)
-                        if self._reacher:
-                            log.info("Reacher is now running ✓")
-                            return self._reacher
-                    except:
-                        pass
-                else:
-                    log.warning(f"Docker start failed: {result.stderr[:100]}")
+
+                # Step 1: Check if Docker daemon is running
+                daemon_running = False
+                try:
+                    dc = subprocess.run(["docker", "info"], capture_output=True, text=True, timeout=5)
+                    daemon_running = dc.returncode == 0
+                except:
+                    pass
+
+                # Step 2: If daemon not running, launch Docker Desktop (macOS)
+                if not daemon_running and platform.system() == "Darwin":
+                    log.info("Docker daemon not running. Launching Docker Desktop...")
+                    print("  Starting Docker Desktop...")
+                    subprocess.run(["open", "-a", "Docker"], capture_output=True, timeout=10)
+                    import time
+                    for attempt in range(15):
+                        time.sleep(2)
+                        try:
+                            check = subprocess.run(["docker", "info"], capture_output=True, text=True, timeout=5)
+                            if check.returncode == 0:
+                                log.info(f"Docker Desktop ready after {(attempt+1)*2}s")
+                                print(f"  Docker Desktop ready ({(attempt+1)*2}s)")
+                                daemon_running = True
+                                break
+                        except:
+                            pass
+                    if not daemon_running:
+                        log.warning("Docker Desktop did not start within 30s")
+                        print("  Docker Desktop did not start within 30s")
+
+                # Step 3: Start Reacher container
+                if daemon_running:
+                    compose_args = ["docker", "compose"]
+                    if os.path.exists(compose_file):
+                        compose_args.extend(["-f", compose_file])
+                    compose_args.extend(["up", "-d"])
+                    result = subprocess.run(compose_args, capture_output=True, text=True, timeout=30)
+                    if result.returncode == 0:
+                        log.info("Reacher container started. Waiting 5s...")
+                        import time; time.sleep(5)
+                        try:
+                            resp = requests.get(REACHER_URL.replace("/v0/check_email", "/"), timeout=3)
+                            self._reacher = resp.status_code in (200, 404, 405)
+                            if self._reacher:
+                                log.info("Reacher is now running")
+                                print("  Reacher email verifier ready")
+                                return self._reacher
+                        except:
+                            pass
+                    else:
+                        log.warning(f"Docker compose failed: {result.stderr[:500]}")
+
             except FileNotFoundError:
-                log.warning("Docker not found. Install Docker Desktop.")
+                log.warning("Docker not found. Install Docker Desktop from docker.com")
+            except subprocess.TimeoutExpired:
+                log.warning("Docker command timed out")
             except Exception as e:
-                log.warning(f"Auto-start failed: {e}")
+                log.warning(f"Docker auto-start failed: {e}")
             self._reacher = False
+            log.warning("Reacher unavailable. Pattern-based email verification disabled.")
         return self._reacher
 
     def _apis(self, p, dom, li, r):

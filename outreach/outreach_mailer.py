@@ -191,7 +191,7 @@ class Mailer:
             p_html = p.replace("\n", "<br>")
             parts.append(f'<p style="{style}">{p_html}</p>')
         return (
-            '<div style="max-width: 600px; font-family: Arial, sans-serif;">'
+            '<div style="font-family: Arial, sans-serif;">'
             + "\n".join(parts)
             + "</div>"
         )
