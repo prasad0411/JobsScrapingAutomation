@@ -146,7 +146,7 @@ pip install gspread oauth2client beautifulsoup4 selenium requests lxml
 # Edit config.py with your settings
 
 # Run pipeline
-python3 job_aggregator.py
+python3 job_aggregator.py 
 ```
 
 **Requirements:** Google Sheets API credentials, Gmail API credentials, ChromeDriver
