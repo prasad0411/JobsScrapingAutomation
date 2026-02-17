@@ -1894,56 +1894,69 @@ class ZipRecruiterResolver:
                 return []
 
             jobs = []
-            # ZipRecruiter emails have job cards as table rows or div blocks
-            # Each job has: title, company, location, salary, "View Details" link
+            seen_urls = set()
 
-            # Find all job links (View Details, Apply Now, Be Seen First)
-            view_links = soup.find_all("a", href=re.compile(r"ziprecruiter\.com/(?:jobs/|km/|ekm/|k/)"))
+            links = soup.find_all("a", href=re.compile(r"ziprecruiter\.com/(?:jobs/|km/|ekm/|k/)"))
 
-            for link in view_links:
+            for link in links:
                 try:
                     href = link.get("href", "")
-                    if not href:
+                    if not href or href in seen_urls:
                         continue
+                    seen_urls.add(href)
 
-                    # Walk up to find the job card container
                     container = link
-                    for _ in range(8):
+                    for _ in range(6):
                         parent = container.parent
-                        if parent and len(parent.get_text(strip=True)) > 50:
-                            container = parent
-                        else:
+                        if not parent:
                             break
+                        parent_len = len(parent.get_text(strip=True))
+                        if parent_len > 500:
+                            break
+                        container = parent
 
                     card_text = container.get_text(separator="|||", strip=True)
-                    parts = [p.strip() for p in card_text.split("|||") if p.strip()]
+                    parts = [p.strip() for p in card_text.split("|||") if p.strip() and len(p.strip()) > 1]
 
                     if len(parts) < 2:
                         continue
 
-                    # Extract metadata from card
                     title = ""
                     company = ""
                     location = ""
+                    skip_words = {"view details", "apply now", "be seen first", "estimated pay", "show me more", "view more", "not quite right"}
 
-                    for i, part in enumerate(parts):
-                        part_lower = part.lower()
-                        # Skip noise
-                        if any(skip in part_lower for skip in ["view details", "apply now", "be seen first", "$", "/hr", "/yr", "/wk", "/mo"]):
+                    clean_parts = []
+                    for part in parts:
+                        pl = part.lower().strip()
+                        if any(sw in pl for sw in skip_words):
                             continue
-                        if "•" in part:
-                            # "Company • City, State • Remote" format
-                            sub_parts = [s.strip() for s in part.split("•")]
-                            if len(sub_parts) >= 2:
-                                company = sub_parts[0]
-                                location = sub_parts[1] if len(sub_parts) > 1 else ""
+                        if pl.startswith("$") or "/hr" in pl or "/yr" in pl or "/wk" in pl or "/mo" in pl:
                             continue
-                        if not title and len(part) > 10 and i < 3:
+                        if len(part) < 3:
+                            continue
+                        clean_parts.append(part)
+
+                    for i, part in enumerate(clean_parts):
+                        if "\u2022" in part:
+                            sub = [s.strip() for s in part.split("\u2022") if s.strip()]
+                            if len(sub) >= 2:
+                                if not company:
+                                    company = sub[0]
+                                if not location:
+                                    location = sub[1] if len(sub) > 1 else ""
+                            continue
+                        if not title and i < 2:
                             title = part
-                        elif not company and len(part) > 2 and i < 5:
+                        elif not company and i < 4:
                             company = part
 
-                    if title:
+                    if title and len(title) > 5:
+
+                        skip = any(g in title.lower() for g in ['download the free', 'unsubscribe', 'privacy policy', 'get hired', 'career advisor', 'view more jobs'])
+                        skip = skip or any(g in (company or '').lower() for g in ['download the free', 'unsubscribe', 'privacy policy'])
+                        if skip:
+                            continue
                         jobs.append({
                             "title": title,
                             "company": company or "Unknown",
@@ -1958,7 +1971,6 @@ class ZipRecruiterResolver:
         except Exception as e:
             logging.debug(f"ZipRecruiter email parsing failed: {e}")
             return []
-
 class SimplifyGitHubScraper:
     @staticmethod
     def scrape(url, source_name="GitHub"):
