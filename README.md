@@ -130,7 +130,7 @@ Data Sources (GitHub, Gmail, Web)
 | `config.py` | 1,342 | Configuration, patterns, constants |
 | `processors.py` | 2,092 | Validation & extraction logic |
 | `extractors.py` | 1,452 | Page fetching, Selenium handling |
-| `job_aggregator.py` | 1,236 | Pipeline orchestration |
+| `run_aggregator.py` | 1,236 | Pipeline orchestration |
 | `sheets_manager.py` | 479 | Google Sheets integration |
 | `utils.py` | 910 | Sanitization & parsing utilities |
 
