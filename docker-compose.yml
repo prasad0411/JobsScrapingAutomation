@@ -1,6 +1,7 @@
 services:
   reacher:
     image: reacherhq/backend:latest
+    platform: linux/amd64
     container_name: reacher-email-verifier
     ports:
       - "8080:8080"
