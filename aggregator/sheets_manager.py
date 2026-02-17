@@ -295,6 +295,40 @@ class SheetsManager:
             },
         )
         import time; time.sleep(1)
+        # Add clickable hyperlinks for Job URL column (F, index 5)
+        url_requests = [
+            {
+                "updateCells": {
+                    "range": {
+                        "sheetId": self.discarded_entries.id,
+                        "startRowIndex": start_row + idx - 1,
+                        "endRowIndex": start_row + idx,
+                        "startColumnIndex": 5,
+                        "endColumnIndex": 6,
+                    },
+                    "rows": [
+                        {
+                            "values": [
+                                {
+                                    "userEnteredValue": {"stringValue": row[5]},
+                                    "textFormatRuns": [
+                                        {"format": {"link": {"uri": row[5]}}}
+                                    ],
+                                }
+                            ]
+                        }
+                    ],
+                    "fields": "userEnteredValue,textFormatRuns",
+                }
+            }
+            for idx, row in enumerate(rows)
+            if row[5] and row[5].startswith("http")
+        ]
+        if url_requests:
+            for i in range(0, len(url_requests), 100):
+                self.spreadsheet.batch_update({"requests": url_requests[i : i + 100]})
+                time.sleep(1)
+
         self._auto_resize_columns(self.discarded_entries, 13)
         return len(jobs)
 

@@ -398,8 +398,8 @@ def backup_to_private_repo():
     print("AUTOMATED BACKUP TO PRIVATE REPO")
     print("=" * 80)
 
-    project_dir = Path(__file__).parent
-    backup_dir = project_dir / BACKUP_FOLDER
+    project_dir = Path(__file__).parent.parent  # scripts/ → project root
+    backup_dir = project_dir.parent / "job-tracker-secrets"
 
     if not backup_dir.exists():
         print(f"⚠️  Backup directory not found: {backup_dir}")
@@ -410,7 +410,9 @@ def backup_to_private_repo():
     missing = []
 
     for filename in FILES_TO_BACKUP:
-        source = project_dir / filename
+        source = project_dir / ".local" / filename
+        if not source.exists():
+            source = project_dir / filename
         destination = backup_dir / filename
 
         if source.exists():

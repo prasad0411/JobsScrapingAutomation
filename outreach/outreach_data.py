@@ -113,28 +113,7 @@ class Sheets:
                                     "rule": None,
                                 }
                             },
-                            {
-                                "setDataValidation": {
-                                    "range": {
-                                        "sheetId": self.ws.id,
-                                        "startRowIndex": 1,
-                                        "endRowIndex": 500,
-                                        "startColumnIndex": C["send"],
-                                        "endColumnIndex": C["send"] + 1,
-                                    },
-                                    "rule": {
-                                        "condition": {
-                                            "type": "ONE_OF_LIST",
-                                            "values": [
-                                                {"userEnteredValue": "Yes"},
-                                                {"userEnteredValue": "No"},
-                                            ],
-                                        },
-                                        "showCustomUi": True,
-                                        "strict": False,
-                                    },
-                                }
-                            },
+                
                         ]
                     }
                 )
@@ -150,14 +129,13 @@ class Sheets:
                     3: 100,
                     4: 140,
                     5: 150,
-                    6: 140,
-                    7: 150,
-                    8: 180,
+                    6: 180,
+                    7: 140,
+                    8: 150,
                     9: 180,
-                    10: 60,
-                    11: 180,
-                    12: 140,
-                    13: 200,
+                    10: 200,
+                    11: 140,
+                    12: 220,
                 }
                 for i in range(len(O_HEADERS)):
                     widths.append(
@@ -343,10 +321,13 @@ class Sheets:
         except Exception as e:
             log.error(f"write_email row {row}: {e}")
 
-    def write_send_at(self, row, send_at_text):
+    def write_send_at(self, row, send_at_text, sent_date_text=""):
         try:
             self._retry(self.ws.update_acell, f"{_cl(C['send_at'])}{row}", send_at_text)
             self._p()
+            if sent_date_text:
+                self._retry(self.ws.update_acell, f"{_cl(C['sent_dt'])}{row}", sent_date_text)
+                self._p()
         except Exception as e:
             log.error(f"write_send_at row {row}: {e}")
 
@@ -432,6 +413,8 @@ class Sheets:
         )
 
     def compute_send_at(self, location):
+        """Compute send time at 10 AM in company's timezone, display in EST.
+        Returns (send_at_str, sent_date_str) tuple."""
         try:
             from zoneinfo import ZoneInfo
         except ImportError:
@@ -470,8 +453,15 @@ class Sheets:
             while target.weekday() >= 5:
                 target += datetime.timedelta(days=1)
 
-            display_tz = TZ_DISPLAY.get(tz_name, "ET")
-            return target.strftime(f"%a %b %d, {SEND_HOUR}:00 AM {display_tz}")
+            # Convert to EST for display
+            est = ZoneInfo("US/Eastern")
+            target_est = target.astimezone(est)
+            h = target_est.hour
+            ampm = "AM" if h < 12 else "PM"
+            dh = h % 12 or 12
+            send_at = target_est.strftime("%a %b %d, ") + f"{dh}:{target_est.minute:02d} {ampm} ET"
+            sent_date = target_est.strftime("%b %d, %Y")
+            return send_at, sent_date
         except Exception as e:
             log.debug(f"Timezone calc failed: {e}")
             return self._fallback_send_at()
@@ -482,7 +472,7 @@ class Sheets:
         target = now.replace(hour=10, minute=0) + datetime.timedelta(days=1)
         while target.weekday() >= 5:
             target += datetime.timedelta(days=1)
-        return target.strftime("%a %b %d, 10:00 AM ET")
+        return target.strftime("%a %b %d, 10:00 AM ET"), target.strftime("%b %d, %Y")
 
     @staticmethod
     def _retry(func, *args, retries=3, **kwargs):

@@ -76,8 +76,8 @@ def phase_draft_existing(sheets, mailer):
         if parts:
             print(f"  {co}: {', '.join(parts)}")
         location = sheets.get_location(co, title)
-        sa = sheets.compute_send_at(location)
-        sheets.write_send_at(i, sa)
+        sa, sd = sheets.compute_send_at(location)
+        sheets.write_send_at(i, sa, sd)
     return stats
 
 
@@ -176,8 +176,8 @@ def phase_extract_and_draft(sheets, finder, mailer):
 
         if hm_e or rec_e:
             location = sheets.get_location(row["co"], row["title"])
-            send_at = sheets.compute_send_at(location)
-            sheets.write_send_at(rn, send_at)
+            sa, sd = sheets.compute_send_at(location)
+            sheets.write_send_at(rn, sa, sd)
 
     return stats
 

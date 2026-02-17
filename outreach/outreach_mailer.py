@@ -36,6 +36,10 @@ class Drafter:
         first = parsed["first"] if parsed else name.split()[0]
         st, bt = (HM_SUBJ, HM_BODY) if contact_type == "hm" else (REC_SUBJ, REC_BODY)
         jid = job_id if job_id and job_id not in ("N/A", "") else ""
+        subj, body = st, bt
+        if not jid:
+            subj = subj.replace(" | {job_id}", "")
+            body = body.replace(" | {job_id}", "")
         vals = {
             "first": first,
             "title": title,
@@ -43,13 +47,9 @@ class Drafter:
             "company": company,
             "sender": SENDER_NAME,
         }
-        subj, body = st, bt
         for k, v in vals.items():
             subj = subj.replace(f"{{{k}}}", v)
             body = body.replace(f"{{{k}}}", v)
-        if not jid:
-            subj = subj.replace(" | ", "")
-            body = body.replace(" | ", " ")
         return {"subject": subj, "body": body.replace("\n\n\n", "\n\n")}
 
 
@@ -141,7 +141,8 @@ class Mailer:
             msg["To"] = to_email
             msg["Subject"] = subject
             msg["Reply-To"] = SENDER_EMAIL
-            msg.attach(MIMEText(body, "plain"))
+            html_body = Mailer._to_html(body)
+            msg.attach(MIMEText(html_body, "html"))
 
             if os.path.exists(resume_path):
                 with open(resume_path, "rb") as rf:
@@ -173,6 +174,27 @@ class Mailer:
             result["error"] = f"Draft failed: {str(e)[:120]}"
             log.error(result["error"])
         return result
+
+    @staticmethod
+    def _to_html(body):
+        """Convert plain text body to clean HTML with professional formatting."""
+        paragraphs = body.split("\n\n")
+        style = (
+            "font-family: Arial, sans-serif; font-size: 14px; "
+            "line-height: 1.6; color: #333333; margin: 0 0 14px 0;"
+        )
+        parts = []
+        for p in paragraphs:
+            p = p.strip()
+            if not p:
+                continue
+            p_html = p.replace("\n", "<br>")
+            parts.append(f'<p style="{style}">{p_html}</p>')
+        return (
+            '<div style="max-width: 600px; font-family: Arial, sans-serif;">'
+            + "\n".join(parts)
+            + "</div>"
+        )
 
     def wait(self):
         time.sleep(random.randint(DELAY_MIN, DELAY_MAX))

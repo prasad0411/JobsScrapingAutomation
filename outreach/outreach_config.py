@@ -22,20 +22,19 @@ OUTREACH_TAB = "Outreach Tracker"
 V_COMPANY, V_TITLE, V_JOBID, V_RESUME = 2, 3, 6, 9
 
 O_HEADERS = [
-    "Sr. No.",  # A (0)
-    "Company",  # B (1)
-    "Job Title",  # C (2)
-    "Job ID",  # D (3)
-    "HM Name",  # E (4)
-    "HM LinkedIn URL",  # F (5)
-    "Recruiter Name",  # G (6)
-    "Recruiter LinkedIn URL",  # H (7)
-    "HM Email",  # I (8)
-    "Recruiter Email",  # J (9)
-    "Send?",  # K (10)
-    "Send At",  # L (11)
-    "Sent Date",  # M (12)
-    "Error Log",  # N (13)
+    "Sr. No.",              # A (0)
+    "Company",              # B (1)
+    "Job Title",            # C (2)
+    "Job ID",               # D (3)
+    "HM Name",              # E (4)
+    "HM LinkedIn URL",      # F (5)
+    "HM Email",             # G (6)
+    "Recruiter Name",       # H (7)
+    "Recruiter LinkedIn URL",  # I (8)
+    "Recruiter Email",      # J (9)
+    "Send At",              # K (10)
+    "Sent Date",            # L (11)
+    "Error Log",            # M (12)
 ]
 
 C = {
@@ -45,18 +44,17 @@ C = {
     "job_id": 3,
     "hm_name": 4,
     "hm_li": 5,
-    "rec_name": 6,
-    "rec_li": 7,
-    "hm_email": 8,
+    "hm_email": 6,
+    "rec_name": 7,
+    "rec_li": 8,
     "rec_email": 9,
-    "send": 10,
-    "send_at": 11,
-    "sent_dt": 12,
-    "error": 13,
+    "send_at": 10,
+    "sent_dt": 11,
+    "error": 12,
 }
 
 SENDER_NAME = "Prasad Kanade"
-SENDER_EMAIL = "prasadkanade@gmail.com"
+SENDER_EMAIL = "prasadckanade@gmail.com"
 
 HM_SUBJ = "Prasad Kanade \u2014 Application for {title} | {job_id}"
 HM_BODY = (
