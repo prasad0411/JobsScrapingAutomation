@@ -334,26 +334,28 @@ class Sheets:
     def write_error(self, row, msg):
         try:
             existing = self.ws.acell(f"{_cl(C['error'])}{row}").value or ""
-            ts = datetime.datetime.now().strftime("%m/%d %H:%M")
-            tagged = f"[{ts}] {msg}"
-            if (
-                existing
-                and "All methods exhausted" in existing
-                and "All methods exhausted" in msg
-            ):
-                combined = f"[{ts}] HM+REC: All methods exhausted"
-                self._retry(
-                    self.ws.update_acell, f"{_cl(C['error'])}{row}", combined[:500]
-                )
-            elif existing and msg not in existing:
+            # Strip HM:/REC: prefixes for cleaner display
+            clean_msg = msg
+            for prefix in ["HM: ", "REC: "]:
+                if clean_msg.startswith(prefix):
+                    clean_msg = clean_msg[len(prefix):]
+            # Deduplicate — if same error already exists, skip
+            if clean_msg in existing:
+                self._p()
+                return
+            # If both HM and REC have same error, just show it once
+            if existing and existing.strip() == clean_msg.strip():
+                self._p()
+                return
+            if existing:
                 self._retry(
                     self.ws.update_acell,
                     f"{_cl(C['error'])}{row}",
-                    f"{existing}; {tagged}"[:500],
+                    f"{existing}; {clean_msg}"[:500],
                 )
-            elif not existing:
+            else:
                 self._retry(
-                    self.ws.update_acell, f"{_cl(C['error'])}{row}", tagged[:500]
+                    self.ws.update_acell, f"{_cl(C['error'])}{row}", clean_msg[:500]
                 )
             self._p()
         except:
@@ -362,10 +364,13 @@ class Sheets:
     def append_error(self, row, msg):
         try:
             existing = self.ws.acell(f"{_cl(C['error'])}{row}").value or ""
-            ts = datetime.datetime.now().strftime("%m/%d %H:%M")
-            if msg in existing:
+            clean_msg = msg
+            for prefix in ["HM: ", "REC: "]:
+                if clean_msg.startswith(prefix):
+                    clean_msg = clean_msg[len(prefix):]
+            if clean_msg in existing:
                 return
-            new = f"{existing}; [{ts}] {msg}" if existing else f"[{ts}] {msg}"
+            new = f"{existing}; {clean_msg}" if existing else clean_msg
             self._retry(self.ws.update_acell, f"{_cl(C['error'])}{row}", new[:500])
             self._p()
         except:

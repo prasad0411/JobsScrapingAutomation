@@ -294,7 +294,7 @@ class Finder:
                     print("  Starting Docker Desktop...")
                     subprocess.run(["open", "-a", "Docker"], capture_output=True, timeout=10)
                     import time
-                    for attempt in range(15):
+                    for attempt in range(30):
                         time.sleep(2)
                         try:
                             check = subprocess.run(["docker", "info"], capture_output=True, text=True, timeout=5)
@@ -306,8 +306,8 @@ class Finder:
                         except:
                             pass
                     if not daemon_running:
-                        log.warning("Docker Desktop did not start within 30s")
-                        print("  Docker Desktop did not start within 30s")
+                        log.warning("Docker Desktop did not start within 60s")
+                        print("  Docker Desktop did not start within 60s")
 
                 # Step 3: Start Reacher container
                 if daemon_running:

@@ -204,6 +204,9 @@ class ManualCleanup:
             },
         )
 
+        # Add clickable hyperlinks for Job URL column (E, index 4)
+        self._add_hyperlinks(self.reviewed_sheet, reviewed_rows, next_row, url_col_idx=4)
+
     def _repopulate_main_sheet(self, all_data, remaining_rows):
         if len(all_data) > 1:
             self.sheet.delete_rows(2, len(all_data))
