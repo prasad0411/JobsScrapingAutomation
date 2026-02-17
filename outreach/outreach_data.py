@@ -417,6 +417,42 @@ class Sheets:
             (company.strip().lower(), title.strip().lower()), ""
         )
 
+    def get_job_url_domain(self, company, title):
+        """Extract domain from Job URL in Valid Entries (column F, index 5)."""
+        if not hasattr(Sheets, "_url_domain_cache") or Sheets._url_domain_cache is None:
+            try:
+                valid = self.ss.worksheet("Valid Entries")
+                rows = valid.get_all_values()
+                self._p()
+                Sheets._url_domain_cache = {}
+                for row in rows[1:]:
+                    if len(row) > 5 and row[5].strip().startswith("http"):
+                        key = (row[2].strip().lower(), row[3].strip().lower())
+                        try:
+                            from urllib.parse import urlparse
+                            parsed = urlparse(row[5].strip())
+                            domain = parsed.netloc.lower()
+                            # Strip common prefixes
+                            for prefix in ["www.", "jobs.", "careers.", "career.", "apply.", "recruiting.", "boards.greenhouse.io", "job-boards.greenhouse.io"]:
+                                if domain.startswith(prefix) and domain != prefix.rstrip("."):
+                                    domain = domain[len(prefix):]
+                                    break
+                            # Skip generic job boards — not the company domain
+                            generic = {"lever.co", "greenhouse.io", "workday.com", "myworkdayjobs.com",
+                                       "smartrecruiters.com", "icims.com", "ultipro.com", "taleo.net",
+                                       "jobvite.com", "breezy.hr", "ashbyhq.com", "bamboohr.com",
+                                       "jazz.co", "recruitee.com", "simplify.jobs", "linkedin.com",
+                                       "indeed.com", "ziprecruiter.com", "glassdoor.com", "jobright.ai"}
+                            if not any(g in domain for g in generic):
+                                Sheets._url_domain_cache[key] = domain
+                        except:
+                            pass
+            except:
+                Sheets._url_domain_cache = {}
+        return Sheets._url_domain_cache.get(
+            (company.strip().lower(), title.strip().lower()), ""
+        )
+
     def compute_send_at(self, location):
         """Compute send time at 10 AM in company's timezone, display in EST.
         Returns (send_at_str, sent_date_str) tuple."""

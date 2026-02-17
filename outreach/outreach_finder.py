@@ -53,7 +53,7 @@ class Finder:
             return " ".join(parts)
         return None
 
-    def find(self, name, company, linkedin=""):
+    def find(self, name, company, linkedin="", job_url_domain=""):
         r = {"email": "", "source": "", "status": "Failed", "error": ""}
 
         # If name is incomplete (single name or initial), try LinkedIn URL
@@ -72,7 +72,28 @@ class Finder:
             r["status"] = "Manual Review"
             r["error"] = f"Single name '{name}'"
             return r
-        domains = self._resolve(company)
+        # Check retry tracker — skip if failed 3+ times on same domain
+        retry_key = company.strip().lower()
+        retries = self._load_retries()
+        if retry_key in retries and retries[retry_key].get("attempts", 0) >= 3:
+            old_domain = retries[retry_key].get("domain", "")
+            r["error"] = f"Skipped (3+ failures on {old_domain}). Add override in .local/domain_overrides.json"
+            r["status"] = "Manual Review"
+            log.debug(f"Skipping {company}: {r['error']}")
+            return r
+
+        # Priority 1: domain_overrides.json
+        # Priority 2: Job URL domain
+        # Priority 3: Clearbit
+        override_domain = self._get_override(company)
+        if override_domain:
+            domains = [override_domain]
+            log.info(f"Domain override: {company} → {override_domain}")
+        elif job_url_domain:
+            domains = [job_url_domain]
+            log.info(f"Job URL domain: {company} → {job_url_domain}")
+        else:
+            domains = self._resolve(company)
         if not domains:
             r["status"] = "Manual Review"
             r["error"] = f"No domain for '{company}'"
@@ -84,14 +105,22 @@ class Finder:
                     r.update(email=email, source="cache", status="Valid")
                     return r
         if self._rok():
-            pr = self._psearch(parsed, domains)
-            if pr["status"] in ("Valid", "Manual Review"):
-                if pr["email"] and pr["status"] == "Valid":
-                    self.pc.detect(pr["email"], parsed)
-                return pr
+            # Catch-all detection: test canary email
+            if self._is_catchall(domains[0]):
+                log.debug(f"Catch-all detected: {domains[0]} — skipping Reacher patterns")
+            else:
+                pr = self._psearch(parsed, domains)
+                if pr["status"] in ("Valid", "Manual Review"):
+                    if pr["email"] and pr["status"] == "Valid":
+                        self.pc.detect(pr["email"], parsed)
+                        self._clear_retry(retry_key)
+                    return pr
         result = self._apis(parsed, domains[0], linkedin, r)
         if result["email"] and result["status"] == "Valid":
             self.pc.detect(result["email"], parsed)
+            self._clear_retry(retry_key)
+        else:
+            self._track_retry(retry_key, domains[0] if domains else "", result.get("error", ""))
         return result
 
     def _resolve(self, company):
@@ -264,6 +293,76 @@ class Finder:
         except:
             pass
         return "unknown"
+
+    @staticmethod
+    def _get_override(company):
+        """Check domain_overrides.json for manual domain corrections."""
+        try:
+            if os.path.exists(OVERRIDES_FILE):
+                overrides = json.load(open(OVERRIDES_FILE))
+                key = company.strip()
+                # Try exact match first, then case-insensitive
+                if key in overrides:
+                    return overrides[key]
+                for k, v in overrides.items():
+                    if k.lower() == key.lower():
+                        return v
+        except:
+            pass
+        return ""
+
+    @staticmethod
+    def _load_retries():
+        try:
+            if os.path.exists(RETRY_FILE):
+                return json.load(open(RETRY_FILE))
+        except:
+            pass
+        return {}
+
+    @staticmethod
+    def _track_retry(company_key, domain, error):
+        retries = EmailFinder._load_retries()
+        if company_key not in retries:
+            retries[company_key] = {"attempts": 0, "domain": domain, "error": ""}
+        retries[company_key]["attempts"] += 1
+        retries[company_key]["domain"] = domain
+        retries[company_key]["error"] = error[:200]
+        try:
+            json.dump(retries, open(RETRY_FILE, "w"), indent=2)
+        except:
+            pass
+
+    @staticmethod
+    def _clear_retry(company_key):
+        retries = EmailFinder._load_retries()
+        if company_key in retries:
+            del retries[company_key]
+            try:
+                json.dump(retries, open(RETRY_FILE, "w"), indent=2)
+            except:
+                pass
+
+    def _is_catchall(self, domain):
+        """Test if domain accepts all emails (catch-all)."""
+        if not self._rok():
+            return False
+        try:
+            canary = f"xq7z9k2m8p@{domain}"
+            resp = requests.post(
+                REACHER_URL,
+                json={"to_email": canary, "from_email": "test@example.org"},
+                timeout=10,
+            )
+            if resp.status_code == 200:
+                data = resp.json()
+                reachable = data.get("is_reachable", "unknown")
+                if reachable == "safe":
+                    log.info(f"Catch-all domain: {domain}")
+                    return True
+        except:
+            pass
+        return False
 
     def _rok(self):
         if self._reacher is not None:
