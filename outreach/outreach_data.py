@@ -309,14 +309,6 @@ class Sheets:
             self._retry(self.ws.update_acell, f"{_cl(col)}{row}", email)
             log.info(f"Row {row} {ct}: {email} (via {source})")
             self._p()
-            existing_err = self.ws.acell(f"{_cl(C['error'])}{row}").value or ""
-            tag = "HM:" if ct == "hm" else "REC:"
-            if tag in existing_err:
-                cleaned = "; ".join(
-                    p.strip() for p in existing_err.split(";") if tag not in p
-                )
-                self._retry(self.ws.update_acell, f"{_cl(C['error'])}{row}", cleaned)
-                self._p()
         except Exception as e:
             log.error(f"write_email row {row}: {e}")
 

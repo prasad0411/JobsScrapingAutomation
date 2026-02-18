@@ -1172,28 +1172,31 @@ class LocationProcessor:
             except (ImportError, AttributeError):
                 UK_CITIES = ["london", "manchester", "edinburgh"]
 
+            import re as _re2
+            US_STATE_CODES = ['AL','AK','AZ','AR','CA','CO','CT','DE','FL','GA','HI','ID','IL','IN','IA','KS','KY','LA','ME','MD','MA','MI','MN','MS','MO','MT','NE','NV','NH','NJ','NM','NY','NC','ND','OH','OK','OR','PA','RI','SC','SD','TN','TX','UT','VT','VA','WA','WV','WI','WY','DC']
             for uk_city in UK_CITIES:
                 if uk_city in normalized:
-                    return f"Location: International (UK - {uk_city.title()})"
+                    # Check if followed by US state code — means US city, not UK
+                    has_us_state = False
+                    for st in US_STATE_CODES:
+                        if _re2.search(rf",\s*{st}\b", location, _re2.IGNORECASE):
+                            has_us_state = True
+                            break
+                    if not has_us_state:
+                        return f"Location: International (UK - {uk_city.title()})"
 
-            if any(
-                kw in location_lower
-                for kw in [
-                    "uk",
-                    "united kingdom",
-                    "england",
-                    "scotland",
-                    "wales",
-                    "london",
-                    "india",
-                    "china",
-                    "germany",
-                    "france",
-                    "singapore",
-                    "australia",
-                ]
-            ):
-                return "Location: International"
+            import re as _re
+            intl_countries = [
+                "united kingdom", "england", "scotland", "wales",
+                "india", "china", "germany", "france",
+                "singapore", "australia",
+            ]
+            for country in intl_countries:
+                if _re.search(r'\b' + country + r'\b', location_lower):
+                    return f"Location: International ({country.title()})"
+            # Check 'uk' separately (short word, needs strict boundary)
+            if _re.search(r'\buk\b', location_lower):
+                return "Location: International (UK)"
 
         if url:
             city_from_url = LocationProcessor._extract_city_from_url(url)

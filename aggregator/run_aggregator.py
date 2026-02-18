@@ -310,10 +310,10 @@ class UnifiedJobAggregator:
                 age_days = self._parse_github_age(job["age"])
                 if age_days is not None and age_days > MAX_JOB_AGE_DAYS:
                     consecutive_old += 1
-                    if consecutive_old >= 10:
+                    if consecutive_old >= 20:
                         skipped = len(simplify_jobs) - i - 1
                         logging.info(
-                            f"SimplifyJobs: Early exit after 10 consecutive old - skipped {skipped}"
+                            f"SimplifyJobs: Early exit after 20 consecutive old - skipped {skipped}"
                         )
                         self.outcomes["skipped_too_old"] += skipped
                         break
@@ -332,10 +332,10 @@ class UnifiedJobAggregator:
                 age_days = self._parse_github_age(job["age"])
                 if age_days is not None and age_days > MAX_JOB_AGE_DAYS:
                     consecutive_old += 1
-                    if consecutive_old >= 10:
+                    if consecutive_old >= 20:
                         skipped = len(vanshb03_jobs) - i - 1
                         logging.info(
-                            f"vanshb03: Early exit after 10 consecutive old - skipped {skipped}"
+                            f"vanshb03: Early exit after 20 consecutive old - skipped {skipped}"
                         )
                         self.outcomes["skipped_too_old"] += skipped
                         break

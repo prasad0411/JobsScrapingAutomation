@@ -2025,7 +2025,12 @@ class SimplifyGitHubScraper:
             parts = [p.strip() for p in line.split(delimiter) if p.strip()]
             if len(parts) < 5:
                 continue
-            company = _EMOJI_PATTERN.sub("", parts[0]).strip()
+            raw_company = _EMOJI_PATTERN.sub("", parts[0]).strip()
+            if raw_company and "↳" not in raw_company:
+                company = raw_company
+                last_company = company
+            else:
+                company = last_company
             title = _EMOJI_PATTERN.sub("", parts[1]).strip()
             location = _EMOJI_PATTERN.sub("", parts[2]).strip()
             link_cell = parts[3]
@@ -2056,15 +2061,23 @@ class SimplifyGitHubScraper:
     @staticmethod
     def _parse_html_tables(soup, source_name):
         jobs = []
+        last_company = ""
         for table in soup.find_all("table"):
             for row in table.find_all("tr")[1:]:
                 cells = row.find_all("td")
                 if len(cells) < 5:
                     continue
                 company_link = cells[0].find("a")
-                if not company_link:
-                    continue
-                company = _EMOJI_PATTERN.sub("", company_link.get_text(strip=True))
+                if company_link:
+                    company = _EMOJI_PATTERN.sub("", company_link.get_text(strip=True))
+                    last_company = company
+                else:
+                    # Sub-listing (↳) — inherit company from parent row
+                    cell_text = cells[0].get_text(strip=True)
+                    if "↳" in cell_text or not cell_text.strip():
+                        company = last_company
+                    else:
+                        continue
                 title = _EMOJI_PATTERN.sub("", cells[1].get_text(strip=True))
                 location = _EMOJI_PATTERN.sub("", cells[2].get_text(strip=True))
                 age = cells[4].get_text(strip=True)
