@@ -133,7 +133,7 @@ Data Sources (GitHub, Gmail, Web)
 | `run_aggregator.py` | 1,236 | Pipeline orchestration |
 | `sheets_manager.py` | 479 | Google Sheets integration |
 | `utils.py` | 910 | Sanitization & parsing utilities |
-
+ 
 ---
 
 ## Quick Start
