@@ -107,7 +107,8 @@ def phase_extract_and_draft(sheets, finder, mailer):
         parts = []
 
         if row["need_h"]:
-            hm_res = finder.find(row["hn"], row["co"], row["hli"])
+            jud = sheets.get_job_url_domain(row["co"], row["title"]) if hasattr(sheets, "get_job_url_domain") else ""
+            hm_res = finder.find(row["hn"], row["co"], row["hli"], job_url_domain=jud)
             if hm_res["email"]:
                 sheets.write_email(rn, "hm", hm_res["email"], hm_res["source"])
                 parts.append("HM email extracted")
@@ -118,7 +119,7 @@ def phase_extract_and_draft(sheets, finder, mailer):
                 stats["extract_failed"] += 1
 
         if row["need_r"]:
-            rec_res = finder.find(row["rn"], row["co"], row["rli"])
+            rec_res = finder.find(row["rn"], row["co"], row["rli"], job_url_domain=jud)
             if rec_res["email"]:
                 sheets.write_email(rn, "rec", rec_res["email"], rec_res["source"])
                 parts.append("Recruiter email extracted")

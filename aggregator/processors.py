@@ -143,6 +143,17 @@ class TitleProcessor:
 
     @staticmethod
     @lru_cache(maxsize=256)
+    @staticmethod
+    def is_university_restricted(company, title):
+        if not company or not title:
+            return False
+        cl, tl = company.lower(), title.lower()
+        uni_words = ["university", "college", "rector & visitors", "regents of"]
+        if any(u in cl for u in uni_words) and "undergraduate" in tl:
+            return True
+        return False
+
+    @staticmethod
     def is_valid_job_title(title):
         if not title or len(title) < 5:
             return False, "Title too short"
@@ -468,7 +479,9 @@ class JobIDExtractor:
 
     @staticmethod
     @lru_cache(maxsize=512)
-    def _is_valid_id(job_id):
+    def _is_valid_id(job_id, url=''):
+        if url and 'greenhouse.io' in url.lower():
+            return False
         if not job_id or not (4 <= len(job_id) <= 20):
             return False
         if not re.match(r"^[A-Z0-9\-_]+$", job_id, re.I):

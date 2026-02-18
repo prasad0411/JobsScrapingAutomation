@@ -29,6 +29,18 @@ class SheetsManager:
         self.spreadsheet = client.open(SHEET_NAME)
         self.valid_sheet = self.spreadsheet.worksheet(WORKSHEET_NAME)
         self._initialize_sheets()
+        self._auto_expand_all_sheets()
+
+    def _auto_expand_all_sheets(self):
+        """If any sheet has < 200 rows, add 1000 more rows."""
+        try:
+            for ws in self.spreadsheet.worksheets():
+                if ws.row_count < 200:
+                    new_count = ws.row_count + 1000
+                    ws.resize(rows=new_count)
+                    time.sleep(1)
+        except Exception:
+            pass
 
     def _initialize_sheets(self):
         sheet_configs = {

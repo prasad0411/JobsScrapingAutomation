@@ -135,7 +135,6 @@ class Sheets:
                     9: 180,
                     10: 200,
                     11: 140,
-                    12: 220,
                 }
                 for i in range(len(O_HEADERS)):
                     widths.append(
@@ -332,49 +331,12 @@ class Sheets:
             log.error(f"write_send_at row {row}: {e}")
 
     def write_error(self, row, msg):
-        try:
-            existing = self.ws.acell(f"{_cl(C['error'])}{row}").value or ""
-            # Strip HM:/REC: prefixes for cleaner display
-            clean_msg = msg
-            for prefix in ["HM: ", "REC: "]:
-                if clean_msg.startswith(prefix):
-                    clean_msg = clean_msg[len(prefix):]
-            # Deduplicate — if same error already exists, skip
-            if clean_msg in existing:
-                self._p()
-                return
-            # If both HM and REC have same error, just show it once
-            if existing and existing.strip() == clean_msg.strip():
-                self._p()
-                return
-            if existing:
-                self._retry(
-                    self.ws.update_acell,
-                    f"{_cl(C['error'])}{row}",
-                    f"{existing}; {clean_msg}"[:500],
-                )
-            else:
-                self._retry(
-                    self.ws.update_acell, f"{_cl(C['error'])}{row}", clean_msg[:500]
-                )
-            self._p()
-        except:
-            pass
+        """Errors logged to .local/outreach.log only — no sheet column."""
+        log.debug(f"Row {row}: {msg}")
 
     def append_error(self, row, msg):
-        try:
-            existing = self.ws.acell(f"{_cl(C['error'])}{row}").value or ""
-            clean_msg = msg
-            for prefix in ["HM: ", "REC: "]:
-                if clean_msg.startswith(prefix):
-                    clean_msg = clean_msg[len(prefix):]
-            if clean_msg in existing:
-                return
-            new = f"{existing}; {clean_msg}" if existing else clean_msg
-            self._retry(self.ws.update_acell, f"{_cl(C['error'])}{row}", new[:500])
-            self._p()
-        except:
-            pass
+        """Errors logged to .local/outreach.log only — no sheet column."""
+        log.debug(f"Row {row}: {msg}")
 
     def get_resume_type(self, company, title):
         if Sheets._resume_cache is None:

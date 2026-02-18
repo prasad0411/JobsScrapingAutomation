@@ -103,6 +103,15 @@ except:
 
 SHEET_NAME = "H1B visa"
 WORKSHEET_NAME = "Valid Entries"
+
+# University-specific roles (require enrollment at specific school)
+UNIVERSITY_KEYWORDS = [
+    "rector & visitors", "university of virginia", "uva ",
+    "mit lincoln", "stanford university", "harvard university",
+    "yale university", "princeton university", "columbia university",
+    "cornell university", "brown university", "dartmouth college",
+    "duke university", "caltech", "carnegie mellon university",
+]
 DISCARDED_WORKSHEET = "Discarded Entries"
 REVIEWED_WORKSHEET = "Reviewed - Not Applied"
 
