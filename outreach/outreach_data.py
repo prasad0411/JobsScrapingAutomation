@@ -263,7 +263,7 @@ class Sheets:
                 continue
             hn, rn = r[C["hm_name"]].strip(), r[C["rec_name"]].strip()
             he, re_ = r[C["hm_email"]].strip(), r[C["rec_email"]].strip()
-            err = r[C["error"]].strip()
+            err = ""  # Error Log column removed — errors in .local/outreach.log
 
             hn_list = [n.strip() for n in hn.split(",") if n.strip()] if hn else []
             rn_list = [n.strip() for n in rn.split(",") if n.strip()] if rn else []

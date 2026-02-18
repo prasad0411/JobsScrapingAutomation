@@ -2,9 +2,12 @@ import os
 #!/usr/bin/env python3
 """Outreach Pipeline — Email Finder (cache → Reacher → API cascade)."""
 
-import re, time, logging, requests
+import re, time, logging, json, requests
 from functools import lru_cache
 from concurrent.futures import ThreadPoolExecutor, as_completed
+OVERRIDES_FILE = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), '.local', 'domain_overrides.json')
+RETRY_FILE = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), '.local', 'retry_tracker.json')
+
 from outreach.outreach_config import (
     CLEARBIT_URL,
     TLDS,
@@ -322,7 +325,7 @@ class Finder:
 
     @staticmethod
     def _track_retry(company_key, domain, error):
-        retries = EmailFinder._load_retries()
+        retries = Finder._load_retries()
         if company_key not in retries:
             retries[company_key] = {"attempts": 0, "domain": domain, "error": ""}
         retries[company_key]["attempts"] += 1
@@ -335,7 +338,7 @@ class Finder:
 
     @staticmethod
     def _clear_retry(company_key):
-        retries = EmailFinder._load_retries()
+        retries = Finder._load_retries()
         if company_key in retries:
             del retries[company_key]
             try:

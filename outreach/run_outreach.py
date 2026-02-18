@@ -18,16 +18,28 @@ _log_dir = os.path.join(
 )
 os.makedirs(_log_dir, exist_ok=True)
 
-logging.basicConfig(
-    filename=os.path.join(_log_dir, "outreach.log"),
-    level=logging.DEBUG,
-    format="%(asctime)s | %(levelname)s | %(name)s | %(message)s",
-    datefmt="%Y-%m-%d %H:%M:%S",
+from logging.handlers import RotatingFileHandler
+_fh = RotatingFileHandler(
+    os.path.join(_log_dir, "outreach.log"),
+    maxBytes=5 * 1024 * 1024,  # 5MB
+    backupCount=3,
 )
+_fh.setLevel(logging.DEBUG)
+_fh.setFormatter(logging.Formatter(
+    "%(asctime)s | %(levelname)s | %(name)s | %(message)s",
+    datefmt="%Y-%m-%d %H:%M:%S",
+))
+logging.getLogger().addHandler(_fh)
+logging.getLogger().setLevel(logging.DEBUG)
 _con = logging.StreamHandler()
 _con.setLevel(logging.WARNING)
 _con.setFormatter(logging.Formatter("%(message)s"))
 logging.getLogger().addHandler(_con)
+# Suppress noisy third-party loggers
+logging.getLogger("urllib3").setLevel(logging.WARNING)
+logging.getLogger("requests_oauthlib").setLevel(logging.WARNING)
+logging.getLogger("googleapiclient").setLevel(logging.WARNING)
+logging.getLogger("google_auth_oauthlib").setLevel(logging.WARNING)
 log = logging.getLogger("outreach")
 
 
