@@ -218,7 +218,7 @@ class SimplifyRedirectResolver:
         SimplifyRedirectResolver.save_failed_cache(failed_cache)
 
         try:
-            with open("simplify_manual_review.txt", "a") as f:
+            with open(os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), ".local", "simplify_manual_review.txt"), "a") as f:
                 f.write(f"{job_id}\t{simplify_url}\t{today}\n")
         except Exception:
             pass

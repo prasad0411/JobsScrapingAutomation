@@ -20,7 +20,7 @@ REVIEWED_WORKSHEET = "Reviewed - Not Applied"
 CREDS_FILE = os.path.join(".local", "credentials.json")
 
 BACKUP_FOLDER = "../job-tracker-secrets"
-BACKUP_TRACKING_FILE = "last_backup_date.txt"
+BACKUP_TRACKING_FILE = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), ".local", "last_backup_date.txt")
 BACKUP_INTERVAL_DAYS = 7
 
 FILES_TO_BACKUP = [
