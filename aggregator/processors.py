@@ -1194,7 +1194,8 @@ class LocationProcessor:
             intl_countries = [
                 "united kingdom", "england", "scotland", "wales",
                 "india", "china", "germany", "france",
-                "singapore", "australia",
+                "singapore", "australia", "switzerland", "japan",
+                "ireland", "netherlands", "sweden", "israel",
             ]
             for country in intl_countries:
                 if _re.search(r'\b' + country + r'\b', location_lower):
@@ -1418,6 +1419,20 @@ class LocationProcessor:
         location = re.sub(r"([a-z])([A-Z][a-z])", r"\1, \2", location)
 
         location = location.strip(", ")
+
+        # Fix iCIMS garbage locations like 's US', 'Location US'
+        if location.lower() in ['s us', 'us', 'location us', 'locations us', 'jobs us']:
+            location = 'US'
+        # Fix leading comma: ', South San Francisco' → 'South San Francisco'
+        location = re.sub(r'^[,\s]+', '', location)
+
+        # Reject garbage location text (job descriptions leaking into location field)
+        garbage_indicators = ['factors', 'such as', 'responsibilities', 'requirements',
+                              'experience', 'qualifications', 'salary', 'benefits']
+        if any(gi in location.lower() for gi in garbage_indicators):
+            location = 'Unknown'
+        if len(location) > 60:
+            location = 'Unknown' 
 
         if len(location) < 2:
             return "Unknown"

@@ -94,6 +94,15 @@ GARBAGE_COMPANY_NAMES = {
     "applicant",
     "job-boards.greenhouse.io",
     "job-boards.eu.greenhouse.io",
+    "your future starts here",
+    "t commission",
+    "corporate office",
+    "learning",
+    "insurance services",
+    "gardacp",
+    "fiveringsllc",
+    "oakland",
+    "3s business",
 }
 
 
@@ -375,7 +384,7 @@ class UnifiedJobAggregator:
                 if segments:
                     slug = segments[-1]
                     # Remove IDs, hashes, query fragments
-                    slug = re.sub(r"^[a-f0-9-]{20,}[-]?", "", slug)
+                    slug = re.sub(r"^[a-f0-9-]{8,}[-]?", "", slug)
                     slug = re.sub(r"[-_]", " ", slug).strip()
                     if len(slug) > 10:
                         url_title = TitleProcessor.clean_title_aggressive(slug)
