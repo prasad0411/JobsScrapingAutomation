@@ -239,6 +239,18 @@ class Sheets:
                 value_input_option="RAW",
             )
             self._p()
+            # Format new rows: Times New Roman 13, centered
+            try:
+                self.ws.format(
+                    f"A{start}:{end_col}{end_row}",
+                    {
+                        "horizontalAlignment": "CENTER",
+                        "verticalAlignment": "MIDDLE",
+                        "textFormat": {"fontFamily": "Times New Roman", "fontSize": 13},
+                    },
+                )
+            except:
+                pass
         return len(new)
 
     def rows_for_extraction(self):
