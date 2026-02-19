@@ -214,8 +214,7 @@ class Sheets:
             jid_clean = jid.lower() if jid and jid.lower() != "n/a" else ""
             if jid_clean and ("jid", jid_clean) in existing:
                 continue
-            loc = row[V_LOCATION].strip().lower() if len(row) > V_LOCATION else ""
-            if not jid_clean and ("co_ti", f"{co.lower()}||{ti.lower()}||{loc}") in existing:
+            if not jid_clean and ("co_ti", f"{co.lower()}||{ti.lower()}") in existing:
                 continue
             sr += 1
             nr = [""] * len(O_HEADERS)
@@ -226,8 +225,7 @@ class Sheets:
             new.append(nr)
             if jid_clean:
                 existing.add(("jid", jid_clean))
-            loc = row[V_LOCATION].strip().lower() if len(row) > V_LOCATION else ""
-            existing.add(("co_ti", f"{co.lower()}||{ti.lower()}||{loc}"))
+            existing.add(("co_ti", f"{co.lower()}||{ti.lower()}"))
 
         if new:
             start = len(odata) + 1

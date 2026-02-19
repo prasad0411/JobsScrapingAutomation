@@ -101,10 +101,16 @@ class Finder:
             r["status"] = "Manual Review"
             r["error"] = f"No domain for '{company}'"
             return self._apis(parsed, "", linkedin, r) if linkedin else r
-        if self._rok():
-            for d in domains:
-                email = self.pc.gen_single(parsed, d)
-                if email and self._verify(email) == "safe":
+        for d in domains:
+            email = self.pc.gen_single(parsed, d)
+            if email:
+                # If pattern is from seed (known company), trust without SMTP
+                if d.lower() in self.pc._d:
+                    r.update(email=email, source="pattern_cache", status="Valid")
+                    log.info(f"Pattern cache hit: {email} (trusted)")
+                    return r
+                # Otherwise verify with Reacher if available
+                if self._rok() and self._verify(email) == "safe":
                     r.update(email=email, source="cache", status="Valid")
                     return r
         if self._rok():
