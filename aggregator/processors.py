@@ -277,9 +277,9 @@ class TitleProcessor:
             "staff",
             "principal",
             "lead",
-            "architect",
             "director",
         }
+        # 'architect/architecture' is a subject, not a role level — never reject
 
         # Trust GitHub internship repo category
         if github_category and "internship" in github_category.lower():
@@ -357,6 +357,11 @@ class TitleProcessor:
         years_found = []
         for match in re.finditer(r"\b(202[4-9]|203[0-9])\b", combined):
             year = int(match.group(1))
+            # Skip copyright years (© 2025, copyright 2025)
+            start = max(0, match.start() - 20)
+            context = combined[start:match.start()]
+            if any(marker in context for marker in ['©', 'copyright', '℗']):
+                continue
             years_found.append(year)
 
         if not years_found:
@@ -2226,6 +2231,20 @@ class ValidationHelper:
     def _check_geographic_enrollment_restrictions(soup):
         if not soup:
             return None, None
+
+        # If page says enrolled at university in the US/United States, that is NOT a geographic restriction
+        try:
+            quick_text = soup.get_text()[:10000].lower()
+            if any(phrase in quick_text for phrase in [
+                'university in the united states',
+                'college or university in the us',
+                'university in the us',
+                'accredited college or university in the united',
+                'enrolled in an accredited',
+            ]):
+                return None, None
+        except Exception:
+            pass
 
         try:
             from aggregator.config import (

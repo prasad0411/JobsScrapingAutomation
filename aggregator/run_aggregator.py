@@ -1206,7 +1206,7 @@ class UnifiedJobAggregator:
                     source,
                     page_reason,
                 )
-                self._print_rejected(company, page_reason[:50])
+                self._print_rejected(company, page_reason)
                 logging.info(f"REJECTED | {company} | {title} | {page_reason}")
                 return None
 
@@ -1333,7 +1333,7 @@ class UnifiedJobAggregator:
         self.outcomes["discarded"] += 1
 
     def _print_rejected(self, company, reason):
-        display = (company or "Unknown")[:40]
+        display = (company or "Unknown")
         print(f"    {display}: ✗ {reason}")
 
     def _ensure_mutual_exclusion(self):

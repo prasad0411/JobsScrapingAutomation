@@ -143,6 +143,11 @@ class ManualCleanup:
                 )
                 self._move_to_reviewed(not_applied_rows)
                 self._repopulate_main_sheet(all_data, remaining_rows)
+                # Ensure buffer rows after cleanup
+                current = self.sheet.row_count
+                if current - len(remaining_rows) - 1 < 200:
+                    self.sheet.resize(rows=current + 1000)
+                    print(f"  ✓ Added 1000 buffer rows (now {current + 1000} total)")
                 print(
                     f"✓ Moved {len(not_applied_rows)} jobs, {len(remaining_rows)} remaining"
                 )

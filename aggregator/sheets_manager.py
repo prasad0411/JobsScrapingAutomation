@@ -32,10 +32,12 @@ class SheetsManager:
         self._auto_expand_all_sheets()
 
     def _auto_expand_all_sheets(self):
-        """If any sheet has < 200 rows, add 1000 more rows."""
+        """If any sheet has < 200 empty rows available, add 1000 more rows."""
         try:
             for ws in self.spreadsheet.worksheets():
-                if ws.row_count < 200:
+                used_rows = len(ws.col_values(1))
+                empty_rows = ws.row_count - used_rows
+                if empty_rows < 200:
                     new_count = ws.row_count + 1000
                     ws.resize(rows=new_count)
                     time.sleep(1)
@@ -601,7 +603,9 @@ class SheetsManager:
         t = title.lower() if title else ''
         for kw in ['machine learning', ' ml ', 'ml ', ' ai ', 'ai ', 'data science',
                     'nlp', 'computer vision', 'deep learning', 'genai', 'neural',
-                    'llm', 'natural language', 'reinforcement learning']:
+                    'llm', 'natural language', 'reinforcement learning',
+                    '/ml', 'ml/', 'data anal', 'data engineer', 'data scientist',
+                    'cv/ml', 'ml/dl', 'ai/ml']:
             if kw in t:
                 return 'ML'
         return 'SDE'
