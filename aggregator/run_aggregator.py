@@ -365,13 +365,34 @@ class UnifiedJobAggregator:
 
         is_valid_title, reason = TitleProcessor.is_valid_job_title(title)
         if not is_valid_title:
-            self.outcomes["skipped_invalid_title"] += 1
-            self.source_stats[source]["rejected"] += 1
-            self._print_rejected(company_from_github, f"Invalid title: {reason}")
-            logging.info(
-                f"REJECTED | {company_from_github} | {title} | Invalid title: {reason}"
-            )
-            return
+            # Try extracting title from URL slug before rejecting
+            url_title = None
+            try:
+                from urllib.parse import urlparse, unquote
+                path = unquote(urlparse(url).path)
+                # Get last meaningful path segment
+                segments = [s for s in path.split("/") if s and len(s) > 5]
+                if segments:
+                    slug = segments[-1]
+                    # Remove IDs, hashes, query fragments
+                    slug = re.sub(r"^[a-f0-9-]{20,}[-]?", "", slug)
+                    slug = re.sub(r"[-_]", " ", slug).strip()
+                    if len(slug) > 10:
+                        url_title = TitleProcessor.clean_title_aggressive(slug)
+                        valid2, _ = TitleProcessor.is_valid_job_title(url_title)
+                        if valid2:
+                            title = url_title
+                            is_valid_title = True
+            except Exception:
+                pass
+            if not is_valid_title:
+                self.outcomes["skipped_invalid_title"] += 1
+                self.source_stats[source]["rejected"] += 1
+                self._print_rejected(company_from_github, f"Invalid title: {reason}")
+                logging.info(
+                    f"REJECTED | {company_from_github} | {title} | Invalid title: {reason}"
+                )
+                return
 
         resolved_url = url
         if "simplify.jobs" in url.lower():
@@ -1222,7 +1243,7 @@ class UnifiedJobAggregator:
                 "location": location,
                 "remote": remote,
                 "url": final_url or url,
-                "job_id": job_id if job_id else "N/A",
+                "job_id": "N/A" if (final_url or url) and "greenhouse.io" in (final_url or url).lower() else (job_id if job_id else "N/A"),
                 "job_type": "Internship",
                 "sponsorship": sponsorship,
                 "entry_date": self._format_date(),

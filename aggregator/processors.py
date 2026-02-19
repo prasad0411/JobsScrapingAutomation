@@ -1446,6 +1446,16 @@ class LocationProcessor:
 
         location = ", ".join(formatted_parts)
 
+        # City→State lookup: if no comma (city without state), try to add state
+        if location and "," not in location:
+            try:
+                from aggregator.config import CITY_TO_STATE
+                city_lower = location.lower().strip()
+                if city_lower in CITY_TO_STATE:
+                    location = f"{location}, {CITY_TO_STATE[city_lower]}"
+            except (ImportError, AttributeError):
+                pass
+
         return location
 
 
