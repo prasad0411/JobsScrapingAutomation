@@ -222,11 +222,11 @@ class ManualCleanup:
 
         renumbered_rows = []
         for idx, row in enumerate(remaining_rows, start=1):
-            padded_row = (row + [""] * 13)[:13]
-            new_row = [idx] + padded_row[1:13]
+            padded_row = (row + [""] * 15)[:15]
+            new_row = [idx] + padded_row[1:15]
             renumbered_rows.append(new_row)
 
-        range_name = f"A2:M{1 + len(renumbered_rows)}"
+        range_name = f"A2:O{1 + len(renumbered_rows)}"
         self.sheet.update(
             values=renumbered_rows, range_name=range_name, value_input_option="RAW"
         )

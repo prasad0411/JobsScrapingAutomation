@@ -19,7 +19,7 @@ SPREADSHEET = "H1B visa"
 VALID_TAB = "Valid Entries"
 OUTREACH_TAB = "Outreach Tracker"
 
-V_COMPANY, V_TITLE, V_JOBID, V_RESUME = 2, 3, 6, 9
+V_COMPANY, V_TITLE, V_JOBID, V_RESUME, V_LOCATION = 2, 3, 6, 9, 8
 
 O_HEADERS = [
     "Sr. No.",              # A (0)

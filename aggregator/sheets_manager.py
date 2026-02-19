@@ -214,16 +214,8 @@ class SheetsManager:
             if available_rows < min_available:
                 new_total = current_total_rows + add_count
 
-                print(
-                    f"  Expanding {sheet.title}: {current_total_rows} → {new_total} rows ({available_rows} available < {min_available} threshold)"
-                )
-
                 sheet.resize(rows=new_total)
                 time.sleep(2)
-
-                print(
-                    f"  ✓ {sheet.title} now has {add_count + available_rows} available rows"
-                )
             else:
                 pass
 

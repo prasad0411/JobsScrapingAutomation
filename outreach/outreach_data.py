@@ -14,6 +14,7 @@ from outreach.outreach_config import (
     V_COMPANY,
     V_TITLE,
     V_JOBID,
+    V_LOCATION,
     V_RESUME,
     SHEET_PAUSE,
     CREDITS_FILE,
@@ -213,7 +214,8 @@ class Sheets:
             jid_clean = jid.lower() if jid and jid.lower() != "n/a" else ""
             if jid_clean and ("jid", jid_clean) in existing:
                 continue
-            if not jid_clean and ("co_ti", f"{co.lower()}||{ti.lower()}") in existing:
+            loc = row[V_LOCATION].strip().lower() if len(row) > V_LOCATION else ""
+            if not jid_clean and ("co_ti", f"{co.lower()}||{ti.lower()}||{loc}") in existing:
                 continue
             sr += 1
             nr = [""] * len(O_HEADERS)
@@ -224,7 +226,8 @@ class Sheets:
             new.append(nr)
             if jid_clean:
                 existing.add(("jid", jid_clean))
-            existing.add(("co_ti", f"{co.lower()}||{ti.lower()}"))
+            loc = row[V_LOCATION].strip().lower() if len(row) > V_LOCATION else ""
+            existing.add(("co_ti", f"{co.lower()}||{ti.lower()}||{loc}"))
 
         if new:
             start = len(odata) + 1
