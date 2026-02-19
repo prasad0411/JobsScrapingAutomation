@@ -88,7 +88,7 @@ class Sheets:
             try:
                 end = _cl(len(O_HEADERS) - 1)
                 self.ws.format(
-                    f"A2:{end}500",
+                    f"A2:{end}2000",
                     {
                         "horizontalAlignment": "CENTER",
                         "verticalAlignment": "MIDDLE",
@@ -107,7 +107,7 @@ class Sheets:
                                     "range": {
                                         "sheetId": self.ws.id,
                                         "startRowIndex": 1,
-                                        "endRowIndex": 500,
+                                        "endRowIndex": 2000,
                                         "startColumnIndex": 0,
                                         "endColumnIndex": len(O_HEADERS),
                                     },
@@ -136,6 +136,7 @@ class Sheets:
                     9: 180,
                     10: 200,
                     11: 140,
+                    12: 200,
                 }
                 for i in range(len(O_HEADERS)):
                     widths.append(

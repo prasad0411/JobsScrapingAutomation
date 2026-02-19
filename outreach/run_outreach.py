@@ -24,7 +24,7 @@ _fh = RotatingFileHandler(
     maxBytes=5 * 1024 * 1024,  # 5MB
     backupCount=3,
 )
-_fh.setLevel(logging.DEBUG)
+_fh.setLevel(logging.INFO)
 _fh.setFormatter(logging.Formatter(
     "%(asctime)s | %(levelname)s | %(name)s | %(message)s",
     datefmt="%Y-%m-%d %H:%M:%S",
@@ -38,6 +38,8 @@ logging.getLogger().addHandler(_con)
 # Suppress noisy third-party loggers
 logging.getLogger("urllib3").setLevel(logging.WARNING)
 logging.getLogger("requests_oauthlib").setLevel(logging.WARNING)
+logging.getLogger("googleapiclient").setLevel(logging.WARNING)
+logging.getLogger("google_auth_oauthlib").setLevel(logging.WARNING)
 logging.getLogger("googleapiclient").setLevel(logging.WARNING)
 logging.getLogger("google_auth_oauthlib").setLevel(logging.WARNING)
 log = logging.getLogger("outreach")
