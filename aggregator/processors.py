@@ -1097,6 +1097,19 @@ class LocationProcessor:
         return "Unknown"
 
     @staticmethod
+    _TITLE_INTL_COUNTRIES = {
+        "poland", "germany", "india", "china", "japan", "korea",
+        "france", "spain", "italy", "brazil", "mexico", "argentina",
+        "australia", "singapore", "ireland", "netherlands", "sweden",
+        "switzerland", "israel", "taiwan", "uk", "united kingdom",
+        "czech republic", "romania", "hungary", "portugal", "denmark",
+        "norway", "finland", "austria", "belgium", "luxembourg",
+        "new zealand", "philippines", "thailand", "vietnam", "malaysia",
+        "indonesia", "egypt", "south africa", "nigeria", "kenya",
+        "colombia", "chile", "peru", "costa rica", "puerto rico",
+    }
+
+    @staticmethod
     def check_if_international(location, soup=None, url=None, title=""):
         try:
             from aggregator.config import (
@@ -1106,6 +1119,15 @@ class LocationProcessor:
         except (ImportError, AttributeError):
             INTERNATIONAL_URL_INDICATORS = [".co.uk", ".ca", "/uk/", "/canada/"]
             INTERNATIONAL_TEXT_INDICATORS = []
+
+        # Check title for international country names
+        if title:
+            title_lower = title.lower()
+            for country in LocationProcessor._TITLE_INTL_COUNTRIES:
+                # Match country as word boundary: "- Poland", ", Poland", "(Poland)"
+                import re as _re_intl
+                if _re_intl.search(rf"(?:^|[\s,\-\(]){country}(?:[\s,\-\)\.]|$)", title_lower):
+                    return f"Location: International ({country.title()} in title)"
 
         if url:
             url_lower = url.lower()

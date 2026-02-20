@@ -39,6 +39,7 @@ class Finder:
         self.pv = ProviderVerifier()
         self._reacher = None
         self._dom = {}
+        Finder._cleanup_caches()
 
     @staticmethod
     def _extract_name_from_linkedin_url(linkedin_url):
@@ -51,11 +52,14 @@ class Finder:
             return None
         slug = m.group(1)
         # Remove trailing numbers (LinkedIn IDs like madeline-batista-72930372)
-        slug = re.sub(r"-\d{5,}$", "", slug)
+        slug = re.sub(r"-[a-f0-9]{6,}$", "", slug)  # hex IDs like 967b29105
+        slug = re.sub(r"-\d{5,}$", "", slug)  # numeric IDs like 72930372
         # Convert slug to name
         parts = [p.capitalize() for p in slug.split("-") if p and len(p) > 1]
-        if len(parts) >= 2:
-            return " ".join(parts)
+        # Reject if any part looks like hex/numeric (not a real name)
+        clean = [p for p in parts if not re.match(r"^[0-9a-f]+$", p.lower()) and not p.isdigit()]
+        if len(clean) >= 2:
+            return " ".join(clean)
         return None
 
     def find(self, name, company, linkedin="", job_url_domain=""):
@@ -184,6 +188,35 @@ class Finder:
                     return result
             self._track_retry(retry_key, domains[0] if domains else "", result.get("error", ""))
         return result
+
+    @staticmethod
+    def _cleanup_caches():
+        """Auto-expire retry tracker (3-day TTL) and trim email verify cache (max 1000)."""
+        import time
+        TTL = 3 * 86400  # 3 days in seconds
+        now = time.time()
+        # Retry tracker cleanup
+        try:
+            rt = json.load(open(RETRY_FILE))
+            expired = [k for k, v in rt.items() if now - v.get("ts", 0) > TTL]
+            for k in expired:
+                del rt[k]
+                log.info(f"Retry expired (3d TTL): {k}")
+            if expired:
+                json.dump(rt, open(RETRY_FILE, "w"), indent=2)
+        except Exception:
+            pass
+        # Email verify cache trim (keep newest 1000)
+        ev_path = os.path.join(os.path.dirname(RETRY_FILE), "email_verify_cache.json")
+        try:
+            ev = json.load(open(ev_path))
+            if len(ev) > 1000:
+                # Keep last 1000 entries (dict order = insertion order in Python 3.7+)
+                trimmed = dict(list(ev.items())[-1000:])
+                json.dump(trimmed, open(ev_path, "w"), indent=2)
+                log.info(f"Email cache trimmed: {len(ev)} -> 1000")
+        except Exception:
+            pass
 
     def _resolve(self, company):
         if not company:
@@ -390,6 +423,7 @@ class Finder:
         retries[company_key]["attempts"] += 1
         retries[company_key]["domain"] = domain
         retries[company_key]["error"] = error[:200]
+        retries[company_key]["ts"] = time.time()
         try:
             json.dump(retries, open(RETRY_FILE, "w"), indent=2)
         except:

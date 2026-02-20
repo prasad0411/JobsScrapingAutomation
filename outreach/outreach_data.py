@@ -177,6 +177,20 @@ class Sheets:
                 pass
 
             self._p()
+        # Always apply body formatting (runs every session, not just creation)
+        try:
+            end = _cl(len(O_HEADERS) - 1)
+            self.ws.format(
+                f"A2:{end}2000",
+                {
+                    "horizontalAlignment": "CENTER",
+                    "verticalAlignment": "MIDDLE",
+                    "textFormat": {"fontFamily": "Times New Roman", "fontSize": 13},
+                },
+            )
+            self._p()
+        except:
+            pass
 
     def pull(self):
         try:
