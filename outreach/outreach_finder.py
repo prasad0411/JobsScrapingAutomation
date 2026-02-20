@@ -22,6 +22,7 @@ from outreach.outreach_config import (
     key,
 )
 from outreach.outreach_data import NameParser, PatternCache, Credits
+from outreach.outreach_provider import ProviderVerifier
 
 log = logging.getLogger(__name__)
 try:
@@ -35,6 +36,7 @@ class Finder:
     def __init__(self, credits: Credits):
         self.cr = credits
         self.pc = PatternCache()
+        self.pv = ProviderVerifier()
         self._reacher = None
         self._dom = {}
 
@@ -109,10 +111,41 @@ class Finder:
                     r.update(email=email, source="pattern_cache", status="Valid")
                     log.info(f"Pattern cache hit: {email} (trusted)")
                     return r
-                # Otherwise verify with Reacher if available
+                # Provider verification (Google gxlu / Microsoft 365)
+                pv_result = self.pv.verify_email(email, d)
+                if pv_result == "exists":
+                    r.update(email=email, source=f"provider_{self.pv.get_provider(d)}", status="Valid")
+                    self.pc.detect(email, parsed)
+                    self._clear_retry(retry_key)
+                    log.info(f"Provider verified: {email}")
+                    return r
+                elif pv_result == "not_exists":
+                    log.debug(f"Provider rejected: {email}")
+                    continue
+                # "unknown" provider → fall through to Reacher
                 if self._rok() and self._verify(email) == "safe":
                     r.update(email=email, source="cache", status="Valid")
                     return r
+        # Website mining: learn pattern from company website
+        if domains and not self.pc.get(domains[0]):
+            mined_pat = self.pv.mine_website_pattern(domains[0])
+            if mined_pat:
+                self.pc.store(domains[0], mined_pat)
+                email = self.pc.gen_single(parsed, domains[0])
+                if email:
+                    # For Microsoft domains, verify the mined email
+                    pv_result = self.pv.verify_email(email, domains[0])
+                    if pv_result == "exists":
+                        r.update(email=email, source="website_mining+provider", status="Valid")
+                        self._clear_retry(retry_key)
+                        log.info(f"Website mined + verified: {email}")
+                        return r
+                    elif pv_result == "unknown":
+                        # Non-Microsoft: trust mined pattern (high confidence)
+                        r.update(email=email, source="website_mining", status="Valid")
+                        self._clear_retry(retry_key)
+                        log.info(f"Website mined (trusted): {email}")
+                        return r
         if self._rok():
             # Catch-all detection: test canary email
             if self._is_catchall(domains[0]):
@@ -129,6 +162,15 @@ class Finder:
             self.pc.detect(result["email"], parsed)
             self._clear_retry(retry_key)
         else:
+            # Last resort: try common patterns via provider (Google/Microsoft)
+            if domains:
+                pv_email, pv_pattern = self.pv.discover_pattern(parsed, domains[0])
+                if pv_email:
+                    result.update(email=pv_email, source=f"provider_{self.pv.get_provider(domains[0])}", status="Valid")
+                    self.pc.store(domains[0], pv_pattern)
+                    self._clear_retry(retry_key)
+                    log.info(f"Pattern discovered via provider: {pv_email}")
+                    return result
             self._track_retry(retry_key, domains[0] if domains else "", result.get("error", ""))
         return result
 
