@@ -205,7 +205,7 @@ Rejected postings with discard reason (Non-USA, Non-tech, Blacklisted, etc.), pr
 ## Results
 
 **Daily aggregation:** Processes 500+ postings → ~70 valid, ~50 discarded, ~200 duplicates caught — in 10 minutes.
-
+ 
 **Email discovery:** 28 emails extracted per run across 15 companies. 8-layer system resolves previously-impossible companies (T-Mobile, Skyryse, Cleveland Clinic).
 
 **Cumulative:** 370+ tracked entries, 100+ outreach emails sent, zero duplicate applications.
