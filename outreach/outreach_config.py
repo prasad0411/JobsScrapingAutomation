@@ -34,6 +34,7 @@ O_HEADERS = [
     "Recruiter Email",      # J (9)
     "Send At",              # K (10)
     "Sent Date",            # L (11)
+    "Notes",                # M (12)
 ]
 
 C = {
@@ -49,6 +50,7 @@ C = {
     "rec_email": 9,
     "send_at": 10,
     "sent_dt": 11,
+    "notes": 12,
 }
 
 SENDER_NAME = "Prasad Kanade"
