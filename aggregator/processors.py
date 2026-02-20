@@ -471,6 +471,7 @@ class JobIDExtractor:
                     0.85,
                 ),  # NEW: flexible
                 (r"Role\s*ID\s*:?\s*([A-Z0-9\-]{4,20})\b", 0.85),  # NEW: EA format
+                (r"\b(R-\d{4}-\d{2}-\d{2,4})\b", 0.83),  # SiriusXM: R-2026-01-115
             ]:
                 match = re.search(pattern, page_text, re.I)
                 if match:
