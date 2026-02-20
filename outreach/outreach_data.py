@@ -250,7 +250,7 @@ class Sheets:
                 self.ws.update,
                 values=new,
                 range_name=f"A{start}:{end_col}{end_row}",
-                value_input_option="RAW",
+                value_input_option="USER_ENTERED",
             )
             self._p()
             # Format new rows: Times New Roman 13, centered
