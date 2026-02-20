@@ -171,6 +171,17 @@ class Finder:
                     self._clear_retry(retry_key)
                     log.info(f"Pattern discovered via provider: {pv_email}")
                     return result
+            # Layer 8: Statistical inference — 80% of companies use first.last
+            if domains and parsed and not parsed["single"]:
+                f = parsed["fa"].lower()
+                la = parsed["lc"]
+                if f and la:
+                    stat_email = f"{f}.{la}@{domains[0]}"
+                    result.update(email=stat_email, source="statistical_80pct", status="Valid")
+                    self.pc.store(domains[0], "{first}.{last}")
+                    self._clear_retry(retry_key)
+                    log.info(f"Statistical inference (80%% confidence): {stat_email}")
+                    return result
             self._track_retry(retry_key, domains[0] if domains else "", result.get("error", ""))
         return result
 
