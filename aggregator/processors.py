@@ -74,7 +74,7 @@ _DEGREE_PATTERN = re.compile(
 )
 _CITY_STATE_PATTERN = re.compile(r"([A-Z][a-z]+(?:\s+[A-Z][a-z]+)*),?\s*([A-Z]{2})\b")
 _LOCATION_LABEL_PATTERN = re.compile(
-    r"Location\s*:?\s*([A-Za-z\s,]+(?:,\s*[A-Z]{2})?)", re.I
+    r"Location\s*:?\s*([A-Za-z\s,]+(?:,\s*(?:[A-Z]{2}|[A-Za-z]{4,15}))?)", re.I
 )
 _LOCATION_NO_SPACE_PATTERN = re.compile(
     r"Location:([A-Z][a-z]+(?:\s+[A-Z][a-z]+)*,\s*[A-Z][a-z]+)", re.I
@@ -1097,7 +1097,6 @@ class LocationProcessor:
 
         return "Unknown"
 
-    @staticmethod
     _TITLE_INTL_COUNTRIES = {
         "poland", "germany", "india", "china", "japan", "korea",
         "france", "spain", "italy", "brazil", "mexico", "argentina",

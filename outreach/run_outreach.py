@@ -12,6 +12,7 @@ from outreach.outreach_config import LOG_FILE
 from outreach.outreach_data import Sheets, Credits
 from outreach.outreach_finder import Finder
 from outreach.outreach_mailer import Drafter, Mailer
+from outreach.bounce_scanner import BounceScanner
 
 _log_dir = os.path.join(
     os.path.dirname(os.path.dirname(os.path.abspath(__file__))), ".local"
@@ -223,6 +224,15 @@ def main():
     if cmd == "status":
         status(sh, cr, ma)
         return
+
+    print("Scanning for bounced emails...")
+    try:
+        svc = ma._service()
+        bounced_emails = BounceScanner.scan(svc, days_back=14)
+        if bounced_emails:
+            ma.set_bounced(bounced_emails)
+    except Exception as e:
+        log.warning(f"Bounce scan failed (non-fatal): {e}")
 
     phase_pull(sh)
     s = phase_extract_and_draft(sh, fi, ma)

@@ -230,7 +230,15 @@ class Finder:
                 CLEARBIT_URL, params={"query": company}, timeout=API_TIMEOUT
             )
             if resp.status_code == 200:
-                doms = [x["domain"] for x in resp.json()[:3] if x.get("domain")]
+                raw_doms = [x["domain"] for x in resp.json()[:3] if x.get("domain")]
+                clean_co = self._clean(company).replace(" ", "").lower()
+                doms = []
+                for d in raw_doms:
+                    d_base = d.split(".")[0].lower()
+                    if clean_co and len(clean_co) >= 3:
+                        if d_base not in clean_co and clean_co not in d_base:
+                            log.warning(f"Clearbit suspect domain: {company} → {d} (no name overlap). Add override if wrong.")
+                    doms.append(d)
         except:
             pass
         if not doms:

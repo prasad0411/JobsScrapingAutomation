@@ -60,7 +60,13 @@ class Mailer:
         self._hourly = 0
         self._hour_start = datetime.datetime.now()
         self._drafts_created = set()
+        self._bounced_emails: set = set()
         self._load_draft_history()
+
+    def set_bounced(self, bounced: set):
+        self._bounced_emails = {e.lower().strip() for e in bounced}
+        if self._bounced_emails:
+            log.info(f"Mailer: {len(self._bounced_emails)} bounced email(s) loaded")
 
     def _load_draft_history(self):
         try:
@@ -115,6 +121,11 @@ class Mailer:
         if key in self._drafts_created:
             result["error"] = "Duplicate draft (already created)"
             log.info(f"Skipped duplicate draft: {to_email}")
+            return result
+        if to_email.lower().strip() in self._bounced_emails:
+            result["error"] = f"Bounced: {to_email}"
+            result["status"] = "Bounced"
+            log.info(f"Skipped bounced email: {to_email}")
             return result
 
         wl, gl = warmup_limit(), self.cr.gmail_left()

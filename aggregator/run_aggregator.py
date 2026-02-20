@@ -143,11 +143,15 @@ class JobrightEmailParser:
 
                     company_elem = section.find("p", id="job-company-name")
                     company = (
-                        company_elem.get_text(strip=True) if company_elem else "Unknown"
+                        re.sub(r"\s+", " ", company_elem.get_text(separator=" ", strip=True)).strip()
+                        if company_elem else "Unknown"
                     )
 
                     title_elem = section.find("p", id="job-title")
-                    title = title_elem.get_text(strip=True) if title_elem else "Unknown"
+                    title = (
+                        re.sub(r"\s+", " ", title_elem.get_text(separator=" ", strip=True)).strip()
+                        if title_elem else "Unknown"
+                    )
 
                     location = "Unknown"
                     tags = section.find_all("p", id="job-tag")

@@ -251,6 +251,10 @@ class ProviderVerifier:
             f"https://{domain}/leadership",
             f"https://{domain}/people",
             f"https://{domain}/",
+            f"https://{domain}/careers",
+            f"https://{domain}/investors",
+            f"https://{domain}/press",
+            f"https://{domain}/blog",
         ]
         found = []
         for url in urls:

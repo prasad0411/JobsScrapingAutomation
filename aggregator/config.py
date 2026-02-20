@@ -1141,7 +1141,12 @@ PLATFORM_CONFIGS = {
     "icims": {
         "requires_selenium": False,
         "wait_time": 3,
-        "location_selectors": [],
+        "location_selectors": [
+            ('[data-field="formattedLocation"]', 0.95),
+            ('.iCIMS_InfoMsg.iCIMS_InfoField_Location', 0.92),
+            ('[class*="location"]', 0.80),
+            ('span.iCIMS_InfoMsg', 0.75),
+        ],
         "company_selector": 'meta[property="og:site_name"]',
         "title_selector": "h1",
         "job_id_pattern": r"/jobs/(\d+)/job",
