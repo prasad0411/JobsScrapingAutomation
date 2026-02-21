@@ -315,6 +315,10 @@ ASSOCIATE_BACHELOR_ONLY_PATTERNS = [
     r"currently.*working.*towards.*bachelor'?s?",
     r"rising.*(?:junior\s+or\s+senior|senior\s+or\s+junior)",
     r"enrolled.*(?:in\s+)?(?:an?\s+)?undergraduate.*(?:engineering|program)",
+    r"enrolled\s+in\s+an?\s+accredited\s+undergraduate",
+    r"toward\s+a?\s+(?:bsee|bsce|bsme|bscs|bsae)",
+    r"working\s+towards?\s+a?\s+(?:bsee|bsce|bsme|bsae)",
+    r"completion\s+of\s+.*undergraduate\s+education\s+toward",
     r"final-year\s+undergraduate",
     r"(?:third|3rd).*(?:or|and|-).*(?:fourth|4th).*year",
     r"(?:3rd|4th)\s+year.*(?:or|and)\s+(?:recent\s+)?graduate",
@@ -391,6 +395,9 @@ EXPORT_CONTROL_EXCLUSION_KEYWORDS = [
 ]
 
 ENHANCED_PHD_PATTERNS = [
+    r"working\s+towards\s+a?\s*phd",
+    r"phd\s+level\s+degree",
+    r"working\s+toward\s+a?\s*phd",
     r"current\s+phd\s+student",
     r"currently.*phd\s+student",
     r"active\s+phd\s+candidate",
@@ -440,6 +447,10 @@ PREFERRED_DEGREE_MISMATCH_PATTERNS = [
 ]
 
 INVALID_TITLE_KEYWORDS = [
+    r"hardware\s+engineering\s+(?:intern|co-op|coop)",
+    r"hardware\s+engineer\s+(?:intern|co-op|coop)",
+    r"hardware\s+engineering\s+(?:intern|co-op|coop)",
+    r"hardware\s+engineer\s+(?:intern|co-op|coop)",
     r"military.*veteran",
     r"veteran.*military",
     r"\bphd\b.*intern",
@@ -858,6 +869,7 @@ CITY_TO_STATE_FALLBACK = {
     "santa monica": "CA",
     "south san francisco": "CA",
     "foster city": "CA",
+    "san ramon": "CA",
     "fremont": "CA",
     "milpitas": "CA",
     "los angeles": "CA",
@@ -1512,7 +1524,7 @@ ROLE_CATEGORIES = {
         "alert": "✅ SOFTWARE",
     },
     "Data & AI": {
-        "keywords": ["data scien", "machine learning", "ai engineer", "analytics"],
+        "keywords": ["data scien", "machine learning", "ai engineer", "analytics", "data analyst", "ml engineer", "mlops", "ml ops", "visualization", "research scientist", "research intern", "agentic", "documentation", "data engineer", "applied scientist", "decision science", "business intelligence", "bi analyst", "bi intern", "intelligence analyst"],
         "exclude": [],
         "action": "ACCEPT",
         "alert": "✅ DATA/AI",

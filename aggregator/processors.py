@@ -767,6 +767,9 @@ class LocationExtractor:
             if state_code:
                 # Extract city (everything before state)
                 city_parts = parts[:state_end_index]
+                # If state was at index 0, city is everything AFTER it
+                if not city_parts and state_end_index == 0:
+                    city_parts = parts[1:]
                 city = " ".join(city_parts)
                 return ExtractionResult(
                     f"{city}, {state_code}", 0.92, "url_workday_ultimate"

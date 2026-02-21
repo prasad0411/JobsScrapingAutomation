@@ -214,6 +214,10 @@ class SimplifyRedirectResolver:
             logging.info(f"Simplify GitHub: {actual_url[:70]}")
             return actual_url, True
 
+        actual_url = SimplifyRedirectResolver._method_5_page_apply_button(simplify_url)
+        if actual_url:
+            logging.info(f"Simplify Page: {actual_url[:70]}")
+            return actual_url, True
         failed_cache[job_id] = today
         SimplifyRedirectResolver.save_failed_cache(failed_cache)
 
@@ -222,11 +226,6 @@ class SimplifyRedirectResolver:
                 f.write(f"{job_id}\t{simplify_url}\t{today}\n")
         except Exception:
             pass
-
-        actual_url = SimplifyRedirectResolver._method_5_page_apply_button(simplify_url)
-        if actual_url:
-            logging.info(f"Simplify Page: {actual_url[:70]}")
-            return actual_url, True
 
         logging.warning(f"All 5 methods failed: {simplify_url[:60]}")
         return simplify_url, False

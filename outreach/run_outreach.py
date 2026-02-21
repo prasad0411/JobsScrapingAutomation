@@ -235,6 +235,7 @@ def main():
         log.warning(f"Bounce scan failed (non-fatal): {e}")
 
     phase_pull(sh)
+    sh.sync_with_valid()
     s = phase_extract_and_draft(sh, fi, ma)
 
     d = phase_draft_existing(sh, ma)

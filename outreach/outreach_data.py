@@ -267,6 +267,39 @@ class Sheets:
                 pass
         return len(new)
 
+    def sync_with_valid(self):
+        """Delete outreach rows whose company+title no longer exist in Valid Entries."""
+        try:
+            valid = self.ss.worksheet(VALID_TAB)
+            vdata = valid.get_all_values()
+            self._p()
+            valid_keys = set()
+            for row in vdata[1:]:
+                while len(row) <= max(V_COMPANY, V_TITLE):
+                    row = list(row) + [""]
+                co = row[V_COMPANY].strip().lower()
+                ti = row[V_TITLE].strip().lower()
+                if co:
+                    valid_keys.add(f"{co}||{ti}")
+            odata = self.ws.get_all_values()
+            self._p()
+            rows_to_delete = []
+            for i, r in enumerate(odata[1:], start=2):
+                r = _pad(r)
+                co = r[C["company"]].strip().lower()
+                ti = r[C["title"]].strip().lower()
+                if co and f"{co}||{ti}" not in valid_keys:
+                    rows_to_delete.append(i)
+            # Delete bottom-up to preserve row indices
+            for row_idx in sorted(rows_to_delete, reverse=True):
+                self.ws.delete_rows(row_idx)
+                self._p()
+            if rows_to_delete:
+                log.info(f"sync_with_valid: deleted {len(rows_to_delete)} orphaned outreach rows")
+                print(f"  Sync: removed {len(rows_to_delete)} outreach rows no longer in Valid Entries")
+        except Exception as e:
+            log.error(f"sync_with_valid failed: {e}")
+
     def rows_for_extraction(self):
         data = self.ws.get_all_values()
         self._p()
