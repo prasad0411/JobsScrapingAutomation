@@ -784,6 +784,49 @@ class UnifiedJobAggregator:
         self.source_stats[sender]["failed"] += 1
 
 
+    # ── Dead URL patterns ──────────────────────────────────────────────────
+    _DEAD_URL_PATTERNS = [
+        "notfound=1", "not_found=true", "ss=1&notfound=1",
+        "/jobnot found", "/job-not-found", "/position-not-available",
+        "/jobs/search?ss=1", "/search?ss=1", "jobnotfound",
+        "/careersmarketplace/error", "/careers/error", "/job/error",
+        "/error?", "/jobs/error", "?error=true", "?error=404",
+        "?not_found=true", "?notfound=true",
+        "position-not-available", "job-not-available",
+    ]
+
+    _DEAD_PAGE_TITLES = [
+        "not found", "page not found", "job not found", "no longer available",
+        "position no longer", "posting is no longer", "job has been filled",
+        "come work with us", "not ready to apply", "page does not exist",
+        "this job is closed", "job has expired", "position has been closed",
+        "sorry, this job", "opening is no longer", "role is no longer",
+        "no longer accepting", "job listing not found", "search results",
+        "career opportunities", "all jobs", "explore opportunities",
+        "join our team", "current openings", "working at ",
+    ]
+
+    def _is_dead_url(self, url):
+        """Check if URL pattern indicates a dead/expired job posting."""
+        if not url:
+            return False
+        url_lower = url.lower()
+        for pattern in self._DEAD_URL_PATTERNS:
+            if pattern in url_lower:
+                return True
+        return False
+
+    def _is_dead_page(self, title, final_url=None):
+        """Check if page title or final URL indicates an expired/dead posting."""
+        if title:
+            title_lower = title.lower().strip()
+            for pattern in self._DEAD_PAGE_TITLES:
+                if pattern in title_lower:
+                    return True
+        if final_url:
+            return self._is_dead_url(final_url)
+        return False
+
     def _process_ziprecruiter_url(self, url, sender, email_html, subject):
         """Process ZipRecruiter URL: try HTTP redirect first, fall back to pre-parsed email data."""
         try:
@@ -847,6 +890,43 @@ class UnifiedJobAggregator:
                 logging.info(f"REJECTED | {company} | {title} | Not internship | ZipRecruiter")
                 self.source_stats[sender]["rejected"] += 1
                 return
+            # ── Full page validation on ZipRecruiter page itself ──────
+            try:
+                import requests as _req
+                from aggregator.extractors import safe_parse_html as _sph
+                from aggregator.processors import TitleProcessor as _TP, ValidationHelper as _VH
+                zr_resp = _req.get(url, allow_redirects=True, timeout=10,
+                                   headers={"User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)"})
+                if zr_resp and zr_resp.status_code == 200:
+                    zr_soup, _ = _sph(zr_resp.text)
+                    if zr_soup:
+                        # Check CS/Engineering role using page description
+                        zr_desc = zr_soup.get_text(separator=" ", strip=True)[:8000]
+                        is_cs = _TP.is_cs_engineering_role(title, zr_desc)
+                        if not is_cs:
+                            self.outcomes["skipped_not_cs"] = self.outcomes.get("skipped_not_cs", 0) + 1
+                            self._print_rejected(company, "Not CS/Engineering")
+                            logging.info(f"REJECTED | {company} | {title} | Not a CS/Engineering role | ZipRecruiter")
+                            self.source_stats[sender]["rejected"] += 1
+                            return
+                        # Check undergraduate-only
+                        ug_result, _ = _VH._check_undergraduate_only_requirements(zr_soup)
+                        if ug_result:
+                            self.outcomes["skipped_undergrad"] = self.outcomes.get("skipped_undergrad", 0) + 1
+                            self._print_rejected(company, "Undergraduate students only")
+                            logging.info(f"REJECTED | {company} | {title} | Undergraduate students only (MS not eligible) | ZipRecruiter")
+                            self.source_stats[sender]["rejected"] += 1
+                            return
+                        # Check PhD-only
+                        phd_result, _ = _VH._check_phd_only_requirements(zr_soup)
+                        if phd_result:
+                            self.outcomes["skipped_phd"] = self.outcomes.get("skipped_phd", 0) + 1
+                            self._print_rejected(company, "PhD students only")
+                            logging.info(f"REJECTED | {company} | {title} | PhD students only | ZipRecruiter")
+                            self.source_stats[sender]["rejected"] += 1
+                            return
+            except Exception as _ze:
+                logging.debug(f"ZipRecruiter page validation failed: {_ze}")
 
             remote = "Remote" if "remote" in location.lower() else "Unknown"
             if location.lower() in ("unknown", "", "n/a"):
@@ -1002,6 +1082,15 @@ class UnifiedJobAggregator:
         email_html=None,
     ):
         try:
+            # ── Pre-fetch dead URL check ──────────────────────────
+            if self._is_dead_url(url):
+                co = company_hint or "Unknown"
+                ti = title_hint or "Unknown"
+                self.outcomes["skipped_expired"] = self.outcomes.get("skipped_expired", 0) + 1
+                self._print_rejected(co, "Job posting expired/unavailable")
+                logging.info(f"REJECTED | {co} | {ti} | Job posting expired/unavailable (dead URL)")
+                self._add_discarded(co, ti, "Unknown", "Unknown", url, "N/A", "Internship", source, "Job posting expired/unavailable")
+                return None
             platform = PlatformDetector.detect(url)
 
             response, final_url, page_source = self.page_fetcher.fetch_page(url)
@@ -1012,12 +1101,33 @@ class UnifiedJobAggregator:
                 logging.info(f"HTTP FAIL | {company_hint} | {url[:80]}")
                 return None
 
+            # ── Post-fetch dead URL check ─────────────────────────
+            if self._is_dead_url(final_url or ""):
+                co = company_hint or "Unknown"
+                ti = title_hint or "Unknown"
+                self.outcomes["skipped_expired"] = self.outcomes.get("skipped_expired", 0) + 1
+                self._print_rejected(co, "Job posting expired/unavailable")
+                logging.info(f"REJECTED | {co} | {ti} | Job posting expired/unavailable (redirect)")
+                self._add_discarded(co, ti, "Unknown", "Unknown", url, "N/A", "Internship", source, "Job posting expired/unavailable")
+                return None
+
             soup, _ = safe_parse_html(
                 response.text if hasattr(response, "text") else str(response)
             )
             if not soup:
                 self.outcomes["failed_parse"] += 1
                 logging.info(f"PARSE FAIL | {url[:80]}")
+                return None
+
+            # ── Post-parse dead page title check ──────────────────
+            page_title = soup.title.string.strip() if soup.title and soup.title.string else ""
+            if self._is_dead_page(page_title, final_url):
+                co = company_hint or "Unknown"
+                ti = title_hint or "Unknown"
+                self.outcomes["skipped_expired"] = self.outcomes.get("skipped_expired", 0) + 1
+                self._print_rejected(co, "Job posting expired/unavailable")
+                logging.info(f"REJECTED | {co} | {ti} | Job posting expired/unavailable | Title: '{page_title[:60]}'")
+                self._add_discarded(co, ti, "Unknown", "Unknown", url, "N/A", "Internship", source, "Job posting expired/unavailable")
                 return None
 
             company = CompanyExtractor.extract_all_methods(final_url or url, soup)
@@ -1431,12 +1541,40 @@ class UnifiedJobAggregator:
     def _parse_github_age(age_str):
         if not age_str:
             return None
+        age_str = age_str.strip()
+        # Format: "5d" → 5 days
         match = re.match(r"^(\d+)d$", age_str.lower())
         if match:
             return int(match.group(1))
+        # Format: "2mo" → 60 days
         match = re.match(r"^(\d+)mo$", age_str.lower())
         if match:
             return int(match.group(1)) * 30
+        # Format: "Oct 15", "Feb 19" etc — vanshb03 calendar dates
+        import datetime as _dt
+        month_map = {
+            "jan":1,"feb":2,"mar":3,"apr":4,"may":5,"jun":6,
+            "jul":7,"aug":8,"sep":9,"oct":10,"nov":11,"dec":12
+        }
+        cal_match = re.match(r"^([A-Za-z]{3})\s+(\d{1,2})$", age_str.strip())
+        if cal_match:
+            mon = cal_match.group(1).lower()
+            day = int(cal_match.group(2))
+            if mon in month_map:
+                today = _dt.date.today()
+                # Try current year first
+                try:
+                    candidate = _dt.date(today.year, month_map[mon], day)
+                except ValueError:
+                    return 999
+                # If candidate is in the future, it must be from last year
+                if candidate > today:
+                    try:
+                        candidate = _dt.date(today.year - 1, month_map[mon], day)
+                    except ValueError:
+                        return 999
+                days_ago = (today - candidate).days
+                return days_ago
         return DateParser.extract_days_ago(age_str)
 
     @staticmethod

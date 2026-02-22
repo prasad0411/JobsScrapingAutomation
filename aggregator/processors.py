@@ -1221,6 +1221,13 @@ class LocationProcessor:
                 "india", "china", "germany", "france",
                 "singapore", "australia", "switzerland", "japan",
                 "ireland", "netherlands", "sweden", "israel",
+                "thailand", "vietnam", "malaysia", "philippines",
+                "indonesia", "south korea", "taiwan", "egypt",
+                "colombia", "chile", "peru", "costa rica",
+                "brazil", "mexico", "argentina", "poland",
+                "romania", "czech republic", "hungary", "ukraine",
+                "pakistan", "bangladesh", "sri lanka", "nigeria",
+                "kenya", "south africa", "new zealand",
             ]
             for country in intl_countries:
                 if _re.search(r'\b' + country + r'\b', location_lower):
@@ -1453,7 +1460,19 @@ class LocationProcessor:
 
         # Reject garbage location text (job descriptions leaking into location field)
         garbage_indicators = ['factors', 'such as', 'responsibilities', 'requirements',
-                              'experience', 'qualifications', 'salary', 'benefits']
+                              'experience', 'qualifications', 'salary', 'benefits',
+                              'finding a job', 'not finding', 'not ready', 'ready to apply',
+                              'early careers', 'career opportunities', 'all jobs',
+                              'office locations', 'locations include', 'include:',
+                              'conduct', 'scheduling problems', 'scheduling',
+                              'blog', 'press', 'about us', 'join our',
+                              'working at', 'work with us', 'come work',
+                              'are currently expected', 'currently expected',
+                              'delivers multispecialty', 'multispecialty',
+                              'delivers ', 'provides ', 'serving ',
+                              's not finding', 's include', 's are currently',
+                              'internship opportunities', 'apply now',
+                              ]
         if any(gi in location.lower() for gi in garbage_indicators):
             location = 'Unknown'
         if len(location) > 60:
@@ -2832,6 +2851,8 @@ class CompanyExtractor:
 
         name = html.unescape(name)
 
+        # Strip GitHub continuation row prefixes (e.g. "at Atlantic Health System")
+        name = re.sub(r"^(?:at|by|for|with|from)\s+", "", name, flags=re.I)
         name = re.sub(r"^[-*#@!]+\s*", "", name)
 
         name = re.sub(r"^[A-Z]{2,6}\d{2,6}\s+", "", name)

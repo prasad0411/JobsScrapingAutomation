@@ -178,16 +178,62 @@ class Sheets:
 
             self._p()
         # Always apply body formatting (runs every session, not just creation)
+        # Skip hm_li (col 5) and rec_li (col 8) to preserve hyperlink formatting
         try:
-            end = _cl(len(O_HEADERS) - 1)
-            self.ws.format(
-                f"A2:{end}2000",
-                {
-                    "horizontalAlignment": "CENTER",
-                    "verticalAlignment": "MIDDLE",
-                    "textFormat": {"fontFamily": "Times New Roman", "fontSize": 13},
-                },
-            )
+            li_cols = {C["hm_li"], C["rec_li"]}  # columns to skip (0-indexed)
+            fmt = {
+                "horizontalAlignment": "CENTER",
+                "verticalAlignment": "MIDDLE",
+                "textFormat": {"fontFamily": "Times New Roman", "fontSize": 13},
+            }
+            # Build contiguous column ranges excluding LinkedIn URL columns
+            n_cols = len(O_HEADERS)
+            range_start = None
+            fmt_requests = []
+            for i in range(n_cols):
+                if i not in li_cols:
+                    if range_start is None:
+                        range_start = i
+                else:
+                    if range_start is not None:
+                        fmt_requests.append({
+                            "repeatCell": {
+                                "range": {
+                                    "sheetId": self.ws.id,
+                                    "startRowIndex": 1,
+                                    "endRowIndex": 2000,
+                                    "startColumnIndex": range_start,
+                                    "endColumnIndex": i,
+                                },
+                                "cell": {"userEnteredFormat": {
+                                    "horizontalAlignment": "CENTER",
+                                    "verticalAlignment": "MIDDLE",
+                                    "textFormat": {"fontFamily": "Times New Roman", "fontSize": 13},
+                                }},
+                                "fields": "userEnteredFormat(horizontalAlignment,verticalAlignment,textFormat)",
+                            }
+                        })
+                        range_start = None
+            if range_start is not None:
+                fmt_requests.append({
+                    "repeatCell": {
+                        "range": {
+                            "sheetId": self.ws.id,
+                            "startRowIndex": 1,
+                            "endRowIndex": 2000,
+                            "startColumnIndex": range_start,
+                            "endColumnIndex": n_cols,
+                        },
+                        "cell": {"userEnteredFormat": {
+                            "horizontalAlignment": "CENTER",
+                            "verticalAlignment": "MIDDLE",
+                            "textFormat": {"fontFamily": "Times New Roman", "fontSize": 13},
+                        }},
+                        "fields": "userEnteredFormat(horizontalAlignment,verticalAlignment,textFormat)",
+                    }
+                })
+            if fmt_requests:
+                self.ss.batch_update({"requests": fmt_requests})
             self._p()
         except:
             pass
