@@ -189,9 +189,18 @@ class SimplifyRedirectResolver:
             return simplify_url, False
         job_id = job_id_match.group(1)
         failed_cache = SimplifyRedirectResolver.load_failed_cache()
-        today = time.strftime("%Y-%m-%d")
-        if job_id in failed_cache and failed_cache[job_id] == today:
-            return simplify_url, False
+        import time as _time
+        now_ts = _time.time()
+        cached_entry = failed_cache.get(job_id)
+        if cached_entry:
+            # Support both old format (date string) and new format (timestamp)
+            if isinstance(cached_entry, (int, float)):
+                if now_ts - cached_entry < 28800:  # 8 hours
+                    return simplify_url, False
+            elif isinstance(cached_entry, str):
+                # Legacy date format — retry if not today
+                if cached_entry == _time.strftime("%Y-%m-%d"):
+                    return simplify_url, False
         click_url = f"https://simplify.jobs/jobs/click/{job_id}"
 
         actual_url = SimplifyRedirectResolver._method_1_http_redirect(click_url)
@@ -221,7 +230,7 @@ class SimplifyRedirectResolver:
         if actual_url:
             logging.info(f"Simplify Page: {actual_url[:70]}")
             return actual_url, True
-        failed_cache[job_id] = today
+        failed_cache[job_id] = time.time()
         SimplifyRedirectResolver.save_failed_cache(failed_cache)
 
         try:

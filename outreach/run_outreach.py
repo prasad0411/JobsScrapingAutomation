@@ -121,8 +121,8 @@ def phase_extract_and_draft(sheets, finder, mailer):
         hm_res = rec_res = None
         parts = []
 
+        jud = sheets.get_job_url_domain(row["co"], row["title"]) if hasattr(sheets, "get_job_url_domain") else ""
         if row["need_h"]:
-            jud = sheets.get_job_url_domain(row["co"], row["title"]) if hasattr(sheets, "get_job_url_domain") else ""
             hm_res = finder.find(row["hn"], row["co"], row["hli"], job_url_domain=jud)
             if hm_res["email"]:
                 sheets.write_email(rn, "hm", hm_res["email"], hm_res["source"])

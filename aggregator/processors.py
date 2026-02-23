@@ -349,6 +349,11 @@ class TitleProcessor:
         except (ImportError, AttributeError):
             PAGE_TEXT_STANDARD_SCAN = 5000
 
+        # Trust title year — if title says 2026+, accept immediately
+        title_lower = title.lower()
+        for m in re.finditer(r"(202[4-9]|203[0-9])", title_lower):
+            if int(m.group(1)) >= 2026:
+                return True, ""
         limited_text = page_text[:PAGE_TEXT_STANDARD_SCAN] if page_text else ""
         combined = (title + " " + limited_text).lower()
 
@@ -358,7 +363,12 @@ class TitleProcessor:
             # Skip copyright years (© 2025, copyright 2025)
             start = max(0, match.start() - 20)
             context = combined[start:match.start()]
-            if any(marker in context for marker in ['©', 'copyright', '℗']):
+            if any(marker in context for marker in [
+                '©', 'copyright', '℗', 'cohort', 'established', 'founded',
+                'fiscal', 'revenue', 'fy', 'reported', 'announced', 'acquired',
+                'raised', 'valued', 'as of', 'year ended', 'prior year',
+                'q1', 'q2', 'q3', 'q4', 'earnings', 'profit', 'posted on',
+            ]):
                 continue
             years_found.append(year)
 
@@ -2003,6 +2013,10 @@ class ValidationHelper:
                 r"(?:associate|associates|aa|as)\s+(?:or|and)\s+bachelor",
                 r"(?:associate|aa)\s+degree.*only",
                 r"no\s+(?:prior\s+)?experience.*bachelor.*program",
+                r"graduating.*with\s+(?:a\s+)?(?:ba|bs|ba/bs|bs/ba|b\.s\.|b\.a\.)",
+                r"with\s+(?:a\s+)?(?:ba/bs|bs/ba)\s*,?\s*majoring",
+                r"graduating.*(?:ba|bs|ba/bs|bs/ba)\s*,?\s*majoring",
+                r"receive\s+(?:a\s+)?(?:ba|bs|ba/bs)\s+(?:by|before|prior)",
             ]
 
             for pattern in undergraduate_patterns:
