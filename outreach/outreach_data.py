@@ -438,41 +438,48 @@ class Sheets:
         return rows
 
     def write_bounce_note(self, row, ct, email, bounced_at):
-        """Write simplified bounce note and clear the bad email cell."""
+        """Write clean bounce note, overwrite delivery status, clear bad email."""
         try:
             notes_col = _cl(C["notes"])
             existing_note = self.ws.acell(f"{notes_col}{row}").value or ""
             self._p()
 
-            # Check if both HM and Rec bounced on same date
             r = _pad(self.ws.row_values(row))
             self._p()
-            other_ct = "rec" if ct == "hm" else "hm"
-            other_email_col = C["rec_email"] if ct == "hm" else C["hm_email"]
-            other_email = r[other_email_col].strip() if len(r) > other_email_col else ""
 
-            # Build clean note
-            if f"{other_ct.upper()} email bounced" in existing_note:
-                # Other already bounced — update to combined
-                new_note = f"HM and Rec emails bounced on {bounced_at}"
+            other_ct = "Rec" if ct == "hm" else "HM"
+            this_ct = "HM" if ct == "hm" else "Rec"
+            other_bounced = f"{other_ct} email bounced" in existing_note
+
+            if other_bounced:
+                bounce_note = f"HM and Rec emails bounced on {bounced_at}"
             else:
-                label = "HM" if ct == "hm" else "Rec"
-                new_note = f"{label} email bounced on {bounced_at}"
+                bounce_note = f"{this_ct} email bounced on {bounced_at}"
 
-            # Preserve non-bounce notes
+            # Rebuild notes: remove old bounce and delivery notes for this contact
             old_parts = [p.strip() for p in existing_note.split("|") if p.strip()]
-            non_bounce = [p for p in old_parts if "bounced" not in p.lower()]
-            if non_bounce:
-                new_note = " | ".join(non_bounce) + " | " + new_note
+            keep = []
+            for p in old_parts:
+                if "bounced" in p.lower():
+                    continue
+                if "Delivered to" in p and this_ct in p:
+                    if "and" in p:
+                        keep.append(f"Delivered to {other_ct}")
+                    continue
+                keep.append(p)
 
-            self._retry(self.ws.update_acell, f"{notes_col}{row}", new_note)
+            if keep:
+                final = " | ".join(keep) + " | " + bounce_note
+            else:
+                final = bounce_note
+
+            self._retry(self.ws.update_acell, f"{notes_col}{row}", final)
             self._p()
 
-            # Clear the bad email cell
             email_col = C["hm_email"] if ct == "hm" else C["rec_email"]
             self._retry(self.ws.update_acell, f"{_cl(email_col)}{row}", "")
             self._p()
-            log.info(f"Row {row}: {ct} bounce noted for {email}")
+            log.info(f"Row {row}: {this_ct} bounce noted for {email}")
         except Exception as e:
             log.error(f"write_bounce_note row {row}: {e}")
 

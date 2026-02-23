@@ -237,6 +237,13 @@ def main():
 
     phase_pull(sh)
     sh.sync_with_valid()
+
+    # Mark delivered emails (sent 12h+ ago, no bounce)
+    try:
+        all_bounced = set(BounceScanner.load_bounced().keys())
+        sh.mark_delivered(all_bounced)
+    except Exception as e:
+        log.debug(f"Delivery marking skipped: {e}")
     s = phase_extract_and_draft(sh, fi, ma)
 
     d = phase_draft_existing(sh, ma)
