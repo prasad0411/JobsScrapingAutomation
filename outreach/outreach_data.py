@@ -298,6 +298,13 @@ class Sheets:
                 nr[C["company"]] = co  # verbatim from Valid
                 nr[C["title"]] = ti    # verbatim from Valid
                 nr[C["job_id"]] = jid  # verbatim from Valid
+                # Ensure LinkedIn URLs are clickable HYPERLINK formulas
+                for li_col in [C["hm_li"], C["rec_li"]]:
+                    url = nr[li_col].strip() if len(nr) > li_col else ""
+                    if url and url.startswith("http") and not url.startswith("=HYPERLINK"):
+                        nr[li_col] = f'=HYPERLINK("{url}", "LinkedIn")'
+                    elif url and url.startswith("=HYPERLINK"):
+                        pass  # already a formula
             else:
                 # New row — only copy shared columns
                 nr = [""] * len(O_HEADERS)
