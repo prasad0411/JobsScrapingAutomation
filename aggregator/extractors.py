@@ -215,6 +215,9 @@ class SimplifyRedirectResolver:
             return actual_url, True
 
         actual_url = SimplifyRedirectResolver._method_5_page_apply_button(simplify_url)
+        if actual_url == "__INACTIVE__":
+            logging.info(f"Simplify job INACTIVE: {simplify_url[:60]}")
+            return "__INACTIVE__", False
         if actual_url:
             logging.info(f"Simplify Page: {actual_url[:70]}")
             return actual_url, True
@@ -328,7 +331,7 @@ class SimplifyRedirectResolver:
 
     @staticmethod
     def _method_5_page_apply_button(simplify_url):
-        """NEW: Parse the Simplify job page directly for Apply/company link."""
+        """ENHANCED: Parse Simplify page for Apply URL + detect INACTIVE status."""
         try:
             response = requests.get(
                 simplify_url,
@@ -338,36 +341,83 @@ class SimplifyRedirectResolver:
             if not response or response.status_code != 200:
                 return None
 
-            # Look for company application URLs in the page
             text = response.text
 
-            # Method A: Find lever/greenhouse/workday URLs in page source
+            # Check for INACTIVE status in page text
+            if "INACTIVE" in text and ("Save" in text[:5000] or "Overview" in text[:5000]):
+                logging.info(f"Simplify INACTIVE detected: {simplify_url[:60]}")
+                return "__INACTIVE__"
+
+            soup, _ = safe_parse_html(text)
+            if not soup:
+                return None
+
+            # Strategy 1: Extract from __NEXT_DATA__ JSON (Next.js app)
+            next_data = soup.find("script", {"id": "__NEXT_DATA__"})
+            if next_data and next_data.string:
+                try:
+                    import json as _json
+                    data = _json.loads(next_data.string)
+                    # Navigate common Next.js data paths
+                    props = data.get("props", {}).get("pageProps", {})
+                    # Try various keys where the external URL might live
+                    for key in ["externalUrl", "applyUrl", "jobUrl", "url", "applicationUrl", "externalApplyUrl"]:
+                        url = props.get(key) or props.get("job", {}).get(key, "")
+                        if url and url.startswith("http") and "simplify" not in url.lower():
+                            logging.info(f"Simplify __NEXT_DATA__ [{key}]: {url[:80]}")
+                            return url
+                    # Try nested job object
+                    job = props.get("job", props.get("listing", props.get("posting", {})))
+                    if isinstance(job, dict):
+                        for key in ["externalUrl", "applyUrl", "url", "applicationUrl", "sourceUrl", "originalUrl"]:
+                            url = job.get(key, "")
+                            if url and url.startswith("http") and "simplify" not in url.lower():
+                                logging.info(f"Simplify __NEXT_DATA__ job.{key}: {url[:80]}")
+                                return url
+                except Exception as e:
+                    logging.debug(f"Simplify __NEXT_DATA__ parse failed: {e}")
+
+            # Strategy 2: Find Apply link pointing to external job board
+            for link in soup.find_all("a", href=True):
+                href = link.get("href", "")
+                link_text = link.get_text(strip=True).lower()
+                # Apply button pointing to external site
+                if ("apply" in link_text or "apply" in link.get("class", [""])) and href.startswith("http") and "simplify" not in href.lower():
+                    logging.info(f"Simplify Apply link: {href[:80]}")
+                    return href
+
+            # Strategy 3: Find any job board URL in the page source
             job_board_patterns = [
-                r'https?://jobs\.lever\.co/[^\s<>]+',
-                r'https?://[a-z0-9-]+\.myworkdayjobs\.com/[^\s<>]+',
-                r'https?://boards\.greenhouse\.io/[^\s<>]+',
-                r'https?://[a-z0-9-]+\.ashbyhq\.com/[^\s<>]+',
-                r'https?://[a-z0-9-]+\.smartrecruiters\.com/[^\s<>]+',
-                r'https?://[a-z0-9-]+\.icims\.com/[^\s<>]+',
+                r'https?://jobs\.lever\.co/[^\s<>"\']+',
+                r'https?://[a-z0-9-]+\.myworkdayjobs\.com/[^\s<>"\']+',
+                r'https?://(?:boards|job-boards)\.(?:eu\.)?greenhouse\.io/[^\s<>"\']+',
+                r'https?://[a-z0-9-]+\.ashbyhq\.com/[^\s<>"\']+',
+                r'https?://jobs\.smartrecruiters\.com/[^\s<>"\']+',
+                r'https?://[a-z0-9-]+\.icims\.com/[^\s<>"\']+',
+                r'https?://[a-z0-9-]+\.eightfold\.ai/[^\s<>"\']+',
+                r'https?://[a-z0-9-]+\.fa\.[a-z0-9]+\.oraclecloud\.com/[^\s<>"\']+',
+                r'https?://[a-z0-9-]+\.wd\d+\.myworkdayjobs\.com/[^\s<>"\']+',
             ]
             for pattern in job_board_patterns:
                 matches = re.findall(pattern, text)
                 for match in matches:
-                    clean = match.rstrip('"').rstrip("'").rstrip("\\")
-                    if "/job/" in clean or "/jobs/" in clean or "/apply" in clean:
-                        logging.info(f"Simplify page Apply: {clean[:80]}")
+                    clean = match.rstrip('"').rstrip("'").rstrip("\\").rstrip(")")
+                    if any(kw in clean.lower() for kw in ["/job/", "/jobs/", "/external/", "/apply", "/career"]):
+                        logging.info(f"Simplify page board URL: {clean[:80]}")
                         return clean
 
-            # Method B: Find any external URL that looks like a job application
-            from aggregator.extractors import safe_parse_html
-            soup, _ = safe_parse_html(text)
-            if soup:
-                for link in soup.find_all("a", href=True):
-                    href = link.get("href", "")
-                    link_text = link.get_text(strip=True).lower()
-                    if "apply" in link_text and href.startswith("http") and "simplify" not in href:
-                        logging.info(f"Simplify page Apply button: {href[:80]}")
-                        return href
+            # Strategy 4: Any external URL that looks like a career page
+            for link in soup.find_all("a", href=True):
+                href = link.get("href", "")
+                if not href.startswith("http") or "simplify" in href.lower():
+                    continue
+                if any(board in href.lower() for board in [
+                    "myworkdayjobs.com", "greenhouse.io", "lever.co", "ashbyhq.com",
+                    "smartrecruiters.com", "icims.com", "oraclecloud.com", "eightfold.ai",
+                    "workable.com", "breezy.hr", "bamboohr.com", "jobvite.com",
+                ]):
+                    logging.info(f"Simplify page external board link: {href[:80]}")
+                    return href
 
         except Exception as e:
             logging.debug(f"Simplify page parse failed: {e}")
@@ -2053,6 +2103,7 @@ class SimplifyGitHubScraper:
                     "age": age,
                     "is_closed": False,
                     "source": source_name,
+                    "github_category": "",
                 }
             )
         return jobs
@@ -2062,6 +2113,14 @@ class SimplifyGitHubScraper:
         jobs = []
         last_company = ""
         for table in soup.find_all("table"):
+            github_category = ""
+            prev = table.find_previous(["h2", "h3"])
+            if prev:
+                ht = prev.get_text(strip=True).lower()
+                if "software" in ht and "internship" in ht:
+                    github_category = "Software Engineering Internship"
+                elif any(k in ht for k in ["data science", "machine learning", "ai"]):
+                    github_category = "Data Science AI ML Internship"
             for row in table.find_all("tr")[1:]:
                 cells = row.find_all("td")
                 if len(cells) < 5:
@@ -2094,6 +2153,7 @@ class SimplifyGitHubScraper:
                         "age": age,
                         "is_closed": is_closed,
                         "source": source_name,
+                        "github_category": github_category,
                     }
                 )
         return jobs

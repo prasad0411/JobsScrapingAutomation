@@ -309,12 +309,13 @@ class UnifiedJobAggregator:
     def _scrape_simplify_github(self):
         simplify_jobs = self._safe_scrape(SIMPLIFY_URL, "SimplifyJobs")
         vanshb03_jobs = self._safe_scrape(VANSHB03_URL, "vanshb03")
+        self._github_mode = True
 
         logging.info(
             f"GitHub: {len(simplify_jobs)} SimplifyJobs + {len(vanshb03_jobs)} vanshb03"
         )
 
-        print(f"\n  SimplifyJobs ({len(simplify_jobs)} jobs)")
+        print(f"\n  Processing Simplify repository...")
         consecutive_old = 0
         simplify_valid = 0
         simplify_rejected = 0
@@ -331,7 +332,7 @@ class UnifiedJobAggregator:
                 logging.error(f"Failed to process SimplifyJobs job: {e}", exc_info=True)
                 continue
 
-        print(f"\n  vanshb03 ({len(vanshb03_jobs)} jobs)")
+        print(f"\n  Processing Vanshb repository...")
         consecutive_old = 0
         for i, job in enumerate(vanshb03_jobs):
             try:
@@ -345,6 +346,8 @@ class UnifiedJobAggregator:
             except Exception as e:
                 logging.error(f"Failed to process vanshb03 job: {e}", exc_info=True)
                 continue
+
+        self._github_mode = False
 
         github_valid = sum(
             1 for j in self.valid_jobs if j["source"] in ["SimplifyJobs", "vanshb03"]
@@ -396,6 +399,14 @@ class UnifiedJobAggregator:
         resolved_url = url
         if "simplify.jobs" in url.lower():
             resolved_url, resolved = SimplifyRedirectResolver.resolve(url)
+            if resolved_url == "__INACTIVE__":
+                self.outcomes["skipped_inactive"] = self.outcomes.get("skipped_inactive", 0) + 1
+                self._add_discarded(
+                    company_from_github, title, location_from_github, "Unknown",
+                    url, "N/A", "Internship", source, "Simplify listing inactive/closed",
+                )
+                logging.info(f"REJECTED | {company_from_github} | {title} | Simplify INACTIVE")
+                return
             if not resolved:
                 resolved_url = url
 
@@ -422,7 +433,11 @@ class UnifiedJobAggregator:
             )
             return
 
+        github_category = job.get("github_category", "")
         is_tech = TitleProcessor.is_cs_engineering_role(title)
+        if not is_tech and github_category:
+            logging.info(f"OVERRIDE | {company_from_github} | {title} | GitHub category: {github_category}")
+            is_tech = True
         if not is_tech:
             self.outcomes["skipped_non_tech"] += 1
             self.source_stats[source]["rejected"] += 1
@@ -602,6 +617,10 @@ class UnifiedJobAggregator:
 
         if "simplify.jobs" in url.lower():
             resolved_url, resolved = SimplifyRedirectResolver.resolve(url)
+            if resolved_url == "__INACTIVE__":
+                self.outcomes["skipped_inactive"] = self.outcomes.get("skipped_inactive", 0) + 1
+                logging.info(f"REJECTED | Simplify INACTIVE | {url[:60]}")
+                return "skipped"
             if not resolved:
                 resolved_url = url
 
@@ -923,6 +942,15 @@ class UnifiedJobAggregator:
                             self.outcomes["skipped_phd"] = self.outcomes.get("skipped_phd", 0) + 1
                             self._print_rejected(company, "PhD students only")
                             logging.info(f"REJECTED | {company} | {title} | PhD students only | ZipRecruiter")
+                            self.source_stats[sender]["rejected"] += 1
+                            return
+                        # Check page age (e.g. "Posted 29 days ago")
+                        zr_age = _VH.extract_page_age(zr_soup)
+                        if zr_age is not None and zr_age > PAGE_AGE_THRESHOLD_DAYS:
+                            self.outcomes["skipped_too_old"] += 1
+                            self._print_rejected(company, f"Posted {zr_age}d ago")
+                            logging.info(f"REJECTED | {company} | {title} | Posted {zr_age}d ago | ZipRecruiter")
+                            self._add_discarded(company, title, location, "Unknown", url, "N/A", "Internship", sender, f"Posted {zr_age} days ago (max {PAGE_AGE_THRESHOLD_DAYS})")
                             self.source_stats[sender]["rejected"] += 1
                             return
             except Exception as _ze:
@@ -1442,6 +1470,8 @@ class UnifiedJobAggregator:
         self.outcomes["discarded"] += 1
 
     def _print_rejected(self, company, reason):
+        if getattr(self, "_github_mode", False):
+            return
         display = (company or "Unknown")
         print(f"    {display}: ✗ {reason}")
 

@@ -261,6 +261,20 @@ class Sheets:
             if co:
                 existing.add(("co_ti", f"{co}||{ti}"))
 
+        # Build Valid Entries position map for ordering new rows
+        valid_position = {}
+        for v_idx, row in enumerate(vdata[1:]):
+            while len(row) <= max(V_COMPANY, V_TITLE, V_JOBID):
+                row = list(row) + [""]
+            co = row[V_COMPANY].strip().lower()
+            ti = row[V_TITLE].strip().lower()
+            jid = (row[V_JOBID].strip().lower() if len(row) > V_JOBID else "")
+            jid_clean = jid if jid and jid != "n/a" else ""
+            if jid_clean:
+                valid_position[("jid", jid_clean)] = v_idx
+            if co:
+                valid_position[("co_ti", f"{co}||{ti}")] = v_idx
+
         new = []
         sr = len(odata)
 
@@ -277,24 +291,35 @@ class Sheets:
                 continue
             if not jid_clean and ("co_ti", f"{co.lower()}||{ti.lower()}") in existing:
                 continue
-            sr += 1
+            # Get Valid Entries position for ordering
+            v_pos = valid_position.get(
+                ("jid", jid_clean) if jid_clean else ("co_ti", f"{co.lower()}||{ti.lower()}"),
+                999999
+            )
             nr = [""] * len(O_HEADERS)
-            nr[C["sr"]] = str(sr - 1)
             nr[C["company"]] = co
             nr[C["title"]] = ti
             nr[C["job_id"]] = jid
-            new.append(nr)
+            new.append((v_pos, nr))
             if jid_clean:
                 existing.add(("jid", jid_clean))
             existing.add(("co_ti", f"{co.lower()}||{ti.lower()}"))
 
         if new:
+            # Sort by Valid Entries position to preserve order
+            new.sort(key=lambda x: x[0])
+            # Renumber sr sequentially starting after existing rows
+            base_sr = len(odata)  # existing row count including header
+            rows_to_write = []
+            for i, (_, nr) in enumerate(new):
+                nr[C["sr"]] = str(base_sr + i)
+                rows_to_write.append(nr)
             start = len(odata) + 1
-            end_row = start + len(new) - 1
+            end_row = start + len(rows_to_write) - 1
             end_col = _cl(len(O_HEADERS) - 1)
             self._retry(
                 self.ws.update,
-                values=new,
+                values=rows_to_write,
                 range_name=f"A{start}:{end_col}{end_row}",
                 value_input_option="USER_ENTERED",
             )
@@ -409,6 +434,54 @@ class Sheets:
                     }
                 )
         return rows
+
+    def write_bounce_note(self, row, ct, email, bounced_at):
+        """Write bounce note to Notes column and clear the bad email cell."""
+        try:
+            # Write to Notes column
+            notes_col = _cl(C["notes"])
+            existing_note = self.ws.acell(f"{notes_col}{row}").value or ""
+            self._p()
+            bounce_entry = f"⚠️ Bounced ({ct.upper()}): {email} | {bounced_at}"
+            if bounce_entry not in existing_note:
+                new_note = f"{existing_note} | {bounce_entry}".strip(" |") if existing_note else bounce_entry
+                self._retry(self.ws.update_acell, f"{notes_col}{row}", new_note)
+                self._p()
+            # Clear the bad email cell so finder retries
+            email_col = C["hm_email"] if ct == "hm" else C["rec_email"]
+            self._retry(self.ws.update_acell, f"{_cl(email_col)}{row}", "")
+            self._p()
+            log.info(f"Row {row}: bounce noted for {email}")
+        except Exception as e:
+            log.error(f"write_bounce_note row {row}: {e}")
+
+    def flag_bounced_rows(self, bounced_emails: set):
+        """Scan all Outreach rows, flag bounced emails in Notes, clear bad email cells."""
+        if not bounced_emails:
+            return 0
+        bounced_lower = {e.lower().strip() for e in bounced_emails}
+        try:
+            data = self.ws.get_all_values()
+            self._p()
+            flagged = 0
+            today = __import__('datetime').date.today().strftime("%b %d, %Y")
+            for i, r in enumerate(data[1:], start=2):
+                r = _pad(r)
+                he = r[C["hm_email"]].strip()
+                re_ = r[C["rec_email"]].strip()
+                if he and he.lower().strip() in bounced_lower:
+                    self.write_bounce_note(i, "hm", he, today)
+                    flagged += 1
+                if re_ and re_.lower().strip() in bounced_lower:
+                    self.write_bounce_note(i, "rec", re_, today)
+                    flagged += 1
+            if flagged:
+                log.info(f"flag_bounced_rows: flagged {flagged} bounced email(s)")
+                print(f"  Bounce flags: {flagged} bad email(s) noted and cleared")
+            return flagged
+        except Exception as e:
+            log.error(f"flag_bounced_rows failed: {e}")
+            return 0
 
     def write_email(self, row, ct, email, source):
         try:

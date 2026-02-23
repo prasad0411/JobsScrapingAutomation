@@ -231,6 +231,7 @@ def main():
         bounced_emails = BounceScanner.scan(svc, days_back=14)
         if bounced_emails:
             ma.set_bounced(bounced_emails)
+            sh.flag_bounced_rows(bounced_emails)
     except Exception as e:
         log.warning(f"Bounce scan failed (non-fatal): {e}")
 

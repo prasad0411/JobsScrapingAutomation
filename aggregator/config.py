@@ -236,6 +236,7 @@ INTERNSHIP_INDICATORS = [
     "student program",
     "early career program",
     "rotational program",
+    "data science",
 ]
 
 VALID_INTERNSHIP_TYPES = [
@@ -469,7 +470,7 @@ INTERNATIONAL_URL_INDICATORS = [
     "/gbp/",
     "-gbp-",
     "/sheffield-gbp/",
-    ".ca",
+    ".ca/",
     "/canada/",
     "/canadian/",
     ".com.au",
@@ -1039,6 +1040,10 @@ AMBIGUOUS_CITIES = {
     "waterloo": {"US": "IA", "Canada": "ON"},
     "windsor": {"US": "CT", "Canada": "ON"},
     "richmond": {"US": "VA", "Canada": "BC"},
+    "burlington": {"US": "MA", "Canada": "ON"},
+    "kingston": {"US": "NY", "Canada": "ON"},
+    "hamilton": {"US": "OH", "Canada": "ON"},
+    "victoria": {"US": "TX", "Canada": "BC"},
 }
 
 CANADIAN_COMPANIES = {

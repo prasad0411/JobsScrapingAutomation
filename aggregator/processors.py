@@ -142,8 +142,6 @@ class TitleProcessor:
         return title if len(title) >= 5 else original
 
     @staticmethod
-    @lru_cache(maxsize=256)
-    @staticmethod
     def is_university_restricted(company, title):
         if not company or not title:
             return False
