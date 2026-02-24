@@ -145,17 +145,7 @@ def load_data():
         "credentials.json",
     )
 
-    # Try Streamlit Cloud secrets first, then local file
-    if hasattr(st, "secrets") and "gcp_service_account" in st.secrets:
-        creds_dict = dict(st.secrets["gcp_service_account"])
-        creds = ServiceAccountCredentials.from_json_keyfile_dict(
-            creds_dict,
-            [
-                "https://spreadsheets.google.com/feeds",
-                "https://www.googleapis.com/auth/drive",
-            ],
-        )
-    elif os.path.exists(creds_path):
+    if os.path.exists(creds_path):
         creds = ServiceAccountCredentials.from_json_keyfile_name(
             creds_path,
             [
@@ -302,10 +292,10 @@ def main():
     if date_col:
         valid_df["date_parsed"] = valid_df[date_col].apply(parse_date)
         valid_df["week"] = valid_df["date_parsed"].apply(
-            lambda d: d.isocalendar()[1] if d else None
+            lambda d: d.isocalendar()[1] if d is not None and not pd.isna(d) else None
         )
         valid_df["date_only"] = valid_df["date_parsed"].apply(
-            lambda d: d.date() if d else None
+            lambda d: d.date() if d is not None and not pd.isna(d) else None
         )
 
     # Source column
