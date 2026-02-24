@@ -239,7 +239,7 @@ TZ_DISPLAY = {
     "US/Hawaii": "HT",
 }
 
-SEND_HOUR = 10
+SEND_HOUR = 9
 
 
 def _load_env():
