@@ -276,10 +276,9 @@ def warmup_limit():
         pass
     return MAX_DAILY
 
-
 LI_MSG_TEMPLATE = (
-    "Hi {first}, I applied for the {title} at {company} and wanted to connect. "
-    "1.5 yrs backend exp at Amdocs optimizing systems for 50M+ users, "
-    "MS CS at Northeastern. Would love to discuss the opportunity."
+    "Hi {first}, I applied for the {title} at {company} "
+    "and believe I'd be a strong fit for this role. Would love to connect "
+    "and discuss how I can contribute to your team. Looking forward to hearing from you."
 )
 LI_MSG_MAX = 300
