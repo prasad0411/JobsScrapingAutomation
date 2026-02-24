@@ -30,7 +30,7 @@ st.markdown(
     h1,h2,h3 { color: #e8eaed !important; font-weight: 700 !important; }
     .main-title { font-size: 40px; font-weight: 800; color: #e8eaed; margin-bottom: 2px; letter-spacing: -0.5px; }
     .main-sub { font-size: 18px; color: #7a8290; margin-bottom: 36px; }
-    .metric-card { background: linear-gradient(145deg, #181c24 0%, #141720 100%); border: 1px solid #252a35; border-radius: 14px; padding: 20px 14px; text-align: center; min-height: 140px; display: flex; flex-direction: column; justify-content: center; }
+    .metric-card { background: linear-gradient(145deg, #181c24 0%, #141720 100%); border: 1px solid #252a35; border-radius: 14px; padding: 20px 14px; text-align: center; height: 140px; display: flex; flex-direction: column; justify-content: center; }
     .metric-value { font-size: 36px; font-weight: 800; margin: 6px 0; letter-spacing: -1px; }
     .metric-label { font-size: 12px; color: #7a8290; text-transform: uppercase; letter-spacing: 1.5px; font-weight: 600; }
     .metric-sub { font-size: 11px; color: #555d6b; margin-top: 4px; }
@@ -81,7 +81,25 @@ def load_sheets():
         "Reviewed - Not Applied",
     ]:
         try:
-            sheets[tab] = pd.DataFrame(ss.worksheet(tab).get_all_records())
+            ws = ss.worksheet(tab)
+            all_vals = ws.get_all_values()
+            if len(all_vals) > 1:
+                headers = all_vals[0]
+                seen = {}
+                clean_headers = []
+                for h in headers:
+                    h = h.strip()
+                    if not h:
+                        h = f"_empty_{len(clean_headers)}"
+                    if h in seen:
+                        seen[h] += 1
+                        h = f"{h}_{seen[h]}"
+                    else:
+                        seen[h] = 0
+                    clean_headers.append(h)
+                sheets[tab] = pd.DataFrame(all_vals[1:], columns=clean_headers)
+            else:
+                sheets[tab] = pd.DataFrame()
         except Exception:
             sheets[tab] = pd.DataFrame()
     return sheets
