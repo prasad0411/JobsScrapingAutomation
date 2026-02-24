@@ -34,7 +34,8 @@ O_HEADERS = [
     "Recruiter Email",      # J (9)
     "Send At",              # K (10)
     "Sent Date",            # L (11)
-    "Notes",                # M (12)
+    "LinkedIn Msg",         # M (12)
+    "Notes",                # N (13)
 ]
 
 C = {
@@ -50,7 +51,8 @@ C = {
     "rec_email": 9,
     "send_at": 10,
     "sent_dt": 11,
-    "notes": 12,
+    "li_msg": 12,
+    "notes": 13,
 }
 
 SENDER_NAME = "Prasad Kanade"
@@ -273,3 +275,11 @@ def warmup_limit():
     except:
         pass
     return MAX_DAILY
+
+
+LI_MSG_TEMPLATE = (
+    "Hi {first}, I applied for the {title} at {company} and wanted to connect. "
+    "1.5 yrs backend exp at Amdocs optimizing systems for 50M+ users, "
+    "MS CS at Northeastern. Would love to discuss the opportunity."
+)
+LI_MSG_MAX = 300

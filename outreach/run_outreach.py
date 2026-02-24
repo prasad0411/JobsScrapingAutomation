@@ -246,6 +246,8 @@ def main():
         log.debug(f"Delivery marking skipped: {e}")
     s = phase_extract_and_draft(sh, fi, ma)
 
+    sh.populate_linkedin_msgs()
+
     d = phase_draft_existing(sh, ma)
     s["drafts"] += d["drafts"]
     s["draft_failed"] += d["draft_failed"]

@@ -29,6 +29,8 @@ from outreach.outreach_config import (
     STATE_TO_TIMEZONE,
     TZ_DISPLAY,
     SEND_HOUR,
+    LI_MSG_TEMPLATE,
+    LI_MSG_MAX,
 )
 
 log = logging.getLogger(__name__)
@@ -628,6 +630,47 @@ class Sheets:
         except Exception as e:
             log.debug(f"_retry_bounced_email failed: {e}")
         return None
+
+    def populate_linkedin_msgs(self):
+        """Auto-populate LinkedIn Msg column for rows that have HM or Rec names."""
+        try:
+            data = self.ws.get_all_values()
+            self._p()
+            updates = []
+            for i, r in enumerate(data[1:], start=2):
+                r = _pad(r)
+                existing_msg = r[C["li_msg"]].strip() if len(r) > C["li_msg"] else ""
+                if existing_msg:
+                    continue  # Already has a message
+                co = r[C["company"]].strip()
+                title = r[C["title"]].strip()
+                hn = r[C["hm_name"]].strip()
+                rn = r[C["rec_name"]].strip()
+                name = hn or rn
+                if not name or not co:
+                    continue
+                # Parse first name
+                first = name.split()[0].split(",")[0].strip()
+                # Truncate title if needed to stay under 300 chars
+                msg = LI_MSG_TEMPLATE.format(first=first, title=title, company=co)
+                if len(msg) > LI_MSG_MAX:
+                    # Shorten title
+                    over = len(msg) - LI_MSG_MAX + 3
+                    short_title = title[:len(title) - over] + "..."
+                    msg = LI_MSG_TEMPLATE.format(first=first, title=short_title, company=co)
+                col_letter = _cl(C["li_msg"])
+                updates.append({"range": f"{col_letter}{i}", "values": [[msg]]})
+            if updates:
+                for chunk_start in range(0, len(updates), 50):
+                    chunk = updates[chunk_start:chunk_start+50]
+                    self._retry(self.ws.batch_update, chunk, value_input_option="USER_ENTERED")
+                    self._p()
+                print(f"  LinkedIn messages: {len(updates)} generated")
+                log.info(f"populate_linkedin_msgs: {len(updates)} messages written")
+            return len(updates)
+        except Exception as e:
+            log.error(f"populate_linkedin_msgs failed: {e}")
+            return 0
 
     def write_email(self, row, ct, email, source):
         try:

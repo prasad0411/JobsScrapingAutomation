@@ -317,6 +317,18 @@ class TitleProcessor:
                     return False, f"Senior/experienced role: contains '{level}'"
             return True, None
 
+        # Trust page text if it says Internship (catches Simplify pages with generic titles)
+        if page_text:
+            page_lower = page_text[:2000].lower()
+            if any(marker in page_lower for marker in [
+                "internship", "intern position", "intern program",
+                "summer intern", "co-op position", "co-op program",
+            ]):
+                for level in excluded:
+                    if level in title_lower:
+                        return False, f"Senior/experienced role: contains '{level}'"
+                return True, None
+
         if "graduate" in title_lower:
             for pattern in GRADUATE_PROGRAM_PATTERNS:
                 if re.search(pattern, title_lower):
