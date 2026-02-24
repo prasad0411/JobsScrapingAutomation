@@ -1,150 +1,55 @@
 #!/usr/bin/env python3
 """
-Job Hunt Dashboard — Streamlit App
-
-Run locally:
+Job Hunt Analytics Dashboard
     streamlit run dashboard/app.py
-
-Deploy on Streamlit Cloud:
-    1. Push to GitHub
-    2. Go to share.streamlit.io
-    3. Connect repo, set main file to dashboard/app.py
-    4. Add secrets (Google Sheets credentials)
 """
 
 import streamlit as st
 import pandas as pd
 import gspread
-import json
 import os
+import re
 from datetime import datetime, timedelta
 from oauth2client.service_account import ServiceAccountCredentials
 import plotly.express as px
 import plotly.graph_objects as go
 
-# ─── Page Config ───────────────────────────────────────────────
-
 st.set_page_config(
-    page_title="Job Hunt Analytics",
+    page_title="Job Hunt Analytics | Prasad Kanade",
     page_icon="--",
     layout="wide",
     initial_sidebar_state="collapsed",
 )
 
-# ─── Custom CSS ────────────────────────────────────────────────
-
 st.markdown(
     """
 <style>
-    @import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;700&family=Space+Grotesk:wght@400;500;600;700&display=swap');
-
-    .stApp {
-        background-color: #0E1117;
-        color: #FAFAFA;
-    }
-
-    h1, h2, h3 {
-        font-family: 'Space Grotesk', sans-serif !important;
-        color: #FAFAFA !important;
-    }
-
-    p, span, div, label {
-        font-family: 'DM Sans', sans-serif !important;
-    }
-
-    /* Metric cards */
-    .metric-card {
-        background: linear-gradient(135deg, #1a1f2e 0%, #151922 100%);
-        border: 1px solid #2a3040;
-        border-radius: 12px;
-        padding: 24px;
-        text-align: center;
-        transition: transform 0.2s ease;
-    }
-    .metric-card:hover {
-        transform: translateY(-2px);
-        border-color: #4a90d9;
-    }
-    .metric-value {
-        font-family: 'Space Grotesk', sans-serif;
-        font-size: 42px;
-        font-weight: 700;
-        color: #4a90d9;
-        margin: 8px 0;
-    }
-    .metric-label {
-        font-family: 'DM Sans', sans-serif;
-        font-size: 14px;
-        color: #8892a0;
-        text-transform: uppercase;
-        letter-spacing: 1.2px;
-    }
-    .metric-sub {
-        font-family: 'DM Sans', sans-serif;
-        font-size: 13px;
-        color: #5a6270;
-        margin-top: 4px;
-    }
-
-    /* Status pills */
-    .status-applied { color: #4CAF50; }
-    .status-rejected { color: #f44336; }
-    .status-oa { color: #FF9800; }
-
-    /* Header */
-    .dashboard-header {
-        font-family: 'Space Grotesk', sans-serif;
-        font-size: 36px;
-        font-weight: 700;
-        color: #FAFAFA;
-        margin-bottom: 4px;
-    }
-    .dashboard-sub {
-        font-family: 'DM Sans', sans-serif;
-        font-size: 16px;
-        color: #6a7380;
-        margin-bottom: 32px;
-    }
-
-    /* Section headers */
-    .section-header {
-        font-family: 'Space Grotesk', sans-serif;
-        font-size: 20px;
-        font-weight: 600;
-        color: #c0c8d4;
-        margin-top: 32px;
-        margin-bottom: 16px;
-        padding-bottom: 8px;
-        border-bottom: 1px solid #2a3040;
-    }
-
-    /* Hide Streamlit branding */
-    #MainMenu {visibility: hidden;}
-    footer {visibility: hidden;}
-    header {visibility: hidden;}
-
-    /* Plotly chart backgrounds */
-    .js-plotly-plot .plotly .bg {
-        fill: transparent !important;
-    }
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
+    .stApp { background-color: #0f1116; color: #e8eaed; }
+    * { font-family: 'Inter', sans-serif !important; }
+    h1,h2,h3 { color: #e8eaed !important; font-weight: 700 !important; }
+    .main-title { font-size: 40px; font-weight: 800; color: #e8eaed; margin-bottom: 2px; letter-spacing: -0.5px; }
+    .main-sub { font-size: 18px; color: #7a8290; margin-bottom: 36px; }
+    .metric-card { background: linear-gradient(145deg, #181c24 0%, #141720 100%); border: 1px solid #252a35; border-radius: 14px; padding: 20px 14px; text-align: center; min-height: 140px; display: flex; flex-direction: column; justify-content: center; }
+    .metric-value { font-size: 36px; font-weight: 800; margin: 6px 0; letter-spacing: -1px; }
+    .metric-label { font-size: 12px; color: #7a8290; text-transform: uppercase; letter-spacing: 1.5px; font-weight: 600; }
+    .metric-sub { font-size: 11px; color: #555d6b; margin-top: 4px; }
+    .v-blue{color:#5b9bf5} .v-green{color:#4ade80} .v-red{color:#f87171} .v-amber{color:#fbbf24} .v-purple{color:#a78bfa} .v-cyan{color:#22d3ee} .v-white{color:#e8eaed} .v-orange{color:#fb923c}
+    .section-title { font-size: 22px; font-weight: 700; color: #c0c6d0; margin-top: 40px; margin-bottom: 18px; padding-bottom: 10px; border-bottom: 2px solid #1e2330; }
+    #MainMenu{visibility:hidden} footer{visibility:hidden} header{visibility:hidden}
 </style>
 """,
     unsafe_allow_html=True,
 )
 
 
-# ─── Data Loading ──────────────────────────────────────────────
-
-
-@st.cache_data(ttl=300)  # Cache for 5 minutes
-def load_data():
-    """Load data from Google Sheets."""
+@st.cache_data(ttl=300)
+def load_sheets():
     creds_path = os.path.join(
         os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
         ".local",
         "credentials.json",
     )
-
     if os.path.exists(creds_path):
         creds = ServiceAccountCredentials.from_json_keyfile_name(
             creds_path,
@@ -154,491 +59,723 @@ def load_data():
             ],
         )
     else:
-        st.error(
-            "No credentials found. Add .local/credentials.json or Streamlit secrets."
-        )
-        return None, None, None
-
+        try:
+            creds = ServiceAccountCredentials.from_json_keyfile_dict(
+                dict(st.secrets["gcp_service_account"]),
+                [
+                    "https://spreadsheets.google.com/feeds",
+                    "https://www.googleapis.com/auth/drive",
+                ],
+            )
+        except Exception:
+            st.error("No credentials found.")
+            return {}
     gc = gspread.authorize(creds)
     ss = gc.open("H1B visa")
-
-    # Load Valid Entries
-    try:
-        valid_ws = ss.worksheet("Valid Entries")
-        valid_data = valid_ws.get_all_records()
-        valid_df = pd.DataFrame(valid_data)
-    except Exception as e:
-        st.error(f"Failed to load Valid Entries: {e}")
-        valid_df = pd.DataFrame()
-
-    # Load Discarded Entries
-    try:
-        disc_ws = ss.worksheet("Discarded Entries")
-        disc_data = disc_ws.get_all_records()
-        disc_df = pd.DataFrame(disc_data)
-    except Exception:
-        disc_df = pd.DataFrame()
-
-    # Load Outreach Tracker
-    try:
-        out_ws = ss.worksheet("Outreach Tracker")
-        out_data = out_ws.get_all_records()
-        out_df = pd.DataFrame(out_data)
-    except Exception:
-        out_df = pd.DataFrame()
-
-    return valid_df, disc_df, out_df
-
-
-# ─── Helper Functions ──────────────────────────────────────────
-
-
-def parse_status(status_str):
-    """Normalize status strings."""
-    if not status_str or not isinstance(status_str, str):
-        return "Unknown"
-    s = status_str.strip().lower()
-    if "applied" in s and "not" not in s:
-        return "Applied"
-    elif "not applied" in s:
-        return "Not Applied"
-    elif "rejected" in s:
-        return "Rejected"
-    elif "oa" in s:
-        return "OA Round"
-    elif "offer" in s:
-        return "Offer"
-    elif "interview" in s:
-        return "Interview"
-    return status_str.strip()
-
-
-def parse_date(date_str):
-    """Parse various date formats from the sheet."""
-    if not date_str or not isinstance(date_str, str):
-        return None
-    date_str = date_str.strip()
-    formats = [
-        "%d %B, %Y",
-        "%d %B, %I:%M %p",
-        "%d %B, %I:%M %p",
-        "%B %d, %Y",
-        "%d %B %Y",
-    ]
-    for fmt in formats:
+    sheets = {}
+    for tab in [
+        "Internship Applications",
+        "Valid Entries",
+        "Discarded Entries",
+        "Outreach Tracker",
+        "Reviewed - Not Applied",
+    ]:
         try:
-            return datetime.strptime(date_str, fmt)
+            sheets[tab] = pd.DataFrame(ss.worksheet(tab).get_all_records())
+        except Exception:
+            sheets[tab] = pd.DataFrame()
+    return sheets
+
+
+def parse_date(d):
+    if not d or not isinstance(d, str) or d.strip() in ("", "N/A"):
+        return None
+    d = d.strip()
+    for fmt in [
+        "%d %B, %Y",
+        "%d %B %Y",
+        "%B %d, %Y",
+        "%B %d %Y",
+        "%d %B, %I:%M %p",
+        "%d %B, %I:%M:%S %p",
+        "%Y-%m-%d",
+    ]:
+        try:
+            dt = datetime.strptime(d, fmt)
+            return dt.replace(year=2026) if dt.year < 2000 else dt
         except ValueError:
             continue
-    # Try partial: "05 February, 10:35 PM" → add current year
-    try:
-        dt = datetime.strptime(date_str, "%d %B, %I:%M %p")
-        return dt.replace(year=2026)
-    except ValueError:
-        pass
+    m = re.match(r"(\w+ \d{1,2},?\s*\d{4})", d)
+    if m:
+        try:
+            return datetime.strptime(m.group(1).replace(",", ""), "%B %d %Y")
+        except ValueError:
+            pass
     return None
 
 
-def metric_card(label, value, sub=""):
-    """Render a styled metric card."""
-    sub_html = f'<div class="metric-sub">{sub}</div>' if sub else ""
-    return f"""
-    <div class="metric-card">
-        <div class="metric-label">{label}</div>
-        <div class="metric-value">{value}</div>
-        {sub_html}
-    </div>
-    """
+def norm_status(s):
+    if not s or not isinstance(s, str):
+        return "Unknown"
+    sl = s.strip().lower()
+    if "offer" in sl:
+        return "Offer"
+    if "interview" in sl:
+        return "Interview"
+    if "oa round 2" in sl:
+        return "OA Round 2"
+    if "oa round 1" in sl:
+        return "OA Round 1"
+    if "assessment" in sl:
+        return "Assessment"
+    if "not applied" in sl:
+        return "Not Applied"
+    if "rejected" in sl:
+        return "Rejected"
+    if "applied" in sl:
+        return "Applied"
+    return s.strip()
 
 
-# ─── Main App ─────────────────────────────────────────────────
+def norm_source(s):
+    if not s or not isinstance(s, str):
+        return "Other"
+    sl = s.strip()
+    mapping = {
+        "SimplifyJobs": "Simplify Repo",
+        "vanshb03": "Vansh Repo",
+        "SWE List": "SWE List",
+        "SWE List Email": "SWE List",
+        "Jobright": "Jobright",
+        "Jobright/LinkedIn": "Jobright",
+        "ZipRecruiter": "ZipRecruiter",
+        "Manual": "Manual",
+        "LinkedIn": "LinkedIn",
+        "GitHub": "GitHub",
+    }
+    return mapping.get(sl, sl)
+
+
+def card(label, value, color="v-blue", sub=""):
+    s = f'<div class="metric-sub">{sub}</div>' if sub else ""
+    return f'<div class="metric-card"><div class="metric-label">{label}</div><div class="metric-value {color}">{value}</div>{s}</div>'
+
+
+def combine(sheets):
+    frames = []
+    for name in ["Internship Applications", "Valid Entries"]:
+        df = sheets.get(name, pd.DataFrame())
+        if df.empty:
+            continue
+        col_map = {}
+        for c in df.columns:
+            cl = c.strip().lower()
+            if cl == "status":
+                col_map[c] = "status"
+            elif cl == "company":
+                col_map[c] = "company"
+            elif cl in ("title", "job title"):
+                col_map[c] = "title"
+            elif cl == "date applied":
+                col_map[c] = "date_applied"
+            elif cl == "location":
+                col_map[c] = "location"
+            elif cl in ("remote?", "remote"):
+                col_map[c] = "remote"
+            elif cl == "source":
+                col_map[c] = "source"
+            elif cl == "notes":
+                col_map[c] = "notes"
+        df = df.rename(columns=col_map)
+        df["_src"] = name
+        keep = [
+            c
+            for c in [
+                "status",
+                "company",
+                "title",
+                "date_applied",
+                "location",
+                "remote",
+                "source",
+                "notes",
+                "_src",
+            ]
+            if c in df.columns
+        ]
+        frames.append(df[keep])
+    if not frames:
+        return pd.DataFrame()
+    df = pd.concat(frames, ignore_index=True)
+    # Remove rows with no company
+    if "company" in df.columns:
+        df = df[df["company"].apply(lambda x: bool(str(x).strip()))]
+    df["status_clean"] = (
+        df["status"].apply(norm_status) if "status" in df.columns else "Unknown"
+    )
+    if "source" in df.columns:
+        df["source_clean"] = df["source"].apply(norm_source)
+    if "date_applied" in df.columns:
+        df["dt"] = df["date_applied"].apply(parse_date)
+        df["date_only"] = df["dt"].apply(
+            lambda d: d.date() if d is not None and not pd.isna(d) else None
+        )
+        df["month"] = df["dt"].apply(
+            lambda d: d.strftime("%Y-%m") if d is not None and not pd.isna(d) else None
+        )
+        df["month_label"] = df["dt"].apply(
+            lambda d: d.strftime("%b %Y") if d is not None and not pd.isna(d) else None
+        )
+    return df
 
 
 def main():
-    # Header
     st.markdown(
-        '<div class="dashboard-header">Job Hunt Analytics</div>', unsafe_allow_html=True
+        '<div class="main-title">Job Hunt Analytics</div>', unsafe_allow_html=True
     )
     st.markdown(
-        '<div class="dashboard-sub">Prasad Kanade | MS CS Northeastern | Summer 2026 Internships</div>',
+        '<div class="main-sub">Prasad Kanade  |  MS Computer Science, Northeastern University</div>',
         unsafe_allow_html=True,
     )
 
-    # Load data
-    with st.spinner("Loading live data from Google Sheets..."):
-        valid_df, disc_df, out_df = load_data()
-
-    if valid_df is None or valid_df.empty:
-        st.warning("No data found in Valid Entries sheet.")
+    with st.spinner("Loading..."):
+        sheets = load_sheets()
+    if not sheets:
         return
 
-    # ─── Parse and clean data ──────────────────────────────────
+    df = combine(sheets)
+    disc = sheets.get("Discarded Entries", pd.DataFrame())
+    out = sheets.get("Outreach Tracker", pd.DataFrame())
+    rev = sheets.get("Reviewed - Not Applied", pd.DataFrame())
 
-    # Normalize status column
-    status_col = "Status" if "Status" in valid_df.columns else valid_df.columns[1]
-    valid_df["status_clean"] = valid_df[status_col].apply(parse_status)
+    if df.empty:
+        st.warning("No data found.")
+        return
 
-    # Parse dates
-    date_col = None
-    for col in [
-        "Date Applied",
-        "Entry Date",
-        valid_df.columns[4] if len(valid_df.columns) > 4 else "",
-    ]:
-        if col in valid_df.columns:
-            date_col = col
-            break
-
-    if date_col:
-        valid_df["date_parsed"] = valid_df[date_col].apply(parse_date)
-        valid_df["week"] = valid_df["date_parsed"].apply(
-            lambda d: d.isocalendar()[1] if d is not None and not pd.isna(d) else None
-        )
-        valid_df["date_only"] = valid_df["date_parsed"].apply(
-            lambda d: d.date() if d is not None and not pd.isna(d) else None
-        )
-
-    # Source column
-    source_col = None
-    for col in ["Source", valid_df.columns[-1] if len(valid_df.columns) > 10 else ""]:
-        if col in valid_df.columns and valid_df[col].dtype == object:
-            unique_vals = valid_df[col].dropna().unique()
-            if any(
-                s in str(unique_vals) for s in ["SWE", "Jobright", "Simplify", "Manual"]
-            ):
-                source_col = col
-                break
-
-    # Company column
-    company_col = "Company" if "Company" in valid_df.columns else valid_df.columns[2]
-
-    # ─── Top Metrics Row ───────────────────────────────────────
-
-    total = len(valid_df)
-    applied = len(valid_df[valid_df["status_clean"] == "Applied"])
-    rejected = len(valid_df[valid_df["status_clean"] == "Rejected"])
-    oa_rounds = len(valid_df[valid_df["status_clean"] == "OA Round"])
-    not_applied = len(valid_df[valid_df["status_clean"] == "Not Applied"])
-    discarded_count = len(disc_df) if disc_df is not None and not disc_df.empty else 0
-
-    # Calculate this week's applications
-    this_week = 0
-    if "date_parsed" in valid_df.columns:
+    # Filter future dates
+    if "dt" in df.columns:
         now = datetime.now()
-        week_start = now - timedelta(days=now.weekday())
-        this_week = len(
-            valid_df[
-                valid_df["date_parsed"].apply(
-                    lambda d: d is not None and d >= week_start
-                )
-            ]
-        )
+        df = df[
+            df["dt"].apply(
+                lambda d: d is None or pd.isna(d) or d <= now + timedelta(days=1)
+            )
+        ]
 
-    col1, col2, col3, col4, col5, col6 = st.columns(6)
-    with col1:
+    total = len(df)
+    sc = df["status_clean"].value_counts()
+    applied = sc.get("Applied", 0)
+    rejected = sc.get("Rejected", 0)
+    oa1 = sc.get("OA Round 1", 0) + sc.get("Assessment", 0)
+    oa2 = sc.get("OA Round 2", 0)
+    interviews = sc.get("Interview", 0)
+    # Count OA Round 2 as interviews too (Datacor went to technical interview via OA Round 2)
+    total_interviews = interviews + oa2
+    offers = sc.get("Offer", 0)
+    not_applied = sc.get("Not Applied", 0)
+    disc_total = len(disc) if not disc.empty else 0
+    rev_total = len(rev) if not rev.empty else 0
+
+    # ── Pipeline ───────────────────────────────────────────────
+    st.markdown(
+        '<div class="section-title">Application Pipeline</div>', unsafe_allow_html=True
+    )
+    c1, c2, c3, c4, c5, c6, c7 = st.columns(7)
+    with c1:
         st.markdown(
-            metric_card("Total Jobs", total, f"{discarded_count} discarded"),
-            unsafe_allow_html=True,
+            card("Total Applications", total, "v-white"), unsafe_allow_html=True
         )
-    with col2:
+    with c2:
         st.markdown(
-            metric_card("Applied", applied, f"{applied*100//max(total,1)}% of total"),
-            unsafe_allow_html=True,
-        )
-    with col3:
-        st.markdown(metric_card("Not Applied", not_applied), unsafe_allow_html=True)
-    with col4:
-        st.markdown(
-            metric_card(
-                "Rejected", rejected, f"{rejected*100//max(applied,1)}% rejection rate"
+            card(
+                "Applied", applied, "v-green", f"{applied*100//max(total,1)}% of total"
             ),
             unsafe_allow_html=True,
         )
-    with col5:
-        st.markdown(metric_card("OA Rounds", oa_rounds), unsafe_allow_html=True)
-    with col6:
+    with c3:
+        st.markdown(card("Not Applied", not_applied, "v-blue"), unsafe_allow_html=True)
+    with c4:
         st.markdown(
-            metric_card("This Week", this_week, "applications"), unsafe_allow_html=True
-        )
-
-    st.markdown("<br>", unsafe_allow_html=True)
-
-    # ─── Outreach Metrics ──────────────────────────────────────
-
-    if out_df is not None and not out_df.empty:
-        notes_col_name = (
-            "Notes"
-            if "Notes" in out_df.columns
-            else (out_df.columns[-1] if len(out_df.columns) > 12 else "")
-        )
-        hm_email_col = "HM Email" if "HM Email" in out_df.columns else ""
-        rec_email_col = "Recruiter Email" if "Recruiter Email" in out_df.columns else ""
-
-        emails_found = 0
-        emails_delivered = 0
-        emails_bounced = 0
-
-        if hm_email_col:
-            emails_found += (
-                out_df[hm_email_col]
-                .apply(lambda x: bool(str(x).strip() and "@" in str(x)))
-                .sum()
-            )
-        if rec_email_col:
-            emails_found += (
-                out_df[rec_email_col]
-                .apply(lambda x: bool(str(x).strip() and "@" in str(x)))
-                .sum()
-            )
-
-        if notes_col_name and notes_col_name in out_df.columns:
-            emails_delivered = (
-                out_df[notes_col_name].apply(lambda x: "Delivered" in str(x)).sum()
-            )
-            emails_bounced = (
-                out_df[notes_col_name]
-                .apply(lambda x: "bounced" in str(x).lower())
-                .sum()
-            )
-
-        st.markdown(
-            '<div class="section-header">Outreach Pipeline</div>',
+            card(
+                "Rejected",
+                rejected,
+                "v-red",
+                f"{rejected*100//max(applied+rejected,1)}% rate",
+            ),
             unsafe_allow_html=True,
         )
-        oc1, oc2, oc3, oc4 = st.columns(4)
-        with oc1:
-            st.markdown(
-                metric_card("Emails Found", emails_found), unsafe_allow_html=True
-            )
-        with oc2:
-            st.markdown(
-                metric_card("Delivered", emails_delivered), unsafe_allow_html=True
-            )
-        with oc3:
-            st.markdown(metric_card("Bounced", emails_bounced), unsafe_allow_html=True)
-        with oc4:
-            pending = len(out_df) - emails_found // 2  # Rough estimate
-            st.markdown(
-                metric_card("Pending Discovery", max(0, pending)),
-                unsafe_allow_html=True,
-            )
+    with c5:
+        st.markdown(
+            card(
+                "OA / Assessment",
+                oa1,
+                "v-amber",
+                f"Round 1: {sc.get('OA Round 1',0) + sc.get('Assessment',0)}",
+            ),
+            unsafe_allow_html=True,
+        )
+    with c6:
+        st.markdown(
+            card(
+                "Interviews",
+                total_interviews,
+                "v-purple",
+                f"R1: {interviews} | R2: {oa2}",
+            ),
+            unsafe_allow_html=True,
+        )
+    with c7:
+        st.markdown(card("Offers", offers, "v-cyan"), unsafe_allow_html=True)
 
     st.markdown("<br>", unsafe_allow_html=True)
 
-    # ─── Charts Row 1: Status + Source ─────────────────────────
-
+    # ── Automation Metrics ─────────────────────────────────────
     st.markdown(
-        '<div class="section-header">Application Breakdown</div>',
-        unsafe_allow_html=True,
+        '<div class="section-title">Automation Metrics</div>', unsafe_allow_html=True
     )
 
-    chart_col1, chart_col2 = st.columns(2)
+    # Outreach stats from actual sheet
+    emails_sent = 0
+    emails_delivered = 0
+    emails_bounced = 0
+    companies_reached = 0
+    li_msgs_generated = 0
 
-    with chart_col1:
-        # Status distribution
-        status_counts = valid_df["status_clean"].value_counts().reset_index()
-        status_counts.columns = ["Status", "Count"]
+    if not out.empty:
+        for col in out.columns:
+            cl = col.strip().lower()
+            if "hm email" in cl:
+                hm_count = (
+                    out[col]
+                    .apply(lambda x: bool(str(x).strip() and "@" in str(x)))
+                    .sum()
+                )
+                emails_sent += hm_count
+                companies_reached = hm_count
+            elif "recruiter email" in cl:
+                emails_sent += (
+                    out[col]
+                    .apply(lambda x: bool(str(x).strip() and "@" in str(x)))
+                    .sum()
+                )
+            elif cl == "notes":
+                emails_delivered += (
+                    out[col].apply(lambda x: "Delivered" in str(x)).sum()
+                )
+                emails_bounced += (
+                    out[col].apply(lambda x: "bounced" in str(x).lower()).sum()
+                )
+            elif "linkedin msg" in cl:
+                li_msgs_generated += (
+                    out[col]
+                    .apply(lambda x: bool(str(x).strip() and len(str(x).strip()) > 20))
+                    .sum()
+                )
 
-        color_map = {
-            "Applied": "#4CAF50",
-            "Not Applied": "#607D8B",
-            "Rejected": "#f44336",
-            "OA Round": "#FF9800",
-            "Interview": "#2196F3",
-            "Offer": "#9C27B0",
-            "Unknown": "#455A64",
-        }
+    # Count rows with Send At filled (emails actually scheduled/sent)
+    emails_scheduled = 0
+    if not out.empty:
+        for col in out.columns:
+            if "send at" in col.strip().lower():
+                emails_scheduled = out[col].apply(lambda x: bool(str(x).strip())).sum()
+                break
 
-        fig_status = px.pie(
-            status_counts,
+    a1, a2, a3, a4, a5 = st.columns(5)
+    with a1:
+        st.markdown(
+            card(
+                "Jobs Processed",
+                total + disc_total,
+                "v-white",
+                f"{total} valid | {disc_total} filtered",
+            ),
+            unsafe_allow_html=True,
+        )
+    with a2:
+        st.markdown(
+            card("Reviewed and Skipped", rev_total, "v-blue"), unsafe_allow_html=True
+        )
+    with a3:
+        st.markdown(
+            card(
+                "Outreach Emails Sent",
+                emails_sent,
+                "v-green",
+                f"{emails_scheduled} scheduled",
+            ),
+            unsafe_allow_html=True,
+        )
+    with a4:
+        st.markdown(
+            card(
+                "Emails Bounced",
+                emails_bounced,
+                "v-red",
+                f"{emails_delivered} delivered",
+            ),
+            unsafe_allow_html=True,
+        )
+    with a5:
+        st.markdown(
+            card(
+                "Companies Reached",
+                companies_reached,
+                "v-purple",
+                f"{li_msgs_generated} LinkedIn msgs",
+            ),
+            unsafe_allow_html=True,
+        )
+
+    st.markdown("<br>", unsafe_allow_html=True)
+
+    # ── Status + Source ────────────────────────────────────────
+    st.markdown(
+        '<div class="section-title">Application Breakdown</div>', unsafe_allow_html=True
+    )
+
+    colors = {
+        "Applied": "#4ade80",
+        "Not Applied": "#475569",
+        "Rejected": "#f87171",
+        "OA Round 1": "#fbbf24",
+        "OA Round 2": "#fb923c",
+        "Assessment": "#f59e0b",
+        "Interview": "#a78bfa",
+        "Offer": "#22d3ee",
+        "Unknown": "#334155",
+    }
+
+    ch1, ch2 = st.columns(2)
+    with ch1:
+        scd = df["status_clean"].value_counts().reset_index()
+        scd.columns = ["Status", "Count"]
+        fig = px.pie(
+            scd,
             values="Count",
             names="Status",
             color="Status",
-            color_discrete_map=color_map,
-            hole=0.5,
+            color_discrete_map=colors,
+            hole=0.55,
         )
-        fig_status.update_layout(
-            title=dict(
-                text="Applications by Status",
-                font=dict(family="Space Grotesk", size=18, color="#c0c8d4"),
-            ),
+        fig.update_layout(
+            title=dict(text="Status Distribution", font=dict(size=18, color="#c0c6d0")),
             paper_bgcolor="rgba(0,0,0,0)",
             plot_bgcolor="rgba(0,0,0,0)",
-            font=dict(family="DM Sans", color="#8892a0"),
-            legend=dict(font=dict(size=12)),
+            font=dict(color="#7a8290", size=13),
             margin=dict(t=50, b=20, l=20, r=20),
-            height=400,
+            height=420,
         )
-        fig_status.update_traces(textinfo="value+percent", textfont_size=12)
-        st.plotly_chart(fig_status, use_container_width=True)
+        fig.update_traces(textinfo="value+percent", textfont_size=13)
+        st.plotly_chart(fig, use_container_width=True)
 
-    with chart_col2:
-        # Source distribution
-        if source_col:
-            source_counts = valid_df[source_col].value_counts().head(10).reset_index()
-            source_counts.columns = ["Source", "Count"]
-
-            fig_source = px.bar(
-                source_counts,
+    with ch2:
+        if "source_clean" in df.columns:
+            src = df["source_clean"].value_counts().head(10).reset_index()
+            src.columns = ["Source", "Count"]
+            fig2 = px.bar(
+                src,
                 x="Count",
                 y="Source",
                 orientation="h",
                 color="Count",
-                color_continuous_scale=["#1a3a5c", "#4a90d9", "#7ab8f5"],
+                color_continuous_scale=["#1e3a5f", "#5b9bf5"],
             )
-            fig_source.update_layout(
+            fig2.update_layout(
                 title=dict(
-                    text="Jobs by Source",
-                    font=dict(family="Space Grotesk", size=18, color="#c0c8d4"),
+                    text="Applications by Source", font=dict(size=18, color="#c0c6d0")
                 ),
                 paper_bgcolor="rgba(0,0,0,0)",
                 plot_bgcolor="rgba(0,0,0,0)",
-                font=dict(family="DM Sans", color="#8892a0"),
-                xaxis=dict(gridcolor="#1e2530"),
-                yaxis=dict(gridcolor="#1e2530", autorange="reversed"),
+                font=dict(color="#7a8290", size=13),
+                xaxis=dict(gridcolor="#1c2230"),
+                yaxis=dict(gridcolor="#1c2230", autorange="reversed"),
                 coloraxis_showscale=False,
                 margin=dict(t=50, b=20, l=20, r=20),
-                height=400,
+                height=420,
             )
-            st.plotly_chart(fig_source, use_container_width=True)
-        else:
-            st.info("Source column not detected in sheet")
+            fig2.update_traces(
+                texttemplate="%{x}", textposition="outside", textfont_size=12
+            )
+            st.plotly_chart(fig2, use_container_width=True)
 
-    # ─── Charts Row 2: Timeline + Top Companies ───────────────
-
+    # ── Timeline + Monthly ─────────────────────────────────────
     st.markdown(
-        '<div class="section-header">Trends and Top Companies</div>',
-        unsafe_allow_html=True,
+        '<div class="section-title">Application Timeline</div>', unsafe_allow_html=True
     )
 
-    chart_col3, chart_col4 = st.columns(2)
+    ch3, ch4 = st.columns(2)
 
-    with chart_col3:
-        # Applications over time
-        if "date_only" in valid_df.columns:
-            daily = (
-                valid_df.dropna(subset=["date_only"])
-                .groupby("date_only")
-                .size()
+    with ch3:
+        if "date_only" in df.columns:
+            # Weekly aggregation for wider bars
+            df_dated = df.dropna(subset=["date_only"]).copy()
+            df_dated["date_dt"] = pd.to_datetime(df_dated["date_only"])
+            df_dated = df_dated[df_dated["date_dt"] <= pd.Timestamp.now()]
+            weekly = (
+                df_dated.set_index("date_dt")
+                .resample("W")["status_clean"]
+                .count()
                 .reset_index()
             )
-            daily.columns = ["Date", "Count"]
-            daily["Cumulative"] = daily["Count"].cumsum()
-            daily["Date"] = pd.to_datetime(daily["Date"])
+            weekly.columns = ["Week", "Count"]
+            weekly["Cumulative"] = weekly["Count"].cumsum()
 
-            fig_timeline = go.Figure()
-            fig_timeline.add_trace(
+            fig3 = go.Figure()
+            fig3.add_trace(
                 go.Bar(
-                    x=daily["Date"],
-                    y=daily["Count"],
-                    name="Daily",
-                    marker_color="#2a5a8a",
-                    opacity=0.6,
+                    x=weekly["Week"],
+                    y=weekly["Count"],
+                    name="Weekly",
+                    marker_color="#1e3a5f",
+                    opacity=0.8,
+                    width=5 * 86400000,  # 5 days wide
                 )
             )
-            fig_timeline.add_trace(
+            fig3.add_trace(
                 go.Scatter(
-                    x=daily["Date"],
-                    y=daily["Cumulative"],
+                    x=weekly["Week"],
+                    y=weekly["Cumulative"],
                     name="Cumulative",
-                    line=dict(color="#4a90d9", width=3),
+                    line=dict(color="#5b9bf5", width=3),
                     yaxis="y2",
                 )
             )
-            fig_timeline.update_layout(
+            fig3.update_layout(
                 title=dict(
-                    text="Applications Over Time",
-                    font=dict(family="Space Grotesk", size=18, color="#c0c8d4"),
+                    text="Applications Over Time (Weekly)",
+                    font=dict(size=18, color="#c0c6d0"),
                 ),
                 paper_bgcolor="rgba(0,0,0,0)",
                 plot_bgcolor="rgba(0,0,0,0)",
-                font=dict(family="DM Sans", color="#8892a0"),
-                xaxis=dict(gridcolor="#1e2530"),
-                yaxis=dict(title="Daily", gridcolor="#1e2530"),
+                font=dict(color="#7a8290", size=13),
+                xaxis=dict(gridcolor="#1c2230"),
+                yaxis=dict(title="Weekly", gridcolor="#1c2230"),
                 yaxis2=dict(
                     title="Cumulative",
                     overlaying="y",
                     side="right",
-                    gridcolor="#1e2530",
+                    gridcolor="#1c2230",
                 ),
-                legend=dict(x=0.01, y=0.99, font=dict(size=11)),
+                legend=dict(x=0.01, y=0.99, font=dict(size=12)),
                 margin=dict(t=50, b=20, l=20, r=40),
-                height=400,
+                height=420,
                 hovermode="x unified",
             )
-            st.plotly_chart(fig_timeline, use_container_width=True)
-        else:
-            st.info("Date column not detected")
+            st.plotly_chart(fig3, use_container_width=True)
 
-    with chart_col4:
-        # Top companies
-        company_counts = valid_df[company_col].value_counts().head(15).reset_index()
-        company_counts.columns = ["Company", "Applications"]
+    with ch4:
+        if "month" in df.columns:
+            monthly = (
+                df.dropna(subset=["month"])
+                .groupby(["month", "month_label"])
+                .size()
+                .reset_index()
+            )
+            monthly.columns = ["sort", "Month", "Apps"]
+            monthly = monthly.sort_values("sort")
+            current_month = datetime.now().strftime("%Y-%m")
+            monthly = monthly[monthly["sort"] <= current_month]
 
-        fig_companies = px.bar(
-            company_counts,
-            x="Applications",
-            y="Company",
-            orientation="h",
-            color="Applications",
-            color_continuous_scale=["#1a3a5c", "#4a90d9", "#7ab8f5"],
-        )
-        fig_companies.update_layout(
-            title=dict(
-                text="Top Companies (by # of roles)",
-                font=dict(family="Space Grotesk", size=18, color="#c0c8d4"),
-            ),
-            paper_bgcolor="rgba(0,0,0,0)",
-            plot_bgcolor="rgba(0,0,0,0)",
-            font=dict(family="DM Sans", color="#8892a0"),
-            xaxis=dict(gridcolor="#1e2530"),
-            yaxis=dict(gridcolor="#1e2530", autorange="reversed"),
-            coloraxis_showscale=False,
-            margin=dict(t=50, b=20, l=20, r=20),
-            height=400,
-        )
-        st.plotly_chart(fig_companies, use_container_width=True)
+            fig4 = px.bar(
+                monthly,
+                x="Month",
+                y="Apps",
+                color="Apps",
+                color_continuous_scale=["#1e3a5f", "#5b9bf5", "#93c5fd"],
+                text="Apps",
+            )
+            fig4.update_layout(
+                title=dict(
+                    text="Applications by Month", font=dict(size=18, color="#c0c6d0")
+                ),
+                paper_bgcolor="rgba(0,0,0,0)",
+                plot_bgcolor="rgba(0,0,0,0)",
+                font=dict(color="#7a8290", size=13),
+                xaxis=dict(gridcolor="#1c2230"),
+                yaxis=dict(gridcolor="#1c2230"),
+                coloraxis_showscale=False,
+                margin=dict(t=50, b=20, l=20, r=20),
+                height=420,
+            )
+            fig4.update_traces(
+                textposition="outside", textfont_size=14, textfont_color="#c0c6d0"
+            )
+            st.plotly_chart(fig4, use_container_width=True)
 
-    # ─── Weekly Trend ──────────────────────────────────────────
-
-    if "week" in valid_df.columns:
-        st.markdown(
-            '<div class="section-header">Weekly Application Pace</div>',
-            unsafe_allow_html=True,
-        )
-
-        weekly = valid_df.dropna(subset=["week"]).groupby("week").size().reset_index()
-        weekly.columns = ["Week", "Applications"]
-
-        fig_weekly = px.bar(
-            weekly,
-            x="Week",
-            y="Applications",
-            color="Applications",
-            color_continuous_scale=["#1a3a5c", "#4a90d9"],
-        )
-        fig_weekly.update_layout(
-            paper_bgcolor="rgba(0,0,0,0)",
-            plot_bgcolor="rgba(0,0,0,0)",
-            font=dict(family="DM Sans", color="#8892a0"),
-            xaxis=dict(title="Week Number", gridcolor="#1e2530"),
-            yaxis=dict(title="Applications", gridcolor="#1e2530"),
-            coloraxis_showscale=False,
-            margin=dict(t=20, b=20, l=20, r=20),
-            height=300,
-        )
-        st.plotly_chart(fig_weekly, use_container_width=True)
-
-    # ─── Footer ────────────────────────────────────────────────
-
-    st.markdown("---")
+    # ── Companies + Location ───────────────────────────────────
     st.markdown(
-        '<div style="text-align: center; color: #4a5568; font-size: 13px; font-family: DM Sans;">'
-        "Data refreshes every 5 minutes from Google Sheets | "
-        "Built with Streamlit + Plotly"
-        "</div>",
+        '<div class="section-title">Companies and Locations</div>',
         unsafe_allow_html=True,
     )
+
+    ch5, ch6 = st.columns(2)
+
+    with ch5:
+        if "company" in df.columns:
+            top = df["company"].value_counts().head(15).reset_index()
+            top.columns = ["Company", "Roles"]
+            fig5 = px.bar(
+                top,
+                x="Roles",
+                y="Company",
+                orientation="h",
+                color="Roles",
+                color_continuous_scale=["#1e3a5f", "#5b9bf5"],
+                text="Roles",
+            )
+            fig5.update_layout(
+                title=dict(
+                    text="Most Applied Companies", font=dict(size=18, color="#c0c6d0")
+                ),
+                paper_bgcolor="rgba(0,0,0,0)",
+                plot_bgcolor="rgba(0,0,0,0)",
+                font=dict(color="#7a8290", size=13),
+                xaxis=dict(gridcolor="#1c2230"),
+                yaxis=dict(gridcolor="#1c2230", autorange="reversed"),
+                coloraxis_showscale=False,
+                margin=dict(t=50, b=20, l=20, r=20),
+                height=450,
+            )
+            fig5.update_traces(
+                textposition="outside", textfont_size=12, textfont_color="#c0c6d0"
+            )
+            st.plotly_chart(fig5, use_container_width=True)
+
+    with ch6:
+        if "location" in df.columns:
+
+            def get_state(loc):
+                if (
+                    not loc
+                    or not isinstance(loc, str)
+                    or loc.strip() in ("", "Unknown", "N/A")
+                ):
+                    return "Other"
+                if "remote" in loc.lower():
+                    return "Remote"
+                m = re.search(r",\s*([A-Z]{2})\b", str(loc))
+                return m.group(1) if m else "Other"
+
+            df["state"] = df["location"].apply(get_state)
+            lc = df["state"].value_counts().head(12).reset_index()
+            lc.columns = ["Location", "Count"]
+            fig6 = px.bar(
+                lc,
+                x="Count",
+                y="Location",
+                orientation="h",
+                color="Count",
+                color_continuous_scale=["#1e3a5f", "#22d3ee"],
+                text="Count",
+            )
+            fig6.update_layout(
+                title=dict(
+                    text="Applications by State", font=dict(size=18, color="#c0c6d0")
+                ),
+                paper_bgcolor="rgba(0,0,0,0)",
+                plot_bgcolor="rgba(0,0,0,0)",
+                font=dict(color="#7a8290", size=13),
+                xaxis=dict(gridcolor="#1c2230"),
+                yaxis=dict(gridcolor="#1c2230", autorange="reversed"),
+                coloraxis_showscale=False,
+                margin=dict(t=50, b=20, l=20, r=20),
+                height=450,
+            )
+            fig6.update_traces(
+                textposition="outside", textfont_size=12, textfont_color="#c0c6d0"
+            )
+            st.plotly_chart(fig6, use_container_width=True)
+
+    # ── Conversion Funnel ──────────────────────────────────────
+    st.markdown(
+        '<div class="section-title">Conversion Funnel</div>', unsafe_allow_html=True
+    )
+
+    total_applied = applied + rejected + oa1 + oa2 + interviews + offers
+    stages = [
+        ("Jobs Found", total + disc_total + rev_total),
+        ("Passed Filters", total + rev_total),
+        ("Applied", total_applied),
+        ("OA / Assessment", oa1 + oa2 + interviews + offers),
+        ("Interviews", total_interviews + offers),
+        ("Offers", offers),
+    ]
+    stages = [(s, v) for s, v in stages if v > 0]
+
+    if stages:
+        fig_f = go.Figure(
+            go.Funnel(
+                y=[s[0] for s in stages],
+                x=[s[1] for s in stages],
+                textinfo="value+percent initial",
+                marker=dict(
+                    color=[
+                        "#334155",
+                        "#475569",
+                        "#4ade80",
+                        "#fbbf24",
+                        "#a78bfa",
+                        "#22d3ee",
+                    ][: len(stages)]
+                ),
+                connector=dict(line=dict(color="#252a35")),
+            )
+        )
+        fig_f.update_layout(
+            paper_bgcolor="rgba(0,0,0,0)",
+            plot_bgcolor="rgba(0,0,0,0)",
+            font=dict(color="#c0c6d0", size=14),
+            margin=dict(t=20, b=20, l=20, r=20),
+            height=350,
+        )
+        st.plotly_chart(fig_f, use_container_width=True)
+
+    # ── Work Mode ──────────────────────────────────────────────
+    if "remote" in df.columns:
+        st.markdown(
+            '<div class="section-title">Work Mode</div>', unsafe_allow_html=True
+        )
+
+        def norm_remote(r):
+            if not r or not isinstance(r, str):
+                return "Unknown"
+            rl = r.strip().lower()
+            if "remote" in rl:
+                return "Remote"
+            if "hybrid" in rl:
+                return "Hybrid"
+            if any(x in rl for x in ["on site", "onsite", "on-site", "in person"]):
+                return "On Site"
+            return "Unknown"
+
+        df["remote_clean"] = df["remote"].apply(norm_remote)
+        rc = df["remote_clean"].value_counts().reset_index()
+        rc.columns = ["Mode", "Count"]
+        remote_colors = {
+            "Remote": "#22d3ee",
+            "Hybrid": "#a78bfa",
+            "On Site": "#4ade80",
+            "Unknown": "#334155",
+        }
+
+        fig_r = px.pie(
+            rc,
+            values="Count",
+            names="Mode",
+            color="Mode",
+            color_discrete_map=remote_colors,
+            hole=0.5,
+        )
+        fig_r.update_layout(
+            paper_bgcolor="rgba(0,0,0,0)",
+            plot_bgcolor="rgba(0,0,0,0)",
+            font=dict(color="#7a8290", size=13),
+            margin=dict(t=20, b=20, l=20, r=20),
+            height=350,
+        )
+        fig_r.update_traces(textinfo="value+percent", textfont_size=13)
+        _, mid, _ = st.columns([1, 2, 1])
+        with mid:
+            st.plotly_chart(fig_r, use_container_width=True)
 
 
 if __name__ == "__main__":
