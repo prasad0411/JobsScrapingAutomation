@@ -314,7 +314,7 @@ class SimplifyRedirectResolver:
 
             _SELENIUM_DRIVER.get(click_url)
 
-            for wait_time in [3, 2, 2]:
+            for wait_time in [5, 5, 5]:
                 time.sleep(wait_time)
                 current_url = _SELENIUM_DRIVER.current_url
 
