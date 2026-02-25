@@ -30,7 +30,7 @@ st.markdown(
     h1,h2,h3 { color: #e8eaed !important; font-weight: 700 !important; }
     .main-title { font-size: 40px; font-weight: 800; color: #e8eaed; margin-bottom: 2px; letter-spacing: -0.5px; }
     .main-sub { font-size: 18px; color: #7a8290; margin-bottom: 36px; }
-    .metric-card { background: linear-gradient(145deg, #181c24 0%, #141720 100%); border: 1px solid #252a35; border-radius: 14px; padding: 20px 14px; text-align: center; height: 140px; display: flex; flex-direction: column; justify-content: center; }
+    .metric-card { background: linear-gradient(145deg, #181c24 0%, #141720 100%); border: 1px solid #252a35; border-radius: 14px; padding: 20px 14px; text-align: center; height: 155px; display: flex; flex-direction: column; justify-content: center; }
     .metric-value { font-size: 36px; font-weight: 800; margin: 6px 0; letter-spacing: -1px; }
     .metric-label { font-size: 13px; color: #7a8290; text-transform: uppercase; letter-spacing: 1.5px; font-weight: 600; }
     .metric-sub { font-size: 13px; color: #6b7380; margin-top: 4px; }
@@ -313,7 +313,12 @@ def main():
     unique_companies = df["company"].nunique() if "company" in df.columns else 0
     st.markdown(f'<div style="background:linear-gradient(135deg,#1a2332 0%,#15202e 100%);border:1px solid #253040;border-radius:12px;padding:20px 32px;margin-bottom:28px;text-align:center;"><span style="font-size:17px;color:#c0c8d4;letter-spacing:0.3px;">{total:,} applications across {unique_companies}+ companies over {months_active} months  —  {emails_sent} outreach emails sent  —  still going, not stopping.</span></div>', unsafe_allow_html=True)
 
-    st.markdown(f'<div style="text-align:right;color:#555d6b;font-size:12px;margin-top:-20px;margin-bottom:10px;">Last updated: {datetime.now().strftime("%b %d, %Y at %I:%M %p")} ET</div>', unsafe_allow_html=True)
+    try:
+        from zoneinfo import ZoneInfo
+        _et_now = datetime.now(ZoneInfo("US/Eastern"))
+    except Exception:
+        _et_now = datetime.now()
+    st.markdown(f'<div style="text-align:right;color:#555d6b;font-size:12px;margin-top:-20px;margin-bottom:10px;">Last updated: {_et_now.strftime("%b %d, %Y at %I:%M %p")} ET</div>', unsafe_allow_html=True)
 
     # ── Pipeline ───────────────────────────────────────────────
     st.markdown(
@@ -349,7 +354,7 @@ def main():
                 "OA / Assessment",
                 oa1,
                 "v-amber",
-                f"Round 1: {sc.get('OA Round 1',0) + sc.get('Assessment',0)} assessments",
+                f"R1: {sc.get('OA Round 1',0) + sc.get('Assessment',0)}",
             ),
             unsafe_allow_html=True,
         )
@@ -359,7 +364,7 @@ def main():
                 "Interviews",
                 total_interviews,
                 "v-purple",
-                f"Round 1: {interviews} | Round 2: {oa2}",
+                f"R1: {interviews} | R2: {oa2}",
             ),
             unsafe_allow_html=True,
         )
