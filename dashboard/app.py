@@ -318,7 +318,7 @@ def main():
         _et_now = datetime.now(ZoneInfo("US/Eastern"))
     except Exception:
         _et_now = datetime.now()
-    st.markdown(f'<div style="text-align:right;color:#555d6b;font-size:12px;margin-top:-20px;margin-bottom:10px;">Last updated: {_et_now.strftime("%b %d, %Y at %I:%M %p")}</div>', unsafe_allow_html=True)
+    st.markdown(f'<div style="text-align:right;color:#555d6b;font-size:12px;margin-top:-20px;margin-bottom:10px;">Last updated: {_et_now.strftime("%b %d, %Y at %I:%M %p")} ET</div>', unsafe_allow_html=True)
 
     # ── Pipeline ───────────────────────────────────────────────
     st.markdown(
@@ -638,8 +638,8 @@ def main():
                 xaxis=dict(gridcolor="#1c2230"),
                 yaxis=dict(gridcolor="#1c2230"),
                 coloraxis_showscale=False,
-                margin=dict(t=50, b=20, l=20, r=20),
-                height=420,
+                margin=dict(t=80, b=20, l=20, r=20),
+                height=480,
             )
             fig4.update_traces(
                 textposition="outside", textfont_size=14, textfont_color="#c0c6d0"
