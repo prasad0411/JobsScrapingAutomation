@@ -261,6 +261,15 @@ def main():
     if not sheets:
         return
 
+    # Pre-compute outreach stats for banner
+    _out = sheets.get("Outreach Tracker", pd.DataFrame())
+    emails_sent = 0
+    if not _out.empty:
+        for _col in _out.columns:
+            _cl = _col.strip().lower()
+            if "hm email" in _cl or "recruiter email" in _cl:
+                emails_sent += _out[_col].apply(lambda x: bool(str(x).strip() and "@" in str(x))).sum()
+
     df = combine(sheets)
     disc = sheets.get("Discarded Entries", pd.DataFrame())
     out = sheets.get("Outreach Tracker", pd.DataFrame())
@@ -292,6 +301,17 @@ def main():
     not_applied = sc.get("Not Applied", 0)
     disc_total = len(disc) if not disc.empty else 0
     rev_total = len(rev) if not rev.empty else 0
+
+    # ── Banner
+    months_active = "7"
+    if "date_only" in df.columns:
+        dates = df["date_only"].dropna()
+        if len(dates) > 0:
+            first = min(dates)
+            last = max(dates)
+            months_active = str(max(1, (last.year - first.year) * 12 + last.month - first.month))
+    unique_companies = df["company"].nunique() if "company" in df.columns else 0
+    st.markdown(f'<div style="background:linear-gradient(135deg,#1a2332 0%,#15202e 100%);border:1px solid #253040;border-radius:12px;padding:20px 32px;margin-bottom:28px;text-align:center;"><span style="font-size:17px;color:#c0c8d4;letter-spacing:0.3px;">{total:,} applications across {unique_companies}+ companies over {months_active} months  —  {emails_sent} outreach emails sent  —  still going, not stopping.</span></div>', unsafe_allow_html=True)
 
     # ── Pipeline ───────────────────────────────────────────────
     st.markdown(
