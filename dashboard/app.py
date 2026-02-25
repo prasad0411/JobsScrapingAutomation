@@ -32,8 +32,8 @@ st.markdown(
     .main-sub { font-size: 18px; color: #7a8290; margin-bottom: 36px; }
     .metric-card { background: linear-gradient(145deg, #181c24 0%, #141720 100%); border: 1px solid #252a35; border-radius: 14px; padding: 20px 14px; text-align: center; height: 140px; display: flex; flex-direction: column; justify-content: center; }
     .metric-value { font-size: 36px; font-weight: 800; margin: 6px 0; letter-spacing: -1px; }
-    .metric-label { font-size: 12px; color: #7a8290; text-transform: uppercase; letter-spacing: 1.5px; font-weight: 600; }
-    .metric-sub { font-size: 11px; color: #555d6b; margin-top: 4px; }
+    .metric-label { font-size: 13px; color: #7a8290; text-transform: uppercase; letter-spacing: 1.5px; font-weight: 600; }
+    .metric-sub { font-size: 13px; color: #6b7380; margin-top: 4px; }
     .v-blue{color:#5b9bf5} .v-green{color:#4ade80} .v-red{color:#f87171} .v-amber{color:#fbbf24} .v-purple{color:#a78bfa} .v-cyan{color:#22d3ee} .v-white{color:#e8eaed} .v-orange{color:#fb923c}
     .section-title { font-size: 22px; font-weight: 700; color: #c0c6d0; margin-top: 40px; margin-bottom: 18px; padding-bottom: 10px; border-bottom: 2px solid #1e2330; }
     #MainMenu{visibility:hidden} footer{visibility:hidden} header{visibility:hidden}
@@ -313,6 +313,8 @@ def main():
     unique_companies = df["company"].nunique() if "company" in df.columns else 0
     st.markdown(f'<div style="background:linear-gradient(135deg,#1a2332 0%,#15202e 100%);border:1px solid #253040;border-radius:12px;padding:20px 32px;margin-bottom:28px;text-align:center;"><span style="font-size:17px;color:#c0c8d4;letter-spacing:0.3px;">{total:,} applications across {unique_companies}+ companies over {months_active} months  —  {emails_sent} outreach emails sent  —  still going, not stopping.</span></div>', unsafe_allow_html=True)
 
+    st.markdown(f'<div style="text-align:right;color:#555d6b;font-size:12px;margin-top:-20px;margin-bottom:10px;">Last updated: {datetime.now().strftime("%b %d, %Y at %I:%M %p")} ET</div>', unsafe_allow_html=True)
+
     # ── Pipeline ───────────────────────────────────────────────
     st.markdown(
         '<div class="section-title">Application Pipeline</div>', unsafe_allow_html=True
@@ -347,7 +349,7 @@ def main():
                 "OA / Assessment",
                 oa1,
                 "v-amber",
-                f"Round 1: {sc.get('OA Round 1',0) + sc.get('Assessment',0)}",
+                f"Round 1: {sc.get('OA Round 1',0) + sc.get('Assessment',0)} assessments",
             ),
             unsafe_allow_html=True,
         )
@@ -357,7 +359,7 @@ def main():
                 "Interviews",
                 total_interviews,
                 "v-purple",
-                f"R1: {interviews} | R2: {oa2}",
+                f"Round 1: {interviews} | Round 2: {oa2}",
             ),
             unsafe_allow_html=True,
         )
