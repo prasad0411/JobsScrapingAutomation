@@ -318,7 +318,7 @@ def main():
         _et_now = datetime.now(ZoneInfo("US/Eastern"))
     except Exception:
         _et_now = datetime.now()
-    st.markdown(f'<div style="text-align:right;color:#555d6b;font-size:12px;margin-top:-20px;margin-bottom:10px;">Last updated: {_et_now.strftime("%b %d, %Y at %I:%M %p")} ET</div>', unsafe_allow_html=True)
+    st.markdown(f'<div style="text-align:right;color:#555d6b;font-size:12px;margin-top:-20px;margin-bottom:10px;">Last updated: {_et_now.strftime("%b %d, %Y at %I:%M %p")}</div>', unsafe_allow_html=True)
 
     # ── Pipeline ───────────────────────────────────────────────
     st.markdown(
