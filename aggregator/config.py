@@ -1379,6 +1379,22 @@ JUNK_SUBDOMAIN_PATTERNS = [
     r".*careers?$",
     r".*jobs?$",
     r".*wd\d+$",
+    r"^recruiting$",
+    r"^ultipro$",
+    r"^icims$",
+    r"^taleo$",
+    r"^workday$",
+    r"^lever$",
+    r"^greenhouse$",
+    r"^smartrecruiters$",
+    r"^jobvite$",
+    r"^applicantpro$",
+    r"^paylocity$",
+    r"^paycom$",
+    r"^adp$",
+    r"^brassring$",
+    r"^clearcompany$",
+    r"^rippling$",
 ]
 
 COMPANY_SLUG_MAPPING = {
