@@ -37,6 +37,7 @@ st.markdown(
     .v-blue{color:#5b9bf5} .v-green{color:#4ade80} .v-red{color:#f87171} .v-amber{color:#fbbf24} .v-purple{color:#a78bfa} .v-cyan{color:#22d3ee} .v-white{color:#e8eaed} .v-orange{color:#fb923c}
     .section-title { font-size: 22px; font-weight: 700; color: #c0c6d0; margin-top: 40px; margin-bottom: 18px; padding-bottom: 10px; border-bottom: 2px solid #1e2330; }
     #MainMenu{visibility:hidden} footer{visibility:hidden} header{visibility:hidden}
+    .block-container{padding-top:1rem !important}
 </style>
 """,
     unsafe_allow_html=True,
