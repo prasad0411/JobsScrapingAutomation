@@ -797,6 +797,10 @@ def main():
 
         def norm_remote(r):
             if not r or not isinstance(r, str):
+                city_to_state = {"san francisco":"CA","san jose":"CA","sunnyvale":"CA","palo alto":"CA","mountain view":"CA","menlo park":"CA","cupertino":"CA","santa clara":"CA","san mateo":"CA","redwood city":"CA","foster city":"CA","san carlos":"CA","milpitas":"CA","fremont":"CA","los angeles":"CA","san diego":"CA","irvine":"CA","santa monica":"CA","new york city":"NY","new york":"NY","nyc":"NY","brooklyn":"NY","jersey city":"NJ","boston":"MA","cambridge":"MA","framingham":"MA","chicago":"IL","austin":"TX","dallas":"TX","houston":"TX","san antonio":"TX","seattle":"WA","redmond":"WA","bellevue":"WA","atlanta":"GA","denver":"CO","boulder":"CO","golden":"CO","portland":"OR","pittsburgh":"PA","philadelphia":"PA","radnor":"PA","phoenix":"AZ","scottsdale":"AZ","ann arbor":"MI","detroit":"MI","minneapolis":"MN","orlando":"FL","miami":"FL","tampa":"FL","nashville":"TN","salt lake city":"UT","raleigh":"NC","charlotte":"NC","durham":"NC","richmond":"VA","mclean":"VA","arlington":"VA","silver spring":"MD","bethesda":"MD","columbus":"OH","cincinnati":"OH","cleveland":"OH","indianapolis":"IN","milwaukee":"WI","madison":"WI","st louis":"MO","kansas city":"MO","bentonville":"AR","sarasota":"FL","irving":"TX","hillsboro":"OR","tucson":"AZ","chaska":"MN","gresham":"OR","shakopee":"MN","west valley city":"UT"}
+                for city, st in city_to_state.items():
+                    if city in ll:
+                        return st
                 return "Unknown"
             rl = r.strip().lower()
             if "remote" in rl:
