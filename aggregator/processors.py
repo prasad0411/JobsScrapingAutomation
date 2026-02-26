@@ -139,6 +139,11 @@ class TitleProcessor:
         title = _DEGREE_PATTERN.sub("", title)
         title = re.sub(r"\s+", " ", title).strip().strip("-")
 
+        # Strip Simplify suffixes and trailing punctuation
+        title = re.sub(r"\s*@\s*.+?\s*\|\s*Simplify.*", "", title, flags=re.I)
+        title = re.sub(r"\s*\|\s*Simplify.*", "", title, flags=re.I)
+        title = title.rstrip(",.;- ")
+
         return title if len(title) >= 5 else original
 
     @staticmethod
@@ -1993,6 +1998,10 @@ class ValidationHelper:
             # Patterns that indicate CURRENT undergrad enrollment required
             undergraduate_patterns = [
                 r"pursuing\s+(?:a\s+)?bachelor'?s?\s+degree",
+                r"currently\s+pursuing\s+(?:a\s+)?bachelor'?s?\s+degree",
+                r"working\s+towards?\s+(?:a\s+)?bachelor'?s?\s+degree",
+                r"rising\s+(?:junior|senior)\s+preferred",
+                r"currently\s+pursuing\s+(?:a\s+)?(?:bs|ba|b\.s\.|b\.a\.)\s+(?:degree|in)",
                 r"currently\s+enrolled\s+in\s+(?:a\s+)?bachelor",
                 r"entering\s+(?:junior|senior)\s+year",
                 r"(?:sophomore|junior|senior)\s+standing",
@@ -2478,6 +2487,8 @@ class ValidationHelper:
                 r"must\s+(?:be\s+)?(?:able\s+to\s+)?(?:obtain|get|acquire).*clearance",
                 r"(?:eligible|eligibility)\s+for.*(?:security\s+)?clearance",
                 r"able\s+to\s+obtain.*clearance",
+                r"obtain\s+(?:a\s+)?(?:secret|top\s+secret|ts/sci)\s+clearance",
+                r"ability\s+to\s+obtain\s+(?:a\s+)?(?:secret|top)\s+clearance",
                 r"clearance\s+(?:eligibility|required|preferred)",
                 r"u\.?s\.?\s+citizen.*clearance",
                 r"citizenship.*clearance",

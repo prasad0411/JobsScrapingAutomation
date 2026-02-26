@@ -704,6 +704,13 @@ WORKDAY_ABBREVIATIONS = {
     "generalmotors": "General Motors",
 }
 
+# Companies that almost always require security clearance
+CLEARANCE_COMPANIES = [
+    "booz allen", "raytheon", "northrop grumman", "lockheed martin",
+    "general dynamics", "bae systems", "l3harris", "leidos",
+    "saic", "caci", "mantech", "perspecta",
+]
+
 COMPANY_NORMALIZATIONS = {
     "SSB&T": "State Street Bank & Trust",
     "SSB": "State Street",
