@@ -157,8 +157,8 @@ def norm_status(s):
 
 
 def norm_source(s):
-    if not s or not isinstance(s, str):
-        return "Other"
+    if not s or not isinstance(s, str) or not s.strip():
+        return "Unknown"
     sl = s.strip()
     mapping = {
         "SimplifyJobs": "Simplify Repo",
