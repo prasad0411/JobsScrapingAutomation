@@ -700,11 +700,20 @@ def main():
                     or not isinstance(loc, str)
                     or loc.strip() in ("", "Unknown", "N/A")
                 ):
-                    return "Other"
-                if "remote" in loc.lower():
+                    return "Unknown"
+                ll = loc.lower().strip()
+                if "remote" in ll:
                     return "Remote"
+                if "hybrid" in ll:
+                    return "Hybrid"
                 m = re.search(r",\s*([A-Z]{2})\b", str(loc))
-                return m.group(1) if m else "Other"
+                if m:
+                    return m.group(1)
+                state_names = {"california":"CA","new york":"NY","texas":"TX","massachusetts":"MA","illinois":"IL","washington":"WA","virginia":"VA","florida":"FL","georgia":"GA","colorado":"CO","pennsylvania":"PA","ohio":"OH","north carolina":"NC","michigan":"MI","minnesota":"MN","oregon":"OR","maryland":"MD","new jersey":"NJ","connecticut":"CT","indiana":"IN","arizona":"AZ","tennessee":"TN","missouri":"MO","wisconsin":"WI","utah":"UT","iowa":"IA","kansas":"KS","nebraska":"NE","kentucky":"KY","alabama":"AL","south carolina":"SC","louisiana":"LA","oklahoma":"OK","nevada":"NV","new mexico":"NM","idaho":"ID","delaware":"DE","rhode island":"RI","new hampshire":"NH","maine":"ME","district of columbia":"DC"}
+                for name, abbr in state_names.items():
+                    if name in ll:
+                        return abbr
+                return "Unknown"
 
             df["state"] = df["location"].apply(get_state)
             lc = df["state"].value_counts().head(12).reset_index()
