@@ -368,9 +368,12 @@ class TitleProcessor:
 
         # Trust title year — if title says 2026+, accept immediately
         title_lower = title.lower()
-        for m in re.finditer(r"(202[4-9]|203[0-9])", title_lower):
+        for m in re.finditer(r"\b(202[4-9]|203[0-9])\b", title_lower):
             if int(m.group(1)) >= 2026:
                 return True, ""
+        # Fallback: plain string check for year in title
+        if "2026" in title_lower or "2027" in title_lower:
+            return True, ""
         limited_text = page_text[:PAGE_TEXT_STANDARD_SCAN] if page_text else ""
         combined = (title + " " + limited_text).lower()
 
