@@ -29,7 +29,8 @@ from outreach.outreach_config import (
     STATE_TO_TIMEZONE,
     TZ_DISPLAY,
     SEND_HOUR,
-    LI_MSG_TEMPLATE,
+    HM_LI_MSG_TEMPLATE,
+    REC_LI_MSG_TEMPLATE,
     LI_MSG_MAX,
 )
 
@@ -632,24 +633,39 @@ class Sheets:
         return None
 
     def populate_linkedin_msgs(self):
-        """Auto-populate LinkedIn Msg column for rows that have HM or Rec names."""
+        """Auto-populate HM and Rec LinkedIn Msg columns."""
         try:
             data = self.ws.get_all_values()
             self._p()
             updates = []
             for i, r in enumerate(data[1:], start=2):
                 r = _pad(r)
-                existing_msg = r[C["li_msg"]].strip() if len(r) > C["li_msg"] else ""
-                if existing_msg:
-                    continue  # Already has a message
                 co = r[C["company"]].strip()
                 title = r[C["title"]].strip()
                 hn = r[C["hm_name"]].strip()
                 rn = r[C["rec_name"]].strip()
-                name = hn or rn
-                if not name or not co:
+                if not co:
                     continue
-                # Parse first name
+                # HM LinkedIn Msg
+                hm_existing = r[C["hm_li_msg"]].strip() if len(r) > C["hm_li_msg"] else ""
+                if not hm_existing and hn:
+                    first = hn.split()[0].split(",")[0].strip()
+                    msg = HM_LI_MSG_TEMPLATE.format(first=first, title=title, company=co)
+                    if len(msg) > LI_MSG_MAX:
+                        over = len(msg) - LI_MSG_MAX + 3
+                        msg = HM_LI_MSG_TEMPLATE.format(first=first, title=title[:len(title)-over]+"...", company=co)
+                    col_letter = _cl(C["hm_li_msg"])
+                    updates.append({"range": f"{col_letter}{i}", "values": [[msg]]})
+                # Rec LinkedIn Msg
+                rec_existing = r[C["rec_li_msg"]].strip() if len(r) > C["rec_li_msg"] else ""
+                if not rec_existing and rn:
+                    first = rn.split()[0].split(",")[0].strip()
+                    msg = REC_LI_MSG_TEMPLATE.format(first=first, title=title, company=co)
+                    if len(msg) > LI_MSG_MAX:
+                        over = len(msg) - LI_MSG_MAX + 3
+                        msg = REC_LI_MSG_TEMPLATE.format(first=first, title=title[:len(title)-over]+"...", company=co)
+                    col_letter = _cl(C["rec_li_msg"])
+                    updates.append({"range": f"{col_letter}{i}", "values": [[msg]]})
                 first = name.split()[0].split(",")[0].strip()
                 # Truncate title if needed to stay under 300 chars
                 msg = LI_MSG_TEMPLATE.format(first=first, title=title, company=co)
