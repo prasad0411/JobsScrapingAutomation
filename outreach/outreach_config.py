@@ -29,12 +29,13 @@ O_HEADERS = [
     "HM Name",              # E (4)
     "HM LinkedIn URL",      # F (5)
     "HM Email",             # G (6)
-    "Recruiter Name",       # H (7)
-    "Recruiter LinkedIn URL",  # I (8)
-    "Recruiter Email",      # J (9)
-    "Send At",              # K (10)
-    "Sent Date",            # L (11)
-    "LinkedIn Msg",         # M (12)
+    "HM LinkedIn Msg",      # H (7)
+    "Recruiter Name",       # I (8)
+    "Recruiter LinkedIn URL",  # J (9)
+    "Recruiter Email",      # K (10)
+    "Rec LinkedIn Msg",     # L (11)
+    "Send At",              # M (12)
+    "Sent Date",            # N (13)
     "Notes",                # N (13)
 ]
 
@@ -46,13 +47,14 @@ C = {
     "hm_name": 4,
     "hm_li": 5,
     "hm_email": 6,
-    "rec_name": 7,
-    "rec_li": 8,
-    "rec_email": 9,
-    "send_at": 10,
-    "sent_dt": 11,
-    "li_msg": 12,
-    "notes": 13,
+    "hm_li_msg": 7,
+    "rec_name": 8,
+    "rec_li": 9,
+    "rec_email": 10,
+    "rec_li_msg": 11,
+    "send_at": 12,
+    "sent_dt": 13,
+    "notes": 14,
 }
 
 SENDER_NAME = "Prasad Kanade"
@@ -276,9 +278,14 @@ def warmup_limit():
         pass
     return MAX_DAILY
 
-LI_MSG_TEMPLATE = (
+HM_LI_MSG_TEMPLATE = (
     "Hi {first}, I applied for the {title} at {company} "
     "and believe I'd be a strong fit for this role. Would love to connect "
     "and discuss how I can contribute to your team. Looking forward to hearing from you."
+)
+REC_LI_MSG_TEMPLATE = (
+    "Hi {first}, I applied for the {title} at {company} "
+    "and am eager to invest my skills into the right opportunity. "
+    "Would love to connect and discuss how I can contribute and what the next steps look like."
 )
 LI_MSG_MAX = 300
