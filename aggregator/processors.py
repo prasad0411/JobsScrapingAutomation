@@ -2990,6 +2990,12 @@ class CompanyExtractor:
 
         if valid_results:
             valid_results.sort(key=lambda r: r.confidence, reverse=True)
+            # Strip common suffixes from company names
+            for r in valid_results:
+                if r.value and r.value.lower().endswith('.jobs'):
+                    r.value = r.value[:-5]
+                if r.value and r.value.lower().endswith('.com'):
+                    r.value = r.value[:-4]
 
             for result in valid_results:
                 cleaned = CompanyExtractor.clean_company_name(result.value)

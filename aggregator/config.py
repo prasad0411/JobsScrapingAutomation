@@ -1380,6 +1380,7 @@ JUNK_SUBDOMAIN_PATTERNS = [
     r".*jobs?$",
     r".*wd\d+$",
     r"^recruiting$",
+    r"^recruiting2$",
     r"^ultipro$",
     r"^icims$",
     r"^taleo$",
