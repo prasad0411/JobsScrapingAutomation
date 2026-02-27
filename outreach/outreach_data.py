@@ -839,7 +839,7 @@ class Sheets:
             h = target_est.hour
             ampm = "AM" if h < 12 else "PM"
             dh = h % 12 or 12
-            send_at = target_est.strftime("%a %b %d, ") + f"{dh}:{target_est.minute:02d} {ampm} ET"
+            send_at = target_est.strftime("%b %d, ") + f"{dh}:{target_est.minute:02d} {ampm} ET"
             sent_date = target_est.strftime("%b %d, %Y")
             return send_at, sent_date
         except Exception as e:
@@ -852,7 +852,7 @@ class Sheets:
         target = now.replace(hour=10, minute=0) + datetime.timedelta(days=1)
         while target.weekday() >= 5:
             target += datetime.timedelta(days=1)
-        return target.strftime("%a %b %d, 10:00 AM ET"), target.strftime("%b %d, %Y")
+        return target.strftime("%b %d, 10:00 AM ET"), target.strftime("%b %d, %Y")
 
     @staticmethod
     def _retry(func, *args, retries=3, **kwargs):
