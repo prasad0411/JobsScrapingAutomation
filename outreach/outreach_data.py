@@ -666,16 +666,7 @@ class Sheets:
                         msg = REC_LI_MSG_TEMPLATE.format(first=first, title=title[:len(title)-over]+"...", company=co)
                     col_letter = _cl(C["rec_li_msg"])
                     updates.append({"range": f"{col_letter}{i}", "values": [[msg]]})
-                first = name.split()[0].split(",")[0].strip()
-                # Truncate title if needed to stay under 300 chars
-                msg = LI_MSG_TEMPLATE.format(first=first, title=title, company=co)
-                if len(msg) > LI_MSG_MAX:
-                    # Shorten title
-                    over = len(msg) - LI_MSG_MAX + 3
-                    short_title = title[:len(title) - over] + "..."
-                    msg = LI_MSG_TEMPLATE.format(first=first, title=short_title, company=co)
-                col_letter = _cl(C["li_msg"])
-                updates.append({"range": f"{col_letter}{i}", "values": [[msg]]})
+
             if updates:
                 for chunk_start in range(0, len(updates), 50):
                     chunk = updates[chunk_start:chunk_start+50]
