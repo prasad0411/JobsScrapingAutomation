@@ -365,6 +365,9 @@ PERMANENT_US_AUTHORIZATION_PATTERNS = [
     r"must\s+(?:have|possess).*permanent.*(?:right|authorization)\s+to\s+work",
     r"permanently\s+authorized\s+to\s+work",
     r"permanent.*(?:right|ability)\s+to\s+work.*(?:in\s+the\s+)?(?:us|united\s+states)",
+    r"not\s+(?:currently\s+)?hiring\s+foreign\s+national\s+applicants.*(?:sponsorship|H,\s*L,\s*TN,\s*F)",
+    r"not\s+(?:currently\s+)?(?:hiring|sponsoring).*foreign\s+national.*(?:H|L|TN|F|J|E|O)",
+    r"visa\s+sponsorship\s+is\s+not\s+available",
 ]
 
 US_PERSON_DOD_PATTERNS = [
