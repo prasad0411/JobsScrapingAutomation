@@ -1306,6 +1306,12 @@ class UnifiedJobAggregator:
                 and location_hint != "Unknown"
             ):
                 location = location_hint
+            # Clean location: strip job type words that leak into location
+            if location and location != "Unknown":
+                import re as _re
+                location = _re.sub(r"(?i)^\s*(?:Internship|Full[- ]?Time|Part[- ]?Time|Co-?op|Contract|Temporary)\s*[,;]\s*", "", location)
+                location = _re.sub(r"(?i)\s*[,;]\s*(?:Internship|Full[- ]?Time|Part[- ]?Time|Co-?op|Contract|Temporary)\s*$", "", location)
+                location = location.strip().strip(",").strip()
 
             international_check = LocationProcessor.check_if_international(
                 location, soup=soup, url=final_url or url, title=title
