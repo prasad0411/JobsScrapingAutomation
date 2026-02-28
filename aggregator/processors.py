@@ -2649,7 +2649,11 @@ class ValidationHelper:
                 domain_name = domain.split(".")[0]
                 if domain_name in COMPANY_SLUG_MAPPING:
                     return COMPANY_SLUG_MAPPING[domain_name]
-                return domain_name.replace("-", " ").title()
+                name = domain_name.replace("-", " ")
+                # Preserve short all-caps acronyms (WSP, IBM, ABB, KLA)
+                if len(name) <= 4 and name.isalpha():
+                    return name.upper()
+                return name.title()
         except Exception as e:
             logging.debug(f"Domain extraction failed for {url}: {e}")
 
