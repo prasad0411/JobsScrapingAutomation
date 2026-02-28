@@ -3004,6 +3004,12 @@ class CompanyExtractor:
                     r.value = r.value[:-5]
                 if r.value and r.value.lower().endswith('.com'):
                     r.value = r.value[:-4]
+                # Strip legal suffixes
+                if r.value:
+                    import re as _re
+                    r.value = _re.sub(r"\s*[,.]?\s*(?:Inc\.?|LLC|Corp\.?|Ltd\.?|Co\.?)\s*$", "", r.value, flags=_re.I)
+                    r.value = _re.sub(r"\s*\((?:United States|US|USA|UK|Canada|Global)\)\s*$", "", r.value, flags=_re.I)
+                    r.value = r.value.strip().strip(",").strip()
 
             for result in valid_results:
                 cleaned = CompanyExtractor.clean_company_name(result.value)
