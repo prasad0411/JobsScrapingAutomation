@@ -409,6 +409,15 @@ class UnifiedJobAggregator:
                 return
             if not resolved:
                 resolved_url = url
+                # Use metadata from Simplify page if available
+                try:
+                    from aggregator.extractors import SimplifyRedirectResolver as _SRR
+                    smeta = _SRR._last_metadata
+                    if smeta.get("location") and (not location_from_github or location_from_github == "Unknown"):
+                        location_from_github = smeta["location"]
+                        logging.info(f"Using Simplify metadata location: {location_from_github}")
+                except Exception:
+                    pass
 
         if self._is_duplicate(company_from_github, title, resolved_url):
             return
@@ -623,6 +632,15 @@ class UnifiedJobAggregator:
                 return "skipped"
             if not resolved:
                 resolved_url = url
+                # Use metadata from Simplify page if available
+                try:
+                    from aggregator.extractors import SimplifyRedirectResolver as _SRR
+                    smeta = _SRR._last_metadata
+                    if smeta.get("location") and (not location_from_github or location_from_github == "Unknown"):
+                        location_from_github = smeta["location"]
+                        logging.info(f"Using Simplify metadata location: {location_from_github}")
+                except Exception:
+                    pass
 
         if "jobright.ai" in url.lower():
             self._process_jobright_url(url, sender, email_html, subject)

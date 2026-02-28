@@ -361,6 +361,34 @@ class SimplifyRedirectResolver:
             if not soup:
                 return None
 
+            # Extract metadata from Simplify page text
+            try:
+                page_text = soup.get_text(separator=" ")[:5000]
+                import re as _sre
+                meta = {}
+                loc_match = _sre.search(r"(?:In Person|Hybrid|Remote)\s+([\w\s]+,\s*(?:[A-Z]{2}|[A-Za-z]+),\s*USA)", page_text)
+                if not loc_match:
+                    loc_match = _sre.search(r"(?:Internship|Company)\s+([\w\s]+,\s*(?:[A-Z]{2}|[A-Za-z]+),\s*USA)", page_text)
+                if not loc_match:
+                    loc_match = _sre.search(r"employees\s+([\w\s]+,\s*[A-Z]{2},\s*USA)", page_text)
+                if loc_match:
+                    loc_raw = loc_match.group(1).strip()
+                    loc_raw = _sre.sub(r",?\s*USA\s*$", "", loc_raw).strip()
+                    meta["location"] = loc_raw
+                if "In Person" in page_text[:3000]:
+                    meta["remote"] = "On Site"
+                elif "Hybrid" in page_text[:3000]:
+                    meta["remote"] = "Hybrid"
+                elif "Remote" in page_text[:3000]:
+                    meta["remote"] = "Remote"
+                if "No H1B Sponsorship" in page_text[:3000]:
+                    meta["no_h1b"] = True
+                SimplifyRedirectResolver._last_metadata = meta
+                if meta.get("location"):
+                    logging.info(f"Simplify metadata: location={meta['location']}, remote={meta.get('remote','?')}")
+            except Exception as e:
+                logging.debug(f"Simplify metadata extraction failed: {e}")
+
             # Strategy 1: Extract from __NEXT_DATA__ JSON (Next.js app)
             next_data = soup.find("script", {"id": "__NEXT_DATA__"})
             if next_data and next_data.string:
