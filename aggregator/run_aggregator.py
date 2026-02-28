@@ -864,6 +864,18 @@ class UnifiedJobAggregator:
                 if resp and resp.status_code == 200 and resp.url != url and "ziprecruiter.com" not in resp.url:
                     actual_url = resp.url
                 elif resp and resp.status_code == 200 and "ziprecruiter.com" in resp.url:
+                    # Check posting age on ZipRecruiter page
+                    import re as _re
+                    age_match = _re.search(r"Posted\s+(\d+)\s+days?\s+ago", resp.text)
+                    if age_match and int(age_match.group(1)) > 3:
+                        logging.info(f"ZipRecruiter job too old: {age_match.group(0)}")
+                        self.outcomes["skipped_too_old"] = self.outcomes.get("skipped_too_old", 0) + 1
+                        return
+                    age_match2 = _re.search(r"Posted\s+30\+\s+Days?\s+Ago", resp.text, _re.I)
+                    if age_match2:
+                        logging.info(f"ZipRecruiter job too old: 30+ days")
+                        self.outcomes["skipped_too_old"] = self.outcomes.get("skipped_too_old", 0) + 1
+                        return
                     actual_url = ZipRecruiterResolver.resolve(resp.url)
             except Exception as e:
                 logging.debug(f"ZipRecruiter redirect failed: {e}")
