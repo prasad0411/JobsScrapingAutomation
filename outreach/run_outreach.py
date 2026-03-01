@@ -143,12 +143,19 @@ def phase_extract_and_draft(sheets, finder, mailer):
                 parts.append("HM email failed")
 
         if row["need_r"]:
-            rec_res = finder.find(row["rn"], row["co"], row["rli"], job_url_domain=jud)
-            if rec_res["email"]:
-                sheets.write_email(rn, "rec", rec_res["email"], rec_res["source"])
+            # Support multiple comma-separated Rec names
+            rec_names = [n.strip() for n in row["rn"].split(",") if n.strip()]
+            rec_emails = []
+            rec_failed = False
+            for rec_name in rec_names:
+                rec_res = finder.find(rec_name, row["co"], row["rli"], job_url_domain=jud)
+                if rec_res["email"]:
+                    rec_emails.append(rec_res["email"])
+                    stats["extracted"] += 1
+            if rec_emails:
+                sheets.write_email(rn, "rec", ", ".join(rec_emails), rec_res["source"])
                 parts.append("Recruiter email extracted")
-                stats["extracted"] += 1
-            else:
+            elif rec_failed:
                 sheets.append_error(rn, f"REC: {rec_res['error']}")
                 parts.append("Recruiter email failed")
                 stats["extract_failed"] += 1
