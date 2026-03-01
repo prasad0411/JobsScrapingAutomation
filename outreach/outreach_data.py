@@ -640,26 +640,34 @@ class Sheets:
                 rn = r[C["rec_name"]].strip()
                 if not co:
                     continue
-                # HM LinkedIn Msg
+                # HM LinkedIn Msg (supports multiple comma-separated names)
                 hm_existing = r[C["hm_li_msg"]].strip() if len(r) > C["hm_li_msg"] else ""
                 if not hm_existing and hn:
-                    first = hn.split()[0].split(",")[0].strip()
-                    msg = HM_LI_MSG_TEMPLATE.format(first=first, title=title, company=co)
-                    if len(msg) > LI_MSG_MAX:
-                        over = len(msg) - LI_MSG_MAX + 3
-                        msg = HM_LI_MSG_TEMPLATE.format(first=first, title=title[:len(title)-over]+"...", company=co)
+                    hm_names = [n.strip() for n in hn.split(",") if n.strip()]
+                    hm_msgs = []
+                    for name in hm_names:
+                        first = name.split()[0].strip()
+                        msg = HM_LI_MSG_TEMPLATE.format(first=first, title=title, company=co)
+                        if len(msg) > LI_MSG_MAX:
+                            over = len(msg) - LI_MSG_MAX + 3
+                            msg = HM_LI_MSG_TEMPLATE.format(first=first, title=title[:len(title)-over]+"...", company=co)
+                        hm_msgs.append(msg)
                     col_letter = _cl(C["hm_li_msg"])
-                    updates.append({"range": f"{col_letter}{i}", "values": [[msg]]})
-                # Rec LinkedIn Msg
+                    updates.append({"range": f"{col_letter}{i}", "values": [[", ".join(hm_msgs)]]})
+                # Rec LinkedIn Msg (supports multiple comma-separated names)
                 rec_existing = r[C["rec_li_msg"]].strip() if len(r) > C["rec_li_msg"] else ""
                 if not rec_existing and rn:
-                    first = rn.split()[0].split(",")[0].strip()
-                    msg = REC_LI_MSG_TEMPLATE.format(first=first, title=title, company=co)
-                    if len(msg) > LI_MSG_MAX:
-                        over = len(msg) - LI_MSG_MAX + 3
-                        msg = REC_LI_MSG_TEMPLATE.format(first=first, title=title[:len(title)-over]+"...", company=co)
+                    rec_names = [n.strip() for n in rn.split(",") if n.strip()]
+                    rec_msgs = []
+                    for name in rec_names:
+                        first = name.split()[0].strip()
+                        msg = REC_LI_MSG_TEMPLATE.format(first=first, title=title, company=co)
+                        if len(msg) > LI_MSG_MAX:
+                            over = len(msg) - LI_MSG_MAX + 3
+                            msg = REC_LI_MSG_TEMPLATE.format(first=first, title=title[:len(title)-over]+"...", company=co)
+                        rec_msgs.append(msg)
                     col_letter = _cl(C["rec_li_msg"])
-                    updates.append({"range": f"{col_letter}{i}", "values": [[msg]]})
+                    updates.append({"range": f"{col_letter}{i}", "values": [[", ".join(rec_msgs)]]})
 
             if updates:
                 for chunk_start in range(0, len(updates), 50):

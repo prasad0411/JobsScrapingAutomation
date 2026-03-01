@@ -123,15 +123,24 @@ def phase_extract_and_draft(sheets, finder, mailer):
 
         jud = sheets.get_job_url_domain(row["co"], row["title"]) if hasattr(sheets, "get_job_url_domain") else ""
         if row["need_h"]:
-            hm_res = finder.find(row["hn"], row["co"], row["hli"], job_url_domain=jud)
-            if hm_res["email"]:
-                sheets.write_email(rn, "hm", hm_res["email"], hm_res["source"])
+            # Support multiple comma-separated HM names
+            hm_names = [n.strip() for n in row["hn"].split(",") if n.strip()]
+            hm_emails = []
+            hm_failed = False
+            for hm_name in hm_names:
+                hm_res = finder.find(hm_name, row["co"], row["hli"], job_url_domain=jud)
+                if hm_res["email"]:
+                    hm_emails.append(hm_res["email"])
+                    stats["extracted"] += 1
+                else:
+                    hm_failed = True
+                    stats["extract_failed"] += 1
+            if hm_emails:
+                sheets.write_email(rn, "hm", ", ".join(hm_emails), hm_res["source"])
                 parts.append("HM email extracted")
-                stats["extracted"] += 1
-            else:
+            elif hm_failed:
                 sheets.write_error(rn, f"HM: {hm_res['error']}")
                 parts.append("HM email failed")
-                stats["extract_failed"] += 1
 
         if row["need_r"]:
             rec_res = finder.find(row["rn"], row["co"], row["rli"], job_url_domain=jud)
