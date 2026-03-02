@@ -343,4 +343,4 @@ python3 scripts/cleanup_not_applied.py
 
 **Prasad Chandrashekhar Kanade** · MS Computer Science | Northeastern University | May 2027
 
-[Email](mailto:kanade.pra@northeastern.edu) · [LinkedIn](https://www.linkedin.com/in/prasadkanade/) · [GitHub](https://github.com/prasad0411)
+[Email](mailto:kanade.pra@northeastern.edu) · [LinkedIn](https://www.linkedin.com/in/prasad-kanade-/) · [GitHub](https://github.com/prasad0411)
