@@ -7,6 +7,7 @@ on:
     # Using UTC times for EST: 14:00, 15:00, 17:00, 18:00, 20:00
     - cron: '0 14 * * 1-5'  # 9 AM ET, Mon-Fri
     - cron: '0 15 * * 1-5'  # 10 AM ET, Mon-Fri
+    - cron: '0 16 * * 1-5'  # 11 AM ET, Mon-Fri
     - cron: '0 17 * * 1-5'  # 12 PM ET, Mon-Fri
     - cron: '0 18 * * 1-5'  # 1 PM ET, Mon-Fri
     - cron: '0 20 * * 1-5'  # 3 PM ET, Mon-Fri
