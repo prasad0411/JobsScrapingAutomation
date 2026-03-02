@@ -11,7 +11,7 @@ import sys, os, re, datetime, time, logging, base64
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from outreach.outreach_config import C, SHEETS_CREDS, SS_NAME, O_TAB, SENDER_EMAIL
+from outreach.outreach_config import C, SHEETS_CREDS, SPREADSHEET, OUTREACH_TAB, SENDER_EMAIL
 from outreach.outreach_data import _pad, _cl
 
 import gspread
@@ -51,8 +51,8 @@ def get_sheets():
     scope = ['https://spreadsheets.google.com/feeds', 'https://www.googleapis.com/auth/drive']
     creds = ServiceAccountCredentials.from_json_keyfile_name(SHEETS_CREDS, scope)
     gc = gspread.authorize(creds)
-    ss = gc.open(SS_NAME)
-    return ss.worksheet(O_TAB)
+    ss = gc.open(SPREADSHEET)
+    return ss.worksheet(OUTREACH_TAB)
 
 
 def parse_send_at(send_at_str):
