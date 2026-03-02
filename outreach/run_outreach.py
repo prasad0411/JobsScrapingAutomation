@@ -92,7 +92,7 @@ def phase_draft_existing(sheets, mailer):
             print(f"  {co}: {', '.join(parts)}")
         location = sheets.get_location(co, title)
         sa, sd = sheets.compute_send_at(location)
-        sheets.write_send_at(i, sa, sd)
+        sheets.write_send_at(i, sa)  # Don't write sent_date yet — written after actual send
     return stats
 
 
