@@ -90,8 +90,7 @@ def find_matching_draft(service, to_email, subject_fragment):
 
         for draft_meta in draft_list:
             draft = service.users().drafts().get(
-                userId="me", id=draft_meta["id"], format="metadata",
-                metadataHeaders=["To", "Subject"]
+                userId="me", id=draft_meta["id"], format="metadata"
             ).execute()
 
             headers = draft.get("message", {}).get("payload", {}).get("headers", [])
