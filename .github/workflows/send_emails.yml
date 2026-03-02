@@ -1,0 +1,65 @@
+name: Send Scheduled Emails
+
+on:
+  schedule:
+    # Run at 9:00 AM, 10:00 AM, 12:00 PM, 1:00 PM, 3:00 PM ET
+    # ET = UTC-5 (EST) or UTC-4 (EDT)
+    # Using UTC times for EST: 14:00, 15:00, 17:00, 18:00, 20:00
+    - cron: '0 14 * * 1-5'  # 9 AM ET, Mon-Fri
+    - cron: '0 15 * * 1-5'  # 10 AM ET, Mon-Fri
+    - cron: '0 17 * * 1-5'  # 12 PM ET, Mon-Fri
+    - cron: '0 18 * * 1-5'  # 1 PM ET, Mon-Fri
+    - cron: '0 20 * * 1-5'  # 3 PM ET, Mon-Fri
+  workflow_dispatch:  # Manual trigger from GitHub UI
+
+jobs:
+  send-emails:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    concurrency:
+      group: send-emails
+      cancel-in-progress: false
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install dependencies
+        run: |
+          pip install gspread oauth2client google-api-python-client google-auth google-auth-httplib2 google-auth-oauthlib
+
+      - name: Set up credentials
+        run: |
+          mkdir -p .local
+          echo '${{ secrets.GCP_CREDENTIALS }}' > .local/credentials.json
+          echo '${{ secrets.GMAIL_CREDENTIALS }}' > .local/gmail_credentials.json
+          echo '${{ secrets.GMAIL_TOKEN }}' | base64 -d > .local/gmail_token.pickle
+          echo '${{ secrets.ENV_FILE }}' > .env
+
+      - name: Send scheduled emails
+        run: python3 scripts/send_scheduled.py
+
+      - name: Check for bounces
+        run: |
+          python3 -c "
+          import sys, os
+          sys.path.insert(0, '.')
+          try:
+              from outreach.outreach_mailer import Mailer
+              from outreach.outreach_config import Credits as Cr
+              from outreach.bounce_scanner import BounceScanner
+              ma = Mailer(Cr())
+              svc = ma._service()
+              bounced = BounceScanner.scan(svc, days_back=2)
+              if bounced:
+                  print(f'Found {len(bounced)} bounced emails')
+              else:
+                  print('No bounces detected')
+          except Exception as e:
+              print(f'Bounce check skipped: {e}')
+          "
