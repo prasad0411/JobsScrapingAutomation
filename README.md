@@ -2,7 +2,7 @@
 
 End-to-end system that aggregates 2,500+ weekly internship postings, validates eligibility, discovers hiring manager emails, and creates personalized outreach drafts — all automatically.
 
-**Built by [Prasad Kanade](https://www.linkedin.com/in/prasadkanade/) | MS Computer Science @ Northeastern University**
+**Built by [Prasad Kanade](https://www.linkedin.com/in/prasad-kanade-/) | MS Computer Science @ Northeastern University**
 
 ## What It Does
 
