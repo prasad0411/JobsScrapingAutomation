@@ -143,7 +143,7 @@ CREDITS_FILE = os.path.join(_ROOT, ".local", "outreach_credits.json")
 PATTERNS_FILE = os.path.join(_ROOT, ".local", "outreach_patterns.json")
 LOG_FILE = os.path.join(_ROOT, ".local", "outreach.log")
 DRAFT_HISTORY_FILE = os.path.join(_ROOT, ".local", "draft_history.json")
-RESUME_SDE = os.path.join(_ROOT, ".local", "Prasad Kanade SDE Resume.pdf")
+RESUME_SDE = os.path.join(_ROOT, ".local", "Prasad Kanade SWE Resume.pdf")
 RESUME_ML = os.path.join(_ROOT, ".local", "Prasad Kanade ML Resume.pdf")
 
 STRIP_PRE = {
