@@ -69,25 +69,37 @@ def phase_draft_existing(sheets, mailer):
         resume_type = sheets.get_resume_type(co, title)
         parts = []
         if he:
-            hn = r[C["hm_name"]].strip() or co
-            draft = Drafter.draft(hn, "hm", co, title, jid)
-            result = mailer.send(he, draft["subject"], draft["body"], resume_type)
-            if result["success"]:
-                parts.append("HM draft created")
-                stats["drafts"] += 1
-            elif "Duplicate" not in result.get("error", ""):
-                parts.append("HM draft failed")
-                stats["draft_failed"] += 1
+            hm_names = [n.strip() for n in r[C["hm_name"]].strip().split(",") if n.strip()]
+            hm_emails = [e.strip() for e in he.split(",") if e.strip()]
+            for idx_h in range(max(len(hm_names), len(hm_emails))):
+                name = hm_names[idx_h] if idx_h < len(hm_names) else hm_names[-1] if hm_names else co
+                email = hm_emails[idx_h] if idx_h < len(hm_emails) else None
+                if not email:
+                    continue
+                draft = Drafter.draft(name, "hm", co, title, jid)
+                result = mailer.send(email, draft["subject"], draft["body"], resume_type)
+                if result["success"]:
+                    parts.append(f"HM draft created ({name.split()[0]})")
+                    stats["drafts"] += 1
+                elif "Duplicate" not in result.get("error", ""):
+                    parts.append(f"HM draft failed ({name.split()[0]})")
+                    stats["draft_failed"] += 1
         if re_:
-            rn = r[C["rec_name"]].strip() or co
-            draft = Drafter.draft(rn, "rec", co, title, jid)
-            result = mailer.send(re_, draft["subject"], draft["body"], resume_type)
-            if result["success"]:
-                parts.append("Recruiter draft created")
-                stats["drafts"] += 1
-            elif "Duplicate" not in result.get("error", ""):
-                parts.append("Recruiter draft failed")
-                stats["draft_failed"] += 1
+            rec_names = [n.strip() for n in r[C["rec_name"]].strip().split(",") if n.strip()]
+            rec_emails = [e.strip() for e in re_.split(",") if e.strip()]
+            for idx_r in range(max(len(rec_names), len(rec_emails))):
+                name = rec_names[idx_r] if idx_r < len(rec_names) else rec_names[-1] if rec_names else co
+                email = rec_emails[idx_r] if idx_r < len(rec_emails) else None
+                if not email:
+                    continue
+                draft = Drafter.draft(name, "rec", co, title, jid)
+                result = mailer.send(email, draft["subject"], draft["body"], resume_type)
+                if result["success"]:
+                    parts.append(f"Rec draft created ({name.split()[0]})")
+                    stats["drafts"] += 1
+                elif "Duplicate" not in result.get("error", ""):
+                    parts.append(f"Rec draft failed ({name.split()[0]})")
+                    stats["draft_failed"] += 1
         if parts:
             print(f"  {co}: {', '.join(parts)}")
         location = sheets.get_location(co, title)
