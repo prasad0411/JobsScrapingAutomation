@@ -40,16 +40,6 @@ Job metadata including job type, location, remote status, entry timestamp and so
 
 ![Valid Entries Detail](docs/screenshots/valid_entries_detail.png)
 
-### Outreach Terminal Output
-
-Email discovery and draft creation with bounce detection and retry logic.
-
-
-### Outreach Summary
-
-Email extraction stats showing successful extractions, draft creation, and failure counts.
-
-
 ### Outreach Tracker Sheet
 
 Email outreach tracking with HM/recruiter names, LinkedIn URLs, discovered emails, LinkedIn messages, scheduled send times, and delivery notes.
