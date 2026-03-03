@@ -37,6 +37,25 @@ from outreach.outreach_config import (
 log = logging.getLogger(__name__)
 
 
+def is_suspicious_email(email):
+    """Check if email domain is an ATS/internal platform — not a real company email."""
+    if not email or "@" not in email:
+        return True
+    try:
+        from outreach.outreach_config import SUSPICIOUS_EMAIL_DOMAINS
+    except ImportError:
+        return False
+    domain = email.split("@")[1].lower().strip()
+    # Check if domain ends with any suspicious pattern
+    for sus in SUSPICIOUS_EMAIL_DOMAINS:
+        if domain.endswith(sus):
+            return True
+    # Check if domain has 3+ subdomains (likely internal routing)
+    if domain.count(".") >= 3:
+        return True
+    return False
+
+
 class Sheets:
     _resume_cache = None
     _location_cache = None
@@ -683,6 +702,18 @@ class Sheets:
 
     def write_email(self, row, ct, email, source):
         try:
+            # Check each email for suspicious domains
+            clean_emails = []
+            for e in email.split(","):
+                e = e.strip()
+                if is_suspicious_email(e):
+                    log.warning(f"Row {row} {ct}: Suspicious domain skipped: {e}")
+                else:
+                    clean_emails.append(e)
+            if not clean_emails:
+                log.warning(f"Row {row} {ct}: All emails suspicious — skipping")
+                return
+            email = ", ".join(clean_emails)
             col = C["hm_email"] if ct == "hm" else C["rec_email"]
             self._retry(self.ws.update_acell, f"{_cl(col)}{row}", email)
             log.info(f"Row {row} {ct}: {email} (via {source})")
@@ -842,10 +873,10 @@ class Sheets:
     @staticmethod
     def _fallback_send_at():
         now = datetime.datetime.now()
-        target = now.replace(hour=10, minute=0) + datetime.timedelta(days=1)
+        target = now.replace(hour=11, minute=0) + datetime.timedelta(days=1)
         while target.weekday() >= 5:
             target += datetime.timedelta(days=1)
-        return target.strftime("%b %d, 10:00 AM ET"), target.strftime("%b %d, %Y")
+        return target.strftime("%b %d, 11:00 AM ET"), target.strftime("%b %d, %Y")
 
     @staticmethod
     def _retry(func, *args, retries=3, **kwargs):

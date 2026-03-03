@@ -203,7 +203,7 @@ def main():
                 else:
                     print(f"    ⊘ HM draft not found: {email}")
                     skipped_count += 1
-                time.sleep(1)
+                time.sleep(3)
 
         # Send Rec email
         if re_:
@@ -222,7 +222,7 @@ def main():
                 else:
                     print(f"    ⊘ Rec draft not found: {email}")
                     skipped_count += 1
-                time.sleep(1)
+                time.sleep(3)
 
         # Update Sent Date if any emails were sent
         if emails_sent:
