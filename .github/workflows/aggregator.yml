@@ -3,12 +3,11 @@ name: Run Aggregator
 on:
   schedule:
     # Run every 6 hours: 5 AM, 11 AM, 5 PM, 11 PM ET
-    # UTC: 10:00, 16:00, 22:00, 04:00
     - cron: '0 10 * * *'   # 5 AM ET
     - cron: '0 16 * * *'   # 11 AM ET
     - cron: '0 22 * * *'   # 5 PM ET
     - cron: '0 4 * * *'    # 11 PM ET
-  workflow_dispatch:  # Manual trigger
+  workflow_dispatch:
 
 jobs:
   aggregate:
@@ -27,16 +26,18 @@ jobs:
         with:
           python-version: '3.12'
 
-      - name: Set up Chrome
-        uses: browser-actions/setup-chrome@v1
-        with:
-          chrome-version: stable
-
-      - name: Install ChromeDriver
+      - name: Install Chrome and ChromeDriver
         run: |
-          CHROME_VERSION=$(google-chrome --version | grep -oP '\d+\.\d+\.\d+')
-          pip install chromedriver-autoinstaller
-          python3 -c "import chromedriver_autoinstaller; chromedriver_autoinstaller.install()"
+          sudo apt-get update
+          sudo apt-get install -y google-chrome-stable
+          CHROME_VERSION=$(google-chrome --version | awk '{print $3}' | cut -d. -f1)
+          pip install webdriver-manager
+          python3 -c "
+          from webdriver_manager.chrome import ChromeDriverManager
+          from webdriver_manager.core.os_manager import ChromeType
+          path = ChromeDriverManager().install()
+          print(f'ChromeDriver installed at: {path}')
+          "
 
       - name: Install dependencies
         run: |
