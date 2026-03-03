@@ -70,6 +70,11 @@ Personalized email drafts auto-created in Gmail with resume attachment, ready fo
 
 ![Gmail Drafts](docs/screenshots/gmail_drafts.png)
 
+### GitHub Actions Automation
+Three automated workflows running on schedule — aggregator (every 6 hours), outreach (daily at 2 AM ET), and email sender (6x daily Mon-Fri).
+
+![GitHub Actions](docs/screenshots/github_actions.png)
+
 ## How It Works
 
 ### Job Aggregation Pipeline
