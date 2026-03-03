@@ -44,13 +44,11 @@ Job metadata including job type, location, remote status, entry timestamp and so
 
 Email discovery and draft creation with bounce detection and retry logic.
 
-![Outreach Terminal](docs/screenshots/outreach_terminal.png)
 
 ### Outreach Summary
 
 Email extraction stats showing successful extractions, draft creation, and failure counts.
 
-![Outreach Summary](docs/screenshots/outreach_summary.png)
 
 ### Outreach Tracker Sheet
 
