@@ -267,7 +267,10 @@ class UnifiedJobAggregator:
         start_time = time.time()
 
         if not self.jobright_auth.cookies:
-            self.jobright_auth.login_interactive()
+            if os.environ.get("CI") or os.environ.get("GITHUB_ACTIONS"):
+                logging.warning("CI environment: skipping Jobright interactive login. Using email-only mode.")
+            else:
+                self.jobright_auth.login_interactive()
 
         # (silent)
         self._scrape_simplify_github()

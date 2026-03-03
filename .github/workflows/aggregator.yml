@@ -50,6 +50,10 @@ jobs:
           echo '${{ secrets.GMAIL_CREDENTIALS }}' > .local/gmail_credentials.json
           echo '${{ secrets.GMAIL_TOKEN }}' | base64 -d > .local/gmail_token.pickle
           echo '${{ secrets.ENV_FILE }}' > .env
+          if [ -n "${{ secrets.JOBRIGHT_COOKIES }}" ]; then
+            echo '${{ secrets.JOBRIGHT_COOKIES }}' > .local/jobright_cookies.json
+            echo "Jobright cookies loaded"
+          fi
 
       - name: Run aggregator
         run: |

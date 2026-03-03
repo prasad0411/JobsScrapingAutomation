@@ -321,6 +321,10 @@ class Sheets:
                 nr[C["title"]] = ti    # verbatim from Valid
                 nr[C["job_id"]] = jid  # verbatim from Valid
                 # NEVER touch LinkedIn URL columns (F, J) — user enters these manually
+                # Explicitly preserve LinkedIn URLs from existing row
+                for li_col in [C["hm_li"], C["rec_li"]]:
+                    if len(existing) > li_col and existing[li_col].strip():
+                        nr[li_col] = existing[li_col]
             else:
                 # New row — only copy shared columns
                 nr = [""] * len(O_HEADERS)

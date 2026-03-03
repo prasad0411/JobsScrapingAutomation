@@ -3011,8 +3011,15 @@ class CompanyExtractor:
                 # Strip legal suffixes
                 if r.value:
                     import re as _re
+                    # Strip legal suffixes
                     r.value = _re.sub(r"\s*[,.]?\s*(?:Inc\.?|LLC|Corp\.?|Ltd\.?|Co\.?)\s*$", "", r.value, flags=_re.I)
                     r.value = _re.sub(r"\s*\((?:United States|US|USA|UK|Canada|Global)\)\s*$", "", r.value, flags=_re.I)
+                    # Strip "inc" embedded at end of company name (e.g. Skyworksinc -> Skyworks)
+                    r.value = _re.sub(r"(?i)(\w)(?:inc|llc|corp)$", r"\1", r.value)
+                    # Strip career page suffixes
+                    r.value = _re.sub(r"\s*(?:Job Board|Careers?|Career Page|Career Site|Jobs?)\s*$", "", r.value, flags=_re.I)
+                    # Strip LinkedIn job title leakage
+                    r.value = _re.split(r"\s+hiring\s+|\s+in\s+[A-Z][a-z]+,?\s+|\s*\|\s*LinkedIn", r.value)[0]
                     r.value = r.value.strip().strip(",").strip()
 
             for result in valid_results:

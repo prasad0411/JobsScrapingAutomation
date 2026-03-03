@@ -461,6 +461,21 @@ INVALID_TITLE_KEYWORDS = [
     r"intern.*\bphd\b",
     r"ph\.d\..*intern",
     r"intern.*ph\.d\.",
+    r"\bsales\s+(?:intern|internship|co-op|coop)",
+    r"\bsales\s+(?:development|representative)\s+intern",
+    r"\bmarketing\s+(?:intern|internship)(?!.*(?:analytics|data|tech|engineer))",
+    r"\brecruiting\s+(?:intern|internship)",
+    r"\bhr\s+(?:intern|internship)",
+    r"\bhuman\s+resources\s+(?:intern|internship)",
+    r"\baccounting\s+(?:intern|internship)",
+    r"\blegal\s+(?:intern|internship)",
+    r"\bnursing\s+(?:intern|internship)",
+    r"\bclinical\s+(?:intern|internship)(?!.*(?:data|software|engineer|analyst))",
+    r"\bgraphic\s+design\s+(?:intern|internship)",
+    r"\beditorial\s+(?:intern|internship)",
+    r"\bcopywriter\s+(?:intern|internship)",
+    r"\breal\s+estate\s+(?:intern|internship)",
+    r"\binsurance\s+(?:agent|broker)\s+(?:intern|internship)",
 ]
 
 INTERNATIONAL_URL_INDICATORS = [
