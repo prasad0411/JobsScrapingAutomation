@@ -12,7 +12,7 @@ on:
 jobs:
   aggregate:
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    timeout-minutes: 120
     concurrency:
       group: aggregator
       cancel-in-progress: false

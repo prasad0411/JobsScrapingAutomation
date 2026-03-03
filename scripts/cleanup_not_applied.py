@@ -32,6 +32,8 @@ FILES_TO_BACKUP = [
     "processed_emails.json",
     "workday_mapping.json",
     ".env",
+    "Prasad Kanade SWE Resume.pdf",
+    "Prasad Kanade ML Resume.pdf",
 ]
 
 
