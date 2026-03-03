@@ -55,6 +55,21 @@ jobs:
             echo "Jobright cookies loaded"
           fi
 
+      - name: Restore cache files
+        uses: actions/cache@v4
+        with:
+          path: |
+            .local/failed_simplify_urls.json
+            .local/failed_urls.json
+            .local/processed_emails.json
+            .local/email_verify_cache.json
+            .local/mx_cache.json
+            .local/simplify_manual_review.txt
+            .local/skipped_jobs.log
+          key: aggregator-cache-${{ github.run_number }}
+          restore-keys: |
+            aggregator-cache-
+
       - name: Run aggregator
         run: |
           python3 -m aggregator
