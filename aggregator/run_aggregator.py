@@ -1327,11 +1327,16 @@ class UnifiedJobAggregator:
                 and location_hint != "Unknown"
             ):
                 location = location_hint
-            # Clean location: strip job type words that leak into location
+            # Clean location: strip job type and remote words that leak into location
             if location and location != "Unknown":
                 import re as _re
                 location = _re.sub(r"(?i)^\s*(?:Internship|Full[- ]?Time|Part[- ]?Time|Co-?op|Contract|Temporary)\s*[,;]\s*", "", location)
                 location = _re.sub(r"(?i)\s*[,;]\s*(?:Internship|Full[- ]?Time|Part[- ]?Time|Co-?op|Contract|Temporary)\s*$", "", location)
+                # Strip remote status leaked into location
+                location = _re.sub(r"(?i)\s*,?\s*(?:Hybrid|In Person|On Site|On-Site|Remote)\s*,?\s*(?:in-office.*)?$", "", location)
+                location = _re.sub(r"(?i)^\s*(?:Hybrid|In Person|On Site|On-Site|Remote)\s*,?\s*", "", location)
+                # Fix cases like "City, STHybrid" where no space between state and remote
+                location = _re.sub(r"([A-Z]{2})(?:Hybrid|Remote|On Site|In Person).*$", r"\1", location)
                 location = location.strip().strip(",").strip()
 
             international_check = LocationProcessor.check_if_international(
