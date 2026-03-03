@@ -1,0 +1,58 @@
+name: Run Outreach
+
+on:
+  schedule:
+    # Run daily at 2 AM ET (7:00 UTC)
+    - cron: '0 7 * * *'
+  workflow_dispatch:
+
+jobs:
+  outreach:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    concurrency:
+      group: outreach
+      cancel-in-progress: false
+
+    steps:
+      - name: Checkout main repo
+        uses: actions/checkout@v4
+
+      - name: Checkout private secrets repo
+        uses: actions/checkout@v4
+        with:
+          repository: prasad0411/job-tracker-secrets
+          token: ${{ secrets.SECRETS_REPO_TOKEN }}
+          path: secrets-repo
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install dependencies
+        run: |
+          pip install gspread oauth2client google-api-python-client google-auth google-auth-httplib2 google-auth-oauthlib requests dnspython
+
+      - name: Set up credentials and resumes
+        run: |
+          mkdir -p .local
+          echo '${{ secrets.GCP_CREDENTIALS }}' > .local/credentials.json
+          echo '${{ secrets.GMAIL_CREDENTIALS }}' > .local/gmail_credentials.json
+          echo '${{ secrets.GMAIL_TOKEN }}' | base64 -d > .local/gmail_token.pickle
+          echo '${{ secrets.ENV_FILE }}' > .env
+          # Copy resumes from private repo
+          cp "secrets-repo/Prasad Kanade SWE Resume.pdf" ".local/" 2>/dev/null || echo "SWE resume not found in secrets repo"
+          cp "secrets-repo/Prasad Kanade ML Resume.pdf" ".local/" 2>/dev/null || echo "ML resume not found in secrets repo"
+          ls -la .local/*.pdf 2>/dev/null || echo "No resume PDFs found"
+
+      - name: Run outreach pipeline
+        run: |
+          python3 -m outreach
+        env:
+          CI: true
+
+      - name: Summary
+        if: always()
+        run: |
+          echo "Outreach run completed at $(date -u '+%Y-%m-%d %H:%M UTC')"
