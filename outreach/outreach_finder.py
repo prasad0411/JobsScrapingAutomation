@@ -267,7 +267,8 @@ class Finder:
                     d_base = d.split(".")[0].lower()
                     if clean_co and len(clean_co) >= 3:
                         if d_base not in clean_co and clean_co not in d_base:
-                            log.warning(f"Clearbit suspect domain: {company} → {d} (no name overlap). Add override if wrong.")
+                            log.warning(f"Clearbit suspect domain BLOCKED: {company} → {d} (no name overlap). Add to .local/domain_overrides.json if correct.")
+                            continue  # BLOCK suspect domains instead of using them
                     doms.append(d)
         except:
             pass

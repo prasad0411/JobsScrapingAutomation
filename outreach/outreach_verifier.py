@@ -71,7 +71,12 @@ def is_suspicious_email(email):
         return True
 
     # Local part sanity checks
-    if len(local) < 2 or len(local) > 64:
+    if len(local) < 3 or len(local) > 64:
+        return True
+    # Reject very short local parts (initials only like sr@ or s.n@)
+    clean_local = local.replace(".", "").replace("_", "").replace("-", "")
+    if len(clean_local) < 3:
+        log.info(f"Too-short local part blocked: {email}")
         return True
     if local.replace(".", "").replace("_", "").replace("-", "").isdigit():
         return True

@@ -171,6 +171,19 @@ SUSPICIOUS_EMAIL_DOMAINS = [
     "bamboohr.com",
     "clearcompany.com",
     "gserviceaccount.com",
+    "eightfold.ai",
+    "disneycareers.com",
+    "careers.com",
+    "jobs.com",
+    "recruiting.com",
+    "hire.com",
+    "jobvite.com",
+    "avature.net",
+    "phenom.com",
+    "beamery.com",
+    "recruitingbypaycor.com",
+    "hirebridge.com",
+    "newton.co",
 ]
 
 STRIP_PRE = {
