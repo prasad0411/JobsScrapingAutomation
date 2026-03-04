@@ -1023,6 +1023,9 @@ class NameParser:
             if len(parts) == 2 and parts[0] and parts[1]:
                 if parts[1].lower().rstrip(".") not in STRIP_SUF:
                     n = f"{parts[1]} {parts[0]}"
+        # Strip parenthetical parts like (Maskas) from "Joanna (Maskas) Clark"
+        import re as _re
+        n = _re.sub(r'\([^)]*\)\s*', '', n).strip()
         ws = n.split()
         while ws and ws[0].lower().rstrip(".") in STRIP_PRE:
             ws = ws[1:]
