@@ -537,5 +537,14 @@ class EmailVerifier:
 # ============================================================================
 # Helpers
 # ============================================================================
+def confidence_label(score):
+    """Convert numeric confidence to High/Medium/Low label."""
+    if score >= AUTO_SEND_THRESHOLD:
+        return "High"
+    elif score >= MANUAL_REVIEW_THRESHOLD:
+        return "Medium"
+    return "Low"
+
+
 def _today():
     return datetime.datetime.now().strftime("%Y-%m-%d")

@@ -312,6 +312,13 @@ def main():
             skipped_count += 1
             continue
 
+        # Check confidence label — refuse to send Low confidence
+        conf_label = row[C.get("confidence", 15)].strip() if len(row) > C.get("confidence", 15) else ""
+        if conf_label == "Low":
+            print(f"  {co}: Skipped (confidence: Low)")
+            skipped_count += 1
+            continue
+
         print(f"  {co} | {title[:40]}...")
 
         emails_sent = []

@@ -725,6 +725,17 @@ class Sheets:
         except Exception as e:
             log.error(f"write_email row {row}: {e}")
 
+    def write_confidence(self, row, confidence_score):
+        """Write confidence label (High/Medium/Low) to the Confidence column."""
+        try:
+            from outreach.outreach_verifier import confidence_label
+            label = confidence_label(confidence_score)
+            col_letter = _cl(C["confidence"])
+            self._retry(self.ws.update_acell, f"{col_letter}{row}", label)
+            self._p()
+        except Exception as e:
+            log.error(f"write_confidence row {row}: {e}")
+
     def write_send_at(self, row, send_at_text, sent_date_text=""):
         try:
             self._retry(self.ws.update_acell, f"{_cl(C['send_at'])}{row}", send_at_text)
