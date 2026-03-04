@@ -20,16 +20,19 @@ _log_dir = os.path.join(
 os.makedirs(_log_dir, exist_ok=True)
 
 from logging.handlers import RotatingFileHandler
+
 _fh = RotatingFileHandler(
     os.path.join(_log_dir, "outreach.log"),
     maxBytes=5 * 1024 * 1024,  # 5MB
     backupCount=3,
 )
 _fh.setLevel(logging.INFO)
-_fh.setFormatter(logging.Formatter(
-    "%(asctime)s | %(levelname)s | %(name)s | %(message)s",
-    datefmt="%Y-%m-%d %H:%M:%S",
-))
+_fh.setFormatter(
+    logging.Formatter(
+        "%(asctime)s | %(levelname)s | %(name)s | %(message)s",
+        datefmt="%Y-%m-%d %H:%M:%S",
+    )
+)
 logging.getLogger().addHandler(_fh)
 logging.getLogger().setLevel(logging.DEBUG)
 _con = logging.StreamHandler()
@@ -50,9 +53,9 @@ def phase_pull(sheets):
     return sheets.pull()
 
 
-
 def phase_draft_existing(sheets, mailer):
     from outreach.outreach_data import _pad, C
+
     data = sheets.ws.get_all_values()
     sheets._p()
     stats = {"drafts": 0, "draft_failed": 0}
@@ -69,15 +72,23 @@ def phase_draft_existing(sheets, mailer):
         resume_type = sheets.get_resume_type(co, title)
         parts = []
         if he:
-            hm_names = [n.strip() for n in r[C["hm_name"]].strip().split(",") if n.strip()]
+            hm_names = [
+                n.strip() for n in r[C["hm_name"]].strip().split(",") if n.strip()
+            ]
             hm_emails = [e.strip() for e in he.split(",") if e.strip()]
             for idx_h in range(max(len(hm_names), len(hm_emails))):
-                name = hm_names[idx_h] if idx_h < len(hm_names) else hm_names[-1] if hm_names else co
+                name = (
+                    hm_names[idx_h]
+                    if idx_h < len(hm_names)
+                    else hm_names[-1] if hm_names else co
+                )
                 email = hm_emails[idx_h] if idx_h < len(hm_emails) else None
                 if not email:
                     continue
                 draft = Drafter.draft(name, "hm", co, title, jid)
-                result = mailer.send(email, draft["subject"], draft["body"], resume_type)
+                result = mailer.send(
+                    email, draft["subject"], draft["body"], resume_type
+                )
                 if result["success"]:
                     parts.append(f"HM draft created ({name.split()[0]})")
                     stats["drafts"] += 1
@@ -85,15 +96,23 @@ def phase_draft_existing(sheets, mailer):
                     parts.append(f"HM draft failed ({name.split()[0]})")
                     stats["draft_failed"] += 1
         if re_:
-            rec_names = [n.strip() for n in r[C["rec_name"]].strip().split(",") if n.strip()]
+            rec_names = [
+                n.strip() for n in r[C["rec_name"]].strip().split(",") if n.strip()
+            ]
             rec_emails = [e.strip() for e in re_.split(",") if e.strip()]
             for idx_r in range(max(len(rec_names), len(rec_emails))):
-                name = rec_names[idx_r] if idx_r < len(rec_names) else rec_names[-1] if rec_names else co
+                name = (
+                    rec_names[idx_r]
+                    if idx_r < len(rec_names)
+                    else rec_names[-1] if rec_names else co
+                )
                 email = rec_emails[idx_r] if idx_r < len(rec_emails) else None
                 if not email:
                     continue
                 draft = Drafter.draft(name, "rec", co, title, jid)
-                result = mailer.send(email, draft["subject"], draft["body"], resume_type)
+                result = mailer.send(
+                    email, draft["subject"], draft["body"], resume_type
+                )
                 if result["success"]:
                     parts.append(f"Rec draft created ({name.split()[0]})")
                     stats["drafts"] += 1
@@ -104,7 +123,9 @@ def phase_draft_existing(sheets, mailer):
             print(f"  {co}: {', '.join(parts)}")
         location = sheets.get_location(co, title)
         sa, sd = sheets.compute_send_at(location)
-        sheets.write_send_at(i, sa)  # Don't write sent_date yet — written after actual send
+        sheets.write_send_at(
+            i, sa
+        )  # Don't write sent_date yet — written after actual send
     return stats
 
 
@@ -133,7 +154,11 @@ def phase_extract_and_draft(sheets, finder, mailer):
         hm_res = rec_res = None
         parts = []
 
-        jud = sheets.get_job_url_domain(row["co"], row["title"]) if hasattr(sheets, "get_job_url_domain") else ""
+        jud = (
+            sheets.get_job_url_domain(row["co"], row["title"])
+            if hasattr(sheets, "get_job_url_domain")
+            else ""
+        )
         if row["need_h"]:
             # Support multiple comma-separated HM names
             hm_names = [n.strip() for n in row["hn"].split(",") if n.strip()]
@@ -160,7 +185,9 @@ def phase_extract_and_draft(sheets, finder, mailer):
             rec_emails = []
             rec_failed = False
             for rec_name in rec_names:
-                rec_res = finder.find(rec_name, row["co"], row["rli"], job_url_domain=jud)
+                rec_res = finder.find(
+                    rec_name, row["co"], row["rli"], job_url_domain=jud
+                )
                 if rec_res["email"]:
                     rec_emails.append(rec_res["email"])
                     stats["extracted"] += 1
@@ -221,7 +248,9 @@ def phase_extract_and_draft(sheets, finder, mailer):
         if hm_e or rec_e:
             location = sheets.get_location(row["co"], row["title"])
             sa, sd = sheets.compute_send_at(location)
-            sheets.write_send_at(rn, sa, sd)
+            sheets.write_send_at(
+                rn, sa
+            )  # Don't write sent_date — written after actual send
 
     return stats
 
