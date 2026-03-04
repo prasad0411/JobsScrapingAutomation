@@ -67,7 +67,7 @@ _COMPILED_SPONSORSHIP_PATTERNS = [
 ]
 
 _TITLE_CLEAN_PATTERN = re.compile(r"\s*[\(\[].+?[\)\]]|\s*\([^)]*$|\s*\[[^\]]*$")
-_SEASON_PATTERN = re.compile(r"\s*-?\s*(Summer|Fall|Spring|Winter)\s*20\d{2}", re.I)
+_SEASON_PATTERN = re.compile(r",?\s*-?\s*(?:Summer|Fall|Spring|Winter)(?:\s*/\s*(?:Summer|Fall|Spring|Winter))?\s*20\d{2}", re.I)
 _YEAR_PATTERN = re.compile(r"\s*-?\s*20\d{2}\s*-?\s*")
 _DEGREE_PATTERN = re.compile(
     r"\s*[\(\[]\s*(BS/MS|MS|PhD|Bachelor|Master).*?[\)\]]", re.I
