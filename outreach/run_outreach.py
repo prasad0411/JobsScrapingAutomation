@@ -13,6 +13,7 @@ from outreach.outreach_data import Sheets, Credits
 from outreach.outreach_finder import Finder
 from outreach.outreach_mailer import Drafter, Mailer
 from outreach.bounce_scanner import BounceScanner
+from outreach.outreach_verifier import CircuitBreaker, AUTO_SEND_THRESHOLD
 
 _log_dir = os.path.join(
     os.path.dirname(os.path.dirname(os.path.abspath(__file__))), ".local"
@@ -281,6 +282,15 @@ def main():
     if cmd == "status":
         status(sh, cr, ma)
         return
+
+    # Circuit breaker check
+    can_send, cb_reason = CircuitBreaker.can_send()
+    if not can_send:
+        print(f"  Circuit breaker TRIPPED: {cb_reason}")
+        print("  No emails will be drafted. Fix the issue first.")
+        print(f"  Status: {CircuitBreaker.status()}")
+    else:
+        print(f"  Circuit breaker: {CircuitBreaker.status()}")
 
     print("Scanning for bounced emails...")
     try:

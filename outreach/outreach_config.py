@@ -36,7 +36,8 @@ O_HEADERS = [
     "Rec LinkedIn Msg",     # L (11)
     "Send At",              # M (12)
     "Sent Date",            # N (13)
-    "Notes",                # N (13)
+    "Notes",                # O (14)
+    "Confidence",           # P (15)
 ]
 
 C = {
@@ -55,6 +56,7 @@ C = {
     "send_at": 12,
     "sent_dt": 13,
     "notes": 14,
+    "confidence": 15,
 }
 
 SENDER_NAME = "Prasad Kanade"

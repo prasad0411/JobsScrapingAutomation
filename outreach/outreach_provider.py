@@ -135,7 +135,8 @@ class ProviderVerifier:
         provider = self.get_provider(domain)
 
         if provider == "google":
-            return "unknown"
+            result = self._verify_google(email_lower, domain)
+            return result
         elif provider == "microsoft":
             result = self._verify_microsoft(email_lower)
         else:

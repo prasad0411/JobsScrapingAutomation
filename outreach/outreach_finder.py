@@ -23,6 +23,7 @@ from outreach.outreach_config import (
 )
 from outreach.outreach_data import NameParser, PatternCache, Credits
 from outreach.outreach_provider import ProviderVerifier
+from outreach.outreach_verifier import EmailVerifier, is_suspicious_email as verify_suspicious, CircuitBreaker, DomainHistory, AUTO_SEND_THRESHOLD
 
 log = logging.getLogger(__name__)
 try:
@@ -39,6 +40,11 @@ class Finder:
         self.pv = ProviderVerifier()
         self._reacher = None
         self._dom = {}
+        self.verifier = EmailVerifier(
+            provider_verifier=self.pv,
+            reacher_verify_fn=self._verify,
+            reacher_ok_fn=self._rok,
+        )
         Finder._cleanup_caches()
 
     @staticmethod
@@ -61,6 +67,20 @@ class Finder:
         if len(clean) >= 2:
             return " ".join(clean)
         return None
+
+
+    def _verify_and_score(self, email, domain, source_hint=""):
+        """Run email through full verification pipeline."""
+        if not email:
+            return None, 0, "empty", "No email"
+        if verify_suspicious(email):
+            log.warning(f"Blocked suspicious email: {email}")
+            return None, 0, "suspicious", f"Suspicious domain: {email}"
+        result = self.verifier.verify(email, domain, source_hint=source_hint)
+        log.info(f"Verification: {email} -> confidence={result['confidence']} source={result['source']}")
+        if result["confidence"] == 0:
+            return None, 0, result["source"], result["details"]
+        return email, result["confidence"], result["source"], result["details"]
 
     def find(self, name, company, linkedin="", job_url_domain=""):
         r = {"email": "", "source": "", "status": "Failed", "error": ""}
@@ -175,17 +195,27 @@ class Finder:
                     self._clear_retry(retry_key)
                     log.info(f"Pattern discovered via provider: {pv_email}")
                     return result
-            # Layer 8: Statistical inference — 80% of companies use first.last
+            # Statistical inference — VERIFY before accepting
             if domains and parsed and not parsed["single"]:
                 f = parsed["fa"].lower()
                 la = parsed["lc"]
                 if f and la:
                     stat_email = f"{f}.{la}@{domains[0]}"
-                    result.update(email=stat_email, source="statistical_80pct", status="Valid")
-                    self.pc.store(domains[0], "{first}.{last}")
-                    self._clear_retry(retry_key)
-                    log.info(f"Statistical inference (80%% confidence): {stat_email}")
-                    return result
+                    verified_email, conf, vsource, vdetails = self._verify_and_score(stat_email, domains[0], source_hint="pattern_guess")
+                    if verified_email and conf >= AUTO_SEND_THRESHOLD:
+                        result.update(email=verified_email, source=f"statistical_verified_{vsource}", status="Valid")
+                        result["confidence"] = conf
+                        self.pc.store(domains[0], "{first}.{last}")
+                        self._clear_retry(retry_key)
+                        log.info(f"Statistical guess VERIFIED ({conf}): {verified_email}")
+                        return result
+                    elif verified_email and conf > 0:
+                        result.update(email=verified_email, source="statistical_unverified", status="Manual Review")
+                        result["confidence"] = conf
+                        log.info(f"Statistical guess LOW CONFIDENCE ({conf}): {verified_email}")
+                        return result
+                    else:
+                        log.info(f"Statistical guess REJECTED: {stat_email}")
             self._track_retry(retry_key, domains[0] if domains else "", result.get("error", ""))
         return result
 

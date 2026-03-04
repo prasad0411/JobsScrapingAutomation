@@ -1,0 +1,541 @@
+#!/usr/bin/env python3
+"""
+Multi-Source Email Verification Engine (100% Free)
+
+Verification gates (in order):
+  Gate 1: Suspicious domain check (ATS domains, too many subdomains)
+  Gate 2: MX record validation (domain must accept email)
+  Gate 3: Provider detection (Google / Microsoft / Other)
+  Gate 4: Provider-specific verification:
+           - Google: gxlu endpoint (free, definitive)
+           - Microsoft: GetCredentialType (free, definitive)
+  Gate 5: Catch-all domain detection (flag domains that accept everything)
+  Gate 6: Reacher SMTP verification (local Docker, free)
+
+Confidence scoring:
+  95 = API verified (Apollo/Hunter confirmed person + email)
+  90 = Provider verified (Google gxlu or Microsoft 365 confirmed mailbox exists)
+  85 = Pattern cache hit + provider verified
+  80 = Website mining + provider verified
+  75 = Reacher SMTP says "safe" + domain is NOT catch-all
+  60 = Reacher SMTP says "safe" + domain IS catch-all (unreliable)
+  50 = Catch-all domain, no definitive verification possible
+  30 = Pattern guess, no verification (NEVER auto-send)
+  0  = Explicitly rejected by any verifier
+
+Auto-send threshold: >= 75
+Manual review: 50-74
+Never send: < 50
+"""
+
+import os, json, time, logging, datetime
+
+log = logging.getLogger(__name__)
+
+_LOCAL = os.path.join(
+    os.path.dirname(os.path.dirname(os.path.abspath(__file__))), ".local"
+)
+CIRCUIT_BREAKER_FILE = os.path.join(_LOCAL, "circuit_breaker.json")
+DOMAIN_HISTORY_FILE = os.path.join(_LOCAL, "domain_pattern_history.json")
+
+AUTO_SEND_THRESHOLD = 75
+MANUAL_REVIEW_THRESHOLD = 50
+MAX_DAILY_BOUNCES = 2
+MAX_BOUNCE_RATE = 0.03  # 3%
+MAX_DAILY_SENDS = 30
+
+
+# ============================================================================
+# Gate 1: Suspicious Email Check
+# ============================================================================
+def is_suspicious_email(email):
+    """Check if email domain is ATS/internal — not a real person's inbox."""
+    if not email or "@" not in email:
+        return True
+    try:
+        from outreach.outreach_config import SUSPICIOUS_EMAIL_DOMAINS
+    except ImportError:
+        return False
+    domain = email.split("@")[1].lower().strip()
+    local = email.split("@")[0].lower().strip()
+
+    # Check against known ATS domains
+    for sus in SUSPICIOUS_EMAIL_DOMAINS:
+        if domain.endswith(sus):
+            log.info(f"Suspicious domain blocked: {email} (matches {sus})")
+            return True
+
+    # 3+ subdomains = likely internal routing
+    if domain.count(".") >= 3:
+        log.info(f"Suspicious domain blocked: {email} (too many subdomains)")
+        return True
+
+    # Local part sanity checks
+    if len(local) < 2 or len(local) > 64:
+        return True
+    if local.replace(".", "").replace("_", "").replace("-", "").isdigit():
+        return True
+
+    # Reject role-based emails (these are shared inboxes, not personal)
+    role_prefixes = {
+        "info",
+        "hello",
+        "press",
+        "sales",
+        "support",
+        "contact",
+        "admin",
+        "help",
+        "team",
+        "hr",
+        "jobs",
+        "careers",
+        "office",
+        "marketing",
+        "media",
+        "security",
+        "privacy",
+        "legal",
+        "feedback",
+        "billing",
+        "noreply",
+        "no-reply",
+        "webmaster",
+        "postmaster",
+        "abuse",
+        "hostmaster",
+        "recruiting",
+        "talent",
+        "apply",
+        "hire",
+        "hiring",
+        "resume",
+        "resumes",
+    }
+    if local in role_prefixes:
+        log.info(f"Role-based email blocked: {email}")
+        return True
+
+    return False
+
+
+# ============================================================================
+# Gate 2: MX Record Validation
+# ============================================================================
+def has_valid_mx(domain):
+    """Check if domain has MX records (can receive email)."""
+    try:
+        import dns.resolver
+
+        try:
+            dns.resolver.resolve(domain, "MX", lifetime=10)
+            return True
+        except Exception:
+            pass
+        try:
+            dns.resolver.resolve(domain, "A", lifetime=10)
+            return True
+        except Exception:
+            return False
+    except ImportError:
+        import socket
+
+        try:
+            socket.getaddrinfo(domain, None)
+            return True
+        except Exception:
+            return False
+
+
+# ============================================================================
+# Circuit Breaker — Protects Gmail Reputation
+# ============================================================================
+class CircuitBreaker:
+    """
+    Tracks daily sends and bounces. If bounce rate exceeds threshold,
+    stops all sending for the rest of the day.
+    """
+
+    @staticmethod
+    def load():
+        try:
+            if os.path.exists(CIRCUIT_BREAKER_FILE):
+                data = json.load(open(CIRCUIT_BREAKER_FILE))
+                # Reset if it's a new day
+                if data.get("date") != _today():
+                    return CircuitBreaker._fresh()
+                return data
+        except Exception:
+            pass
+        return CircuitBreaker._fresh()
+
+    @staticmethod
+    def _fresh():
+        return {
+            "date": _today(),
+            "sent": 0,
+            "bounced": 0,
+            "tripped": False,
+            "trip_reason": "",
+        }
+
+    @staticmethod
+    def save(data):
+        try:
+            os.makedirs(_LOCAL, exist_ok=True)
+            json.dump(data, open(CIRCUIT_BREAKER_FILE, "w"), indent=2)
+        except Exception as e:
+            log.error(f"Circuit breaker save failed: {e}")
+
+    @staticmethod
+    def can_send():
+        """Check if we're allowed to send right now."""
+        cb = CircuitBreaker.load()
+
+        if cb.get("tripped"):
+            log.warning(f"Circuit breaker TRIPPED: {cb.get('trip_reason')}")
+            return False, cb.get("trip_reason", "Circuit breaker tripped")
+
+        if cb["sent"] >= MAX_DAILY_SENDS:
+            reason = f"Daily send limit reached ({MAX_DAILY_SENDS})"
+            cb["tripped"] = True
+            cb["trip_reason"] = reason
+            CircuitBreaker.save(cb)
+            return False, reason
+
+        if cb["sent"] > 0 and cb["bounced"] >= MAX_DAILY_BOUNCES:
+            rate = cb["bounced"] / cb["sent"]
+            if rate >= MAX_BOUNCE_RATE:
+                reason = f"Bounce rate {rate:.0%} exceeds {MAX_BOUNCE_RATE:.0%} ({cb['bounced']}/{cb['sent']})"
+                cb["tripped"] = True
+                cb["trip_reason"] = reason
+                CircuitBreaker.save(cb)
+                return False, reason
+
+        return True, ""
+
+    @staticmethod
+    def record_send():
+        cb = CircuitBreaker.load()
+        cb["sent"] += 1
+        CircuitBreaker.save(cb)
+
+    @staticmethod
+    def record_bounce():
+        cb = CircuitBreaker.load()
+        cb["bounced"] += 1
+        # Check if we should trip
+        if cb["sent"] > 0:
+            rate = cb["bounced"] / cb["sent"]
+            if cb["bounced"] >= MAX_DAILY_BOUNCES and rate >= MAX_BOUNCE_RATE:
+                cb["tripped"] = True
+                cb["trip_reason"] = (
+                    f"Auto-tripped: {cb['bounced']} bounces / {cb['sent']} sent"
+                )
+                log.warning(f"Circuit breaker AUTO-TRIPPED: {cb['trip_reason']}")
+        CircuitBreaker.save(cb)
+
+    @staticmethod
+    def status():
+        cb = CircuitBreaker.load()
+        return (
+            f"Sends: {cb['sent']}/{MAX_DAILY_SENDS} | "
+            f"Bounces: {cb['bounced']}/{MAX_DAILY_BOUNCES} | "
+            f"Status: {'TRIPPED' if cb.get('tripped') else 'OK'}"
+        )
+
+
+# ============================================================================
+# Domain Pattern History — Learn from Successes and Failures
+# ============================================================================
+class DomainHistory:
+    """
+    Tracks which email patterns succeeded/failed for each domain.
+    Patterns that bounced are permanently blacklisted for that domain.
+    Patterns that delivered are permanently trusted.
+    """
+
+    @staticmethod
+    def load():
+        try:
+            if os.path.exists(DOMAIN_HISTORY_FILE):
+                return json.load(open(DOMAIN_HISTORY_FILE))
+        except Exception:
+            pass
+        return {}
+
+    @staticmethod
+    def save(data):
+        try:
+            os.makedirs(_LOCAL, exist_ok=True)
+            json.dump(data, open(DOMAIN_HISTORY_FILE, "w"), indent=2)
+        except Exception:
+            pass
+
+    @staticmethod
+    def record_success(domain, pattern, email):
+        """Record a successfully delivered email pattern for a domain."""
+        data = DomainHistory.load()
+        domain = domain.lower().strip()
+        if domain not in data:
+            data[domain] = {
+                "confirmed_pattern": None,
+                "failed_patterns": [],
+                "confirmed_at": None,
+            }
+        data[domain]["confirmed_pattern"] = pattern
+        data[domain]["confirmed_at"] = _today()
+        data[domain]["last_success_email"] = email
+        # Remove from failed if it was there
+        if pattern in data[domain].get("failed_patterns", []):
+            data[domain]["failed_patterns"].remove(pattern)
+        DomainHistory.save(data)
+        log.info(
+            f"Domain history: {domain} confirmed pattern '{pattern}' (from {email})"
+        )
+
+    @staticmethod
+    def record_failure(domain, pattern, email):
+        """Record a bounced email pattern for a domain."""
+        data = DomainHistory.load()
+        domain = domain.lower().strip()
+        if domain not in data:
+            data[domain] = {
+                "confirmed_pattern": None,
+                "failed_patterns": [],
+                "confirmed_at": None,
+            }
+        if pattern and pattern not in data[domain].get("failed_patterns", []):
+            data[domain]["failed_patterns"].append(pattern)
+        # If the confirmed pattern just failed, invalidate it
+        if data[domain].get("confirmed_pattern") == pattern:
+            data[domain]["confirmed_pattern"] = None
+            data[domain]["confirmed_at"] = None
+            log.warning(
+                f"Domain history: {domain} invalidated pattern '{pattern}' (bounce)"
+            )
+        DomainHistory.save(data)
+
+    @staticmethod
+    def get_confirmed_pattern(domain):
+        """Get the confirmed working pattern for a domain, or None."""
+        data = DomainHistory.load()
+        entry = data.get(domain.lower().strip(), {})
+        pattern = entry.get("confirmed_pattern")
+        confirmed_at = entry.get("confirmed_at")
+        if pattern and confirmed_at:
+            # Check staleness — invalidate if older than 90 days
+            try:
+                confirmed_date = datetime.datetime.strptime(confirmed_at, "%Y-%m-%d")
+                age_days = (datetime.datetime.now() - confirmed_date).days
+                if age_days > 90:
+                    log.info(
+                        f"Domain history: {domain} pattern '{pattern}' is stale ({age_days}d)"
+                    )
+                    return None
+            except Exception:
+                pass
+        return pattern
+
+    @staticmethod
+    def is_failed_pattern(domain, pattern):
+        """Check if this pattern has previously bounced for this domain."""
+        data = DomainHistory.load()
+        entry = data.get(domain.lower().strip(), {})
+        return pattern in entry.get("failed_patterns", [])
+
+
+# ============================================================================
+# Master Verification Pipeline
+# ============================================================================
+class EmailVerifier:
+    """
+    Runs an email through all verification gates.
+    Returns (confidence_score, verification_source, details).
+    """
+
+    def __init__(
+        self, provider_verifier=None, reacher_verify_fn=None, reacher_ok_fn=None
+    ):
+        """
+        Args:
+            provider_verifier: ProviderVerifier instance (Google/Microsoft checks)
+            reacher_verify_fn: function(email) -> "safe"/"risky"/"unknown"
+            reacher_ok_fn: function() -> bool (is Reacher Docker running?)
+        """
+        self.pv = provider_verifier
+        self._reacher_verify = reacher_verify_fn
+        self._reacher_ok = reacher_ok_fn
+
+    def verify(self, email, domain=None, source_hint=""):
+        """
+        Full verification pipeline.
+
+        Returns dict:
+            {
+                "confidence": int (0-95),
+                "status": "verified" | "manual_review" | "rejected",
+                "source": str (what verified it),
+                "details": str (human-readable explanation),
+                "send_ok": bool (confidence >= AUTO_SEND_THRESHOLD),
+            }
+        """
+        if not email or "@" not in email:
+            return self._result(0, "rejected", "invalid", "No valid email provided")
+
+        email = email.lower().strip()
+        if domain is None:
+            domain = email.split("@")[1]
+        domain = domain.lower().strip()
+
+        # ── Gate 1: Suspicious domain check ──
+        if is_suspicious_email(email):
+            return self._result(
+                0,
+                "rejected",
+                "suspicious_domain",
+                f"ATS/internal domain or role-based email: {email}",
+            )
+
+        # ── Gate 2: MX record validation ──
+        if not has_valid_mx(domain):
+            return self._result(
+                0,
+                "rejected",
+                "no_mx",
+                f"Domain {domain} has no MX records — cannot receive email",
+            )
+
+        # ── Gate 3+4: Provider-specific verification ──
+        if self.pv:
+            provider = self.pv.get_provider(domain)
+
+            if provider == "google":
+                result = self.pv._verify_google(email, domain)
+                if result == "exists":
+                    conf = 90 if source_hint != "pattern_guess" else 85
+                    return self._result(
+                        conf,
+                        "verified",
+                        f"google_gxlu",
+                        f"Google Workspace confirmed: {email}",
+                    )
+                elif result == "not_exists":
+                    return self._result(
+                        0,
+                        "rejected",
+                        "google_gxlu",
+                        f"Google Workspace rejected: {email}",
+                    )
+                # "unknown" means catch-all or gxlu failed — fall through
+
+            elif provider == "microsoft":
+                result = self.pv._verify_microsoft(email)
+                if result == "exists":
+                    conf = 90 if source_hint != "pattern_guess" else 85
+                    return self._result(
+                        conf,
+                        "verified",
+                        f"microsoft_365",
+                        f"Microsoft 365 confirmed: {email}",
+                    )
+                elif result == "not_exists":
+                    return self._result(
+                        0,
+                        "rejected",
+                        "microsoft_365",
+                        f"Microsoft 365 rejected: {email}",
+                    )
+                # "unknown" — fall through to Reacher
+
+        # ── Gate 5: Catch-all detection ──
+        is_catchall = False
+        if self.pv:
+            # Use existing catch-all detection from provider verifier
+            is_catchall = domain in getattr(
+                self.pv, "_catchall", {}
+            ) and self.pv._catchall.get(domain, False)
+
+        # ── Gate 6: Reacher SMTP verification ──
+        if self._reacher_ok and self._reacher_ok():
+            reacher_result = (
+                self._reacher_verify(email) if self._reacher_verify else "unknown"
+            )
+
+            if reacher_result == "safe":
+                if is_catchall:
+                    # Catch-all domain: Reacher says safe but that's meaningless
+                    return self._result(
+                        50,
+                        "manual_review",
+                        "reacher_catchall",
+                        f"Reacher safe BUT domain is catch-all: {domain}",
+                    )
+                else:
+                    conf = 75
+                    if source_hint in (
+                        "pattern_cache",
+                        "api_verified",
+                        "website_mining",
+                    ):
+                        conf = 80
+                    return self._result(
+                        conf,
+                        "verified",
+                        "reacher_smtp",
+                        f"Reacher SMTP verified: {email}",
+                    )
+
+            elif reacher_result == "risky":
+                return self._result(
+                    40, "manual_review", "reacher_risky", f"Reacher says risky: {email}"
+                )
+
+            # "unknown" — Reacher couldn't determine
+
+        # ── No verification possible ──
+        # Check if we at least know the provider
+        provider_name = self.pv.get_provider(domain) if self.pv else "unknown"
+
+        if source_hint == "api_verified":
+            # API (Apollo) confirmed this email — trust it even without provider verification
+            return self._result(
+                85,
+                "verified",
+                "api_verified",
+                f"API-confirmed email, provider ({provider_name}) unverifiable",
+            )
+
+        if source_hint in ("pattern_cache", "website_mining"):
+            # Known pattern but can't verify — manual review
+            return self._result(
+                50,
+                "manual_review",
+                f"{source_hint}_unverified",
+                f"Known pattern but provider ({provider_name}) unverifiable: {email}",
+            )
+
+        # Pure guess with no verification — NEVER send
+        return self._result(
+            30,
+            "manual_review",
+            "unverified",
+            f"Cannot verify: {email} (provider: {provider_name})",
+        )
+
+    @staticmethod
+    def _result(confidence, status, source, details):
+        return {
+            "confidence": confidence,
+            "status": status,
+            "source": source,
+            "details": details,
+            "send_ok": confidence >= AUTO_SEND_THRESHOLD,
+        }
+
+
+# ============================================================================
+# Helpers
+# ============================================================================
+def _today():
+    return datetime.datetime.now().strftime("%Y-%m-%d")

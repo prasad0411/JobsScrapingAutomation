@@ -141,6 +141,13 @@ class Mailer:
             result["error"] = f"Hourly limit ({MAX_HOURLY})"
             return result
 
+        # Triple gate: suspicious email check at draft creation
+        from outreach.outreach_verifier import is_suspicious_email as verify_suspicious
+        if verify_suspicious(to_email):
+            result["error"] = f"Suspicious domain blocked at draft creation: {to_email}"
+            log.warning(result["error"])
+            return result
+
         if not to_email or "@" not in to_email:
             result["error"] = f"Invalid: {to_email}"
             return result
