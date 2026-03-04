@@ -413,7 +413,7 @@ class TitleProcessor:
 class JobIDExtractor:
     @staticmethod
     def extract_from_url(url, platform="generic"):
-        """ENHANCED: Platform-specific handling (Glassdoor N/A)"""
+        """ENHANCED: Platform-specific handling (Glassdoor N/A, career sites deprioritized)"""
         if not url:
             return ExtractionResult(None, 0.0, "url_extract")
 
@@ -421,12 +421,21 @@ class JobIDExtractor:
         if platform == "glassdoor" or "glassdoor" in url.lower():
             return ExtractionResult("N/A", 0.98, "glassdoor_na")
 
+        # Career sites often have misleading IDs in URLs (LinkedIn source IDs, etc.)
+        # Lower confidence so page text extraction wins
+        career_domains = ["disneycareers.com", "careers.google.com", "careers.", "jobs.",
+                          "?source=LINKEDIN", "?utm_source="]
+        is_career_site = any(cd in url.lower() for cd in career_domains)
+
         for pattern, confidence in _COMPILED_JOB_ID_PATTERNS:
             try:
                 match = pattern.search(url)
                 if match:
                     job_id = match.group(1).strip()
                     if JobIDExtractor._is_valid_id(job_id):
+                        # Penalize URL-extracted IDs on career sites (page text is more reliable)
+                        if is_career_site and len(job_id) > 9:
+                            confidence = min(confidence, 0.80)
                         return ExtractionResult(job_id, confidence, "url_pattern")
             except Exception as e:
                 logging.debug(f"Job ID pattern failed on URL {url}: {e}")
