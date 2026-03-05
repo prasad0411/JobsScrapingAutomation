@@ -100,6 +100,49 @@ class BounceScanner:
                             }
                             newly_found.add(email_lower)
                             log.info(f"Bounce detected: {email_lower} | {subject[:60]}")
+                            
+                            # Learn from bounce: record failed pattern in DomainHistory
+                            try:
+                                from outreach.outreach_verifier import DomainHistory, CircuitBreaker
+                                from outreach.outreach_config import PAT_A, PAT_B, PAT_C
+                                if "@" in email_lower:
+                                    local_part = email_lower.split("@")[0]
+                                    domain = email_lower.split("@")[1]
+                                    # Reverse-engineer which pattern template generated this email
+                                    # by checking all patterns against the local part
+                                    # We need a name to reverse-engineer, so we extract from subject
+                                    # Subject format: "Prasad Kanade — Application for Title | JobID"
+                                    bounced_pattern = None
+                                    for pat in PAT_A + PAT_B + PAT_C:
+                                        # Check if this pattern shape matches the local part structure
+                                        if "." in local_part and pat == "{first}.{last}":
+                                            bounced_pattern = pat
+                                            break
+                                        elif "_" in local_part and pat == "{first}_{last}":
+                                            bounced_pattern = pat
+                                            break
+                                        elif "-" in local_part and pat == "{first}-{last}":
+                                            bounced_pattern = pat
+                                            break
+                                    if not bounced_pattern:
+                                        # Infer from structure
+                                        if "." in local_part:
+                                            parts = local_part.split(".")
+                                            if len(parts) == 2 and len(parts[0]) > 1 and len(parts[1]) > 1:
+                                                bounced_pattern = "{first}.{last}"
+                                            elif len(parts) == 2 and len(parts[0]) == 1:
+                                                bounced_pattern = "{f}.{last}"
+                                        elif len(local_part) > 3 and local_part[0].isalpha():
+                                            # Could be flast or firstlast
+                                            bounced_pattern = "{first}{last}"
+                                    if bounced_pattern:
+                                        DomainHistory.record_failure(domain, bounced_pattern, email_lower)
+                                        log.info(f"DomainHistory: recorded failed pattern '{bounced_pattern}' for {domain}")
+                                    
+                                    # Record bounce in circuit breaker
+                                    CircuitBreaker.record_bounce()
+                            except Exception as e:
+                                log.debug(f"DomainHistory bounce recording failed: {e}")
 
                 except Exception as e:
                     log.debug(f"Failed to process bounce msg {msg_id}: {e}")

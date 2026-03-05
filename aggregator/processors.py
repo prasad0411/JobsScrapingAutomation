@@ -890,6 +890,14 @@ class LocationProcessor:
         """ORIGINAL cleaning logic"""
         if not location_text or len(location_text) < 2:
             return "Unknown"
+        # Reject garbage: if location text is too long, it likely contains description bleed
+        if len(location_text) > 80:
+            # Try to salvage a city,state pattern from the beginning
+            import re as _loc_re
+            quick_match = _loc_re.match(r"^([A-Z][a-z]+(?:\s+[A-Z][a-z]+)*,\s*[A-Z]{2})", location_text.strip())
+            if quick_match:
+                return quick_match.group(1)
+            return "Unknown"
 
         try:
             location = location_text.strip()
