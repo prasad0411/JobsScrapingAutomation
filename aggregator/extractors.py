@@ -371,6 +371,10 @@ class SimplifyRedirectResolver:
                     loc_match = _sre.search(r"(?:Internship|Company)\s+([\w\s]+,\s*(?:[A-Z]{2}|[A-Za-z]+),\s*USA)", page_text)
                 if not loc_match:
                     loc_match = _sre.search(r"employees\s+([\w\s]+,\s*[A-Z]{2},\s*USA)", page_text)
+                if not loc_match:
+                    loc_match = _sre.search(r"([A-Z][a-z]+(?:\s+[A-Z][a-z]+)*,\s*[A-Z]{2},\s*USA)", page_text)
+                if not loc_match:
+                    loc_match = _sre.search(r"([A-Z][a-z]+(?:\s+[A-Z][a-z]+)*,\s*[A-Z]{2})\s+(?:Hybrid|Remote|In Person|On Site)", page_text)
                 if loc_match:
                     loc_raw = loc_match.group(1).strip()
                     loc_raw = _sre.sub(r",?\s*USA\s*$", "", loc_raw).strip()

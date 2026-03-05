@@ -412,6 +412,18 @@ class UnifiedJobAggregator:
                 return
             if not resolved:
                 resolved_url = url
+                # Fallback: extract title from URL slug if current title is Unknown/generic
+                import re as _url_re
+                slug_match = _url_re.search(r'/p/[a-f0-9-]+/([A-Za-z0-9-]+)', url)
+                if slug_match and (not title or title == 'Unknown' or len(title) < 5):
+                    slug = slug_match.group(1).replace('?utm_source=swelist', '').replace('?utm_source=', '')
+                    slug_title = slug.replace('-', ' ').strip()
+                    if len(slug_title) >= 5:
+                        from aggregator.processors import TitleProcessor
+                        slug_title = TitleProcessor.clean_title_aggressive(slug_title)
+                        if slug_title and len(slug_title) >= 5:
+                            title = slug_title
+                            logging.info(f'Title from URL slug: {title}')
                 # Use metadata from Simplify page if available
                 try:
                     from aggregator.extractors import SimplifyRedirectResolver as _SRR
@@ -419,6 +431,10 @@ class UnifiedJobAggregator:
                     if smeta.get("location") and (not location_from_github or location_from_github == "Unknown"):
                         location_from_github = smeta["location"]
                         logging.info(f"Using Simplify metadata location: {location_from_github}")
+                    if smeta.get("remote"):
+                        logging.info(f"Using Simplify metadata remote: {smeta['remote']}")
+                    if smeta.get("no_h1b"):
+                        logging.info(f"Simplify metadata: No H1B sponsorship detected")
                 except Exception:
                     pass
 
