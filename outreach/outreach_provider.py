@@ -135,11 +135,9 @@ class ProviderVerifier:
         provider = self.get_provider(domain)
 
         if provider == "google":
-            result = self._verify_google(email_lower, domain)
-            if result in ("exists", "not_exists"):
-                self._email_cache[email_lower] = result
-                self._save(EMAIL_VERIFY_CACHE_FILE, self._email_cache)
-            return result
+            # gxlu endpoint unreliable as of Mar 2026 — returns not_exists for known-valid emails
+            # Fall through to Reacher SMTP verification instead
+            return "unknown"
         elif provider == "microsoft":
             result = self._verify_microsoft(email_lower)
         else:
