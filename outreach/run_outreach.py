@@ -297,7 +297,7 @@ def main():
     can_send, cb_reason = CircuitBreaker.can_send()
     if not can_send:
         print(f"  Circuit breaker TRIPPED: {cb_reason}")
-        print("  No emails will be drafted. Fix the issue first.")
+        print("  No new emails will be drafted. Fix the issue first.")
         print(f"  Status: {CircuitBreaker.status()}")
     else:
         print(f"  Circuit breaker: {CircuitBreaker.status()}")

@@ -177,7 +177,6 @@ SUSPICIOUS_EMAIL_DOMAINS = [
     "jobs.com",
     "recruiting.com",
     "hire.com",
-    "jobvite.com",
     "avature.net",
     "phenom.com",
     "beamery.com",

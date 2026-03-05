@@ -267,7 +267,7 @@ def main():
     ws = get_sheets()
     time.sleep(1)
 
-    data = sheets_retry(ws.get, "A1:O500")
+    data = sheets_retry(ws.get, "A1:P500")
     time.sleep(1)
 
     if not data or len(data) < 2:

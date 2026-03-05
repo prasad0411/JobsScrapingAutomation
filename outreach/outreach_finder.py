@@ -157,23 +157,14 @@ class Finder:
                 verified_email, conf, vsource, vdetails = self._verify_and_score(email, d, source_hint="pattern_cache")
                 if verified_email and conf >= AUTO_SEND_THRESHOLD:
                     r.update(email=verified_email, source=f"pattern_cache_{vsource}", status="Valid", confidence=conf)
-                    log.info(f"Pattern cache hit: {email} (trusted)")
+                    log.info(f"Pattern cache verified ({conf}): {email}")
                     return r
-                # Provider verification (Google gxlu / Microsoft 365)
-                pv_result = self.pv.verify_email(email, d)
-                if pv_result == "exists":
-                    r.update(email=email, source=f"provider_{self.pv.get_provider(d)}", status="Valid")
-                    self.pc.detect(email, parsed)
-                    self._clear_retry(retry_key)
-                    log.info(f"Provider verified: {email}")
-                    return r
-                elif pv_result == "not_exists":
-                    log.debug(f"Provider rejected: {email}")
+                # If _verify_and_score returned > 0 but below threshold, still usable as Manual Review
+                elif verified_email and conf > 0:
+                    r.update(email=verified_email, source=f"pattern_cache_low_{conf}", status="Manual Review", confidence=conf)
+                    log.info(f"Pattern cache low confidence ({conf}): {email}")
+                    # Don't return — try other domains/methods for higher confidence
                     continue
-                # "unknown" provider → fall through to Reacher
-                if self._rok() and self._verify(email) == "safe":
-                    r.update(email=email, source="cache", status="Valid")
-                    return r
         # Website mining: learn pattern from company website
         if domains and not self.pc.get(domains[0]):
             mined_pat = self.pv.mine_website_pattern(domains[0])
@@ -184,13 +175,19 @@ class Finder:
                     # For Microsoft domains, verify the mined email
                     pv_result = self.pv.verify_email(email, domains[0])
                     if pv_result == "exists":
-                        r.update(email=email, source="website_mining+provider", status="Valid")
+                        r.update(email=email, source="website_mining+provider", status="Valid", confidence=80)
                         self._clear_retry(retry_key)
                         log.info(f"Website mined + verified: {email}")
                         return r
                     elif pv_result == "unknown":
-                        # Non-Microsoft: trust mined pattern (high confidence)
-                        r.update(email=email, source="website_mining", status="Valid")
+                        # Non-Microsoft: verify through full pipeline
+                        verified_email, conf, vsource, vdetails = self._verify_and_score(email, domains[0], source_hint="website_mining")
+                        if verified_email and conf >= AUTO_SEND_THRESHOLD:
+                            r.update(email=verified_email, source=f"website_mining_{vsource}", status="Valid", confidence=conf)
+                        elif verified_email and conf > 0:
+                            r.update(email=verified_email, source="website_mining_unverified", status="Manual Review", confidence=conf)
+                        else:
+                            log.info(f"Website mined email unverifiable: {email}")
                         self._clear_retry(retry_key)
                         log.info(f"Website mined (trusted): {email}")
                         return r
@@ -206,7 +203,8 @@ class Finder:
                         self._clear_retry(retry_key)
                     return pr
         result = self._apis(parsed, domains[0], linkedin, r)
-        if result["email"] and result["status"] == "Valid":
+        if result["email"] and result["status"] in ("Valid", "Manual Review"):
+            result["confidence"] = 95 if result["status"] == "Valid" else 60
             self.pc.detect(result["email"], parsed)
             self._clear_retry(retry_key)
         else:
