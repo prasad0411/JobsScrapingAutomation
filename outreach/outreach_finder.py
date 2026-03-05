@@ -83,7 +83,7 @@ class Finder:
         return email, result["confidence"], result["source"], result["details"]
 
     def find(self, name, company, linkedin="", job_url_domain=""):
-        r = {"email": "", "source": "", "status": "Failed", "error": ""}
+        r = {"email": "", "source": "", "status": "Failed", "error": "", "confidence": 0}
 
         # If name is incomplete (single name or initial), try LinkedIn URL
         parsed = NameParser.parse(name)
@@ -101,6 +101,19 @@ class Finder:
             r["status"] = "Manual Review"
             r["error"] = f"Single name '{name}'"
             return r
+        # Detect initial-only last names (e.g. "Shahla R.", "Nandan S")
+        if parsed and not parsed["single"] and len(parsed["lc"]) <= 1:
+            li_name = self._extract_name_from_linkedin_url(linkedin) if linkedin else None
+            if li_name:
+                log.info(f"Initial-only last name enriched: '{name}' → '{li_name}'")
+                parsed = NameParser.parse(li_name)
+                name = li_name
+            else:
+                r["status"] = "Manual Review"
+                r["error"] = f"Initial-only last name: '{name}'. Cannot generate reliable email."
+                r["confidence"] = 0
+                log.info(f"Blocked initial-only last name: {name}")
+                return r
         # Check retry tracker — skip if failed 3+ times on same domain
         retry_key = company.strip().lower()
         retries = self._load_retries()
@@ -111,9 +124,9 @@ class Finder:
             log.debug(f"Skipping {company}: {r['error']}")
             return r
 
-        # Priority 1: domain_overrides.json
-        # Priority 2: Job URL domain
-        # Priority 3: Clearbit
+        # Priority 1: domain_overrides.json (manual, always wins)
+        # Priority 2: Job URL domain (extracted from application URL, very reliable)
+        # Priority 3: Clearbit (can return wrong company, least reliable)
         override_domain = self._get_override(company)
         if override_domain:
             domains = [override_domain]
@@ -121,6 +134,11 @@ class Finder:
         elif job_url_domain:
             domains = [job_url_domain]
             log.info(f"Job URL domain: {company} → {job_url_domain}")
+            # Also try Clearbit as secondary if it matches
+            cb_domains = self._resolve(company)
+            for cbd in cb_domains:
+                if cbd not in domains:
+                    domains.append(cbd)
         else:
             domains = self._resolve(company)
         if not domains:
@@ -130,9 +148,15 @@ class Finder:
         for d in domains:
             email = self.pc.gen_single(parsed, d)
             if email:
-                # If pattern is from seed (known company), trust without SMTP
-                if d.lower() in self.pc._d:
-                    r.update(email=email, source="pattern_cache", status="Valid")
+                # Check domain history — is this pattern known to fail?
+                current_pattern = self.pc.get(d)
+                if current_pattern and DomainHistory.is_failed_pattern(d, current_pattern):
+                    log.info(f"Pattern '{current_pattern}' previously FAILED for {d} — skipping")
+                    continue
+                # Verify via provider even for cache hits
+                verified_email, conf, vsource, vdetails = self._verify_and_score(email, d, source_hint="pattern_cache")
+                if verified_email and conf >= AUTO_SEND_THRESHOLD:
+                    r.update(email=verified_email, source=f"pattern_cache_{vsource}", status="Valid", confidence=conf)
                     log.info(f"Pattern cache hit: {email} (trusted)")
                     return r
                 # Provider verification (Google gxlu / Microsoft 365)

@@ -175,6 +175,10 @@ def phase_extract_and_draft(sheets, finder, mailer):
                     stats["extract_failed"] += 1
             if hm_emails:
                 sheets.write_email(rn, "hm", ", ".join(hm_emails), hm_res["source"])
+                # Write confidence (use highest confidence from HM results)
+                hm_conf = hm_res.get("confidence", 0)
+                if hm_conf > 0:
+                    sheets.write_confidence(rn, hm_conf)
                 parts.append("HM email extracted")
             elif hm_failed:
                 sheets.write_error(rn, f"HM: {hm_res['error']}")
@@ -194,6 +198,12 @@ def phase_extract_and_draft(sheets, finder, mailer):
                     stats["extracted"] += 1
             if rec_emails:
                 sheets.write_email(rn, "rec", ", ".join(rec_emails), rec_res["source"])
+                # Write confidence (use lowest of HM and Rec — weakest link)
+                rec_conf = rec_res.get("confidence", 0)
+                existing_conf = hm_res.get("confidence", 0) if hm_res else 0
+                final_conf = min(existing_conf, rec_conf) if existing_conf > 0 else rec_conf
+                if final_conf > 0:
+                    sheets.write_confidence(rn, final_conf)
                 parts.append("Recruiter email extracted")
             elif rec_failed:
                 sheets.append_error(rn, f"REC: {rec_res['error']}")
