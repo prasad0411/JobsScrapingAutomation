@@ -136,6 +136,9 @@ class ProviderVerifier:
 
         if provider == "google":
             result = self._verify_google(email_lower, domain)
+            if result in ("exists", "not_exists"):
+                self._email_cache[email_lower] = result
+                self._save(EMAIL_VERIFY_CACHE_FILE, self._email_cache)
             return result
         elif provider == "microsoft":
             result = self._verify_microsoft(email_lower)

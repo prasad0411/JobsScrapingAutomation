@@ -729,11 +729,12 @@ class Sheets:
                         confirmed = DomainHistory.get_confirmed_pattern(domain)
                         if confirmed and confirmed != this_pattern:
                             log.warning(f"Row {row} {ct}: Pattern mismatch for {domain} — email uses '{this_pattern}' but confirmed pattern is '{confirmed}'. Flagging for review.")
-            # Check each email for suspicious domains
+            # Check each email for suspicious domains (use new verifier with role-based + short local checks)
+            from outreach.outreach_verifier import is_suspicious_email as _new_sus_check
             clean_emails = []
             for e in email.split(","):
                 e = e.strip()
-                if is_suspicious_email(e):
+                if _new_sus_check(e):
                     log.warning(f"Row {row} {ct}: Suspicious domain skipped: {e}")
                 else:
                     clean_emails.append(e)
