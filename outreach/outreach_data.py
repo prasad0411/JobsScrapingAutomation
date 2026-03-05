@@ -706,6 +706,29 @@ class Sheets:
 
     def write_email(self, row, ct, email, source):
         try:
+            # Check pattern consistency: all emails at same domain should use same pattern
+            from outreach.outreach_verifier import is_suspicious_email as _verify_sus
+            for e in email.split(","):
+                e = e.strip()
+                if e and "@" in e:
+                    domain = e.split("@")[1].lower()
+                    local = e.split("@")[0].lower()
+                    # Detect pattern of this email
+                    this_pattern = None
+                    if "." in local:
+                        parts = local.split(".")
+                        if len(parts) == 2 and len(parts[0]) > 1 and len(parts[1]) > 1:
+                            this_pattern = "{first}.{last}"
+                        elif len(parts) == 2 and len(parts[0]) == 1:
+                            this_pattern = "{f}.{last}"
+                    elif "_" in local:
+                        this_pattern = "{first}_{last}"
+                    # Check if we already have a different pattern for this domain in the sheet
+                    if this_pattern:
+                        from outreach.outreach_verifier import DomainHistory
+                        confirmed = DomainHistory.get_confirmed_pattern(domain)
+                        if confirmed and confirmed != this_pattern:
+                            log.warning(f"Row {row} {ct}: Pattern mismatch for {domain} — email uses '{this_pattern}' but confirmed pattern is '{confirmed}'. Flagging for review.")
             # Check each email for suspicious domains
             clean_emails = []
             for e in email.split(","):

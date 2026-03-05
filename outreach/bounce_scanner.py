@@ -161,6 +161,65 @@ class BounceScanner:
         else:
             log.info("Bounce scanner: no new bounces")
 
+        # Record successful deliveries: emails sent 24h+ ago that didn't bounce
+        try:
+            from outreach.outreach_verifier import DomainHistory
+            from outreach.outreach_config import PAT_A, PAT_B, PAT_C, SHEETS_CREDS, SPREADSHEET
+            import gspread as _gs
+            from oauth2client.service_account import ServiceAccountCredentials as _SAC
+            scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
+            creds = _SAC.from_json_keyfile_name(SHEETS_CREDS, scope)
+            gc = _gs.authorize(creds)
+            ws = gc.open(SPREADSHEET).worksheet("Outreach Tracker")
+            data = ws.get_all_values()
+            now = datetime.datetime.now()
+            confirmed_count = 0
+            for row in data[1:]:
+                while len(row) < 15:
+                    row.append("")
+                sent_date = row[13].strip()  # Sent Date column
+                hm_email = row[6].strip()
+                rec_email = row[10].strip()
+                if not sent_date:
+                    continue
+                # Check if sent 24h+ ago
+                try:
+                    from dateutil import parser as _dp
+                    sent_dt = _dp.parse(sent_date)
+                    age_hours = (now - sent_dt).total_seconds() / 3600
+                    if age_hours < 24:
+                        continue
+                except Exception:
+                    continue
+                # If email was sent and NOT bounced, confirm the pattern
+                for email in [hm_email, rec_email]:
+                    if not email or "@" not in email:
+                        continue
+                    email_lower = email.lower().strip()
+                    if email_lower in bounced:
+                        continue  # This one bounced, skip
+                    domain = email_lower.split("@")[1]
+                    local = email_lower.split("@")[0]
+                    pattern = None
+                    if "." in local:
+                        parts = local.split(".")
+                        if len(parts) == 2 and len(parts[0]) > 1 and len(parts[1]) > 1:
+                            pattern = "{first}.{last}"
+                        elif len(parts) == 2 and len(parts[0]) == 1:
+                            pattern = "{f}.{last}"
+                    elif "_" in local:
+                        pattern = "{first}_{last}"
+                    if pattern:
+                        existing = DomainHistory.get_confirmed_pattern(domain)
+                        if not existing:
+                            DomainHistory.record_success(domain, pattern, email_lower)
+                            confirmed_count += 1
+            if confirmed_count > 0:
+                log.info(f"DomainHistory: confirmed {confirmed_count} successful patterns from sent emails")
+                print(f"  Domain patterns: {confirmed_count} confirmed from successful deliveries")
+        except Exception as e:
+            log.debug(f"Delivery confirmation failed (non-fatal): {e}")
+
         return set(bounced.keys())
 
     @staticmethod
