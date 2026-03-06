@@ -427,17 +427,21 @@ class UnifiedJobAggregator:
         logging.info(f"GitHub summary: {github_valid} valid jobs")
 
     def _process_single_github_job(self, job):
+        title = TitleProcessor.clean_title_aggressive(job["title"])
+        url = job["url"]
+        source = job.get("source", "GitHub")
+        company_from_github = job.get("company", "Unknown")
+        location_from_github = job.get("location", "Unknown")
+
+        # Normalize company name
         company_from_github_lower = company_from_github.lower().strip()
         if company_from_github_lower in COMPANY_NAME_FIXES:
             fixed = COMPANY_NAME_FIXES[company_from_github_lower]
             if fixed != "Unknown":
                 logging.info(f"GitHub company normalized: '{company_from_github}' → '{fixed}'")
                 company_from_github = fixed
-        title = TitleProcessor.clean_title_aggressive(job["title"])
-        url = job["url"]
-        source = job.get("source", "GitHub")
-        company_from_github = job.get("company", "Unknown")
-        location_from_github = job.get("location", "Unknown")
+            elif company_from_github_lower in GARBAGE_COMPANY_NAMES:
+                return  # Skip garbage companies with no fix
 
         if job.get("is_closed", False):
             return
@@ -502,9 +506,8 @@ class UnifiedJobAggregator:
                 try:
                     from aggregator.extractors import SimplifyRedirectResolver as _SRR
                     smeta = _SRR._last_metadata
-                    if smeta.get("location") and (not location_from_github or location_from_github == "Unknown"):
-                        location_from_github = smeta["location"]
-                        logging.info(f"Using Simplify metadata location: {location_from_github}")
+                    if smeta.get("location"):
+                        logging.info(f"Simplify metadata location available: {smeta['location']}")
                     if smeta.get("remote"):
                         # Store remote status for later use
                         _simplify_remote = smeta['remote']
