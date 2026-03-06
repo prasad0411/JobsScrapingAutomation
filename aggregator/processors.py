@@ -172,6 +172,29 @@ class TitleProcessor:
             if re.search(pattern, title_lower):
                 return False, "PhD or military veteran role (not eligible)"
 
+        # Hardware/non-CS roles to reject
+        hardware_patterns = [
+            r"hardware\s+(?:design|engineer|test|validation|systems test)",
+            r"firmware\s+(?:validation|test)",
+            r"optical\s+engineer",
+            r"embedded\s+system\s+engineer",
+            r"technician\s+apprentice",
+            r"body\s+apprentice",
+            r"congressional\s+research",
+            r"technical\s+services\s+intern",
+            r"materials\s+technology",
+            r"corrosion\s+science",
+            r"nuclear\s+operations",
+            r"manufacturing\s+reliability",
+            r"audit\s+technology\s+risk",
+            r"field\s+service\s+engineer",
+            r"systems\s+test\s+intern",
+            r"audio\s+digital\s+signal",
+        ]
+        for pattern in hardware_patterns:
+            if re.search(pattern, title_lower):
+                return False, "Hardware/non-CS role"
+
         spam_patterns = [
             r"^application$",
             r"^apply\s",
