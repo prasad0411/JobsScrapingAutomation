@@ -19,6 +19,9 @@ jobs:
   send-emails:
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    permissions:
+      contents: read
+      issues: write
     concurrency:
       group: send-emails
       cancel-in-progress: false
