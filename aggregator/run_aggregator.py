@@ -81,6 +81,20 @@ with open(os.path.join(".local", "skipped_jobs.log"), "w") as f:
     )
     f.write("=" * 100 + "\n\n")
 
+# Greenhouse company slug extraction
+GREENHOUSE_COMPANY_MAP = {
+    "tenstorrentuniversity": "Tenstorrent",
+    "alarmcom": "Alarm.com",
+    "skyryse": "Skyryse",
+    "trumid": "Trumid",
+    "leagueinc": "League",
+    "fccincinnati": "FC Cincinnati",
+    "antora": "Antora Energy",
+    "samsungresearchamericainternship": "Samsung Research America",
+    "point72": "Point72",
+    "sonatus": "Sonatus",
+}
+
 GARBAGE_COMPANY_NAMES = {
     "myworkdayjobs",
     "www",
