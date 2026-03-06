@@ -750,13 +750,45 @@ class Sheets:
             log.error(f"write_email row {row}: {e}")
 
     def write_confidence(self, row, confidence_score):
-        """Write confidence label (High/Medium/Low) to the Confidence column."""
+        """Write confidence label (High/Medium/Low) with color to the Confidence column."""
         try:
             from outreach.outreach_verifier import confidence_label
             label = confidence_label(confidence_score)
             col_letter = _cl(C["confidence"])
             self._retry(self.ws.update_acell, f"{col_letter}{row}", label)
             self._p()
+            # Apply background color based on confidence
+            colors = {
+                "High": {"red": 0.56, "green": 0.93, "blue": 0.56},    # Green
+                "Medium": {"red": 1.0, "green": 0.85, "blue": 0.4},    # Orange
+                "Low": {"red": 0.96, "green": 0.5, "blue": 0.5},       # Red
+            }
+            color = colors.get(label)
+            if color:
+                try:
+                    col_idx = C["confidence"]
+                    self.ws.spreadsheet.batch_update({"requests": [{
+                        "repeatCell": {
+                            "range": {
+                                "sheetId": self.ws.id,
+                                "startRowIndex": row - 1,
+                                "endRowIndex": row,
+                                "startColumnIndex": col_idx,
+                                "endColumnIndex": col_idx + 1,
+                            },
+                            "cell": {
+                                "userEnteredFormat": {
+                                    "backgroundColor": color,
+                                    "textFormat": {"bold": True},
+                                    "horizontalAlignment": "CENTER",
+                                }
+                            },
+                            "fields": "userEnteredFormat",
+                        }
+                    }]})
+                    self._p()
+                except Exception as ce:
+                    log.debug(f"Color formatting failed row {row}: {ce}")
         except Exception as e:
             log.error(f"write_confidence row {row}: {e}")
 

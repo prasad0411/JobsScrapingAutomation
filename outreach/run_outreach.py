@@ -215,6 +215,16 @@ def phase_extract_and_draft(sheets, finder, mailer):
 
         hm_e = row.get("he") or (hm_res["email"] if hm_res else "")
         rec_e = row.get("re") or (rec_res["email"] if rec_res else "")
+        # Block drafts for Low confidence emails
+        from outreach.outreach_verifier import MANUAL_REVIEW_THRESHOLD
+        hm_conf_val = hm_res.get("confidence", 0) if hm_res else 0
+        rec_conf_val = rec_res.get("confidence", 0) if rec_res else 0
+        if hm_e and hm_conf_val > 0 and hm_conf_val < MANUAL_REVIEW_THRESHOLD:
+            log.info(f"Skipping HM draft for {row['co']}: Low confidence ({hm_conf_val})")
+            hm_e = ""
+        if rec_e and rec_conf_val > 0 and rec_conf_val < MANUAL_REVIEW_THRESHOLD:
+            log.info(f"Skipping Rec draft for {row['co']}: Low confidence ({rec_conf_val})")
+            rec_e = ""
         jid = row.get("jid", "")
         resume_type = sheets.get_resume_type(row["co"], row["title"])
 

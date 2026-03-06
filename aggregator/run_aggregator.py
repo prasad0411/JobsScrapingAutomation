@@ -124,6 +124,42 @@ GARBAGE_COMPANY_NAMES = {
 }
 
 
+# Company name normalization — fix common extraction errors
+COMPANY_NAME_FIXES = {
+    "pg&e": "PG&E",
+    "amat": "Applied Materials",
+    "hp": "HP",
+    "usa": "Unknown",
+    "us": "Unknown",
+    "worldwide": "Unknown",
+    "tik tok": "TikTok",
+    "tmobile": "T-Mobile",
+    "myworkdayjobs": "Unknown",
+    "job-boards": "Unknown",
+    "sono": "Sonoco",
+    "vernova": "GE Vernova",
+    "wsp": "WSP",
+    "adp": "ADP",
+    "abb": "ABB",
+    "sas": "SAS",
+    "exl": "EXL",
+    "bmo": "BMO",
+    "rtx": "RTX",
+    "nxp": "NXP",
+    "impinjexternal": "Impinj",
+    "abacusinsights": "Abacus Insights",
+    "sigmacomputing": "Sigma Computing",
+    "aloyoga": "Alo Yoga",
+    "disneyland": "Disney",
+    "intelligent solutions": "CCC Intelligent Solutions",
+    "caliber holdings": "Caliber Collision",
+    "cardinal health 5": "Cardinal Health",
+    "beone medicines usa": "BeiGene",
+    "calix north america": "Calix",
+    "(marvell semiconductor inc.) us": "Marvell",
+}
+
+
 class JobrightEmailParser:
     @staticmethod
     def parse_email_jobs(email_html):
@@ -377,6 +413,12 @@ class UnifiedJobAggregator:
         logging.info(f"GitHub summary: {github_valid} valid jobs")
 
     def _process_single_github_job(self, job):
+        company_from_github_lower = company_from_github.lower().strip()
+        if company_from_github_lower in COMPANY_NAME_FIXES:
+            fixed = COMPANY_NAME_FIXES[company_from_github_lower]
+            if fixed != "Unknown":
+                logging.info(f"GitHub company normalized: '{company_from_github}' → '{fixed}'")
+                company_from_github = fixed
         title = TitleProcessor.clean_title_aggressive(job["title"])
         url = job["url"]
         source = job.get("source", "GitHub")
@@ -450,7 +492,11 @@ class UnifiedJobAggregator:
                         location_from_github = smeta["location"]
                         logging.info(f"Using Simplify metadata location: {location_from_github}")
                     if smeta.get("remote"):
+                        # Store remote status for later use
+                        _simplify_remote = smeta['remote']
                         logging.info(f"Using Simplify metadata remote: {smeta['remote']}")
+                    if smeta.get("no_h1b"):
+                        logging.info(f"Simplify: No H1B sponsorship for this role")
                     if smeta.get("no_h1b"):
                         logging.info(f"Simplify metadata: No H1B sponsorship detected")
                 except Exception:
@@ -1249,6 +1295,15 @@ class UnifiedJobAggregator:
 
             if self._is_garbage_company(company) and company_hint:
                 company = company_hint
+
+            # Apply company name normalization
+            if company and company.lower().strip() in COMPANY_NAME_FIXES:
+                fixed = COMPANY_NAME_FIXES[company.lower().strip()]
+                if fixed != "Unknown":
+                    logging.info(f"Company normalized: '{company}' → '{fixed}'")
+                    company = fixed
+                elif company_hint:
+                    company = company_hint
 
             title = PageParser.extract_title(soup)
             if not title or title == "Unknown":
