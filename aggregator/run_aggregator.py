@@ -390,18 +390,27 @@ class UnifiedJobAggregator:
         consecutive_old = 0
         simplify_valid = 0
         simplify_rejected = 0
+        skipped_old = 0
+        skipped_err = 0
+        processed = 0
         for i, job in enumerate(simplify_jobs):
             try:
                 age_days = self._parse_github_age(job["age"])
                 if age_days is not None and age_days > MAX_JOB_AGE_DAYS:
+                    skipped_old += 1
                     consecutive_old += 1
                     continue
                 else:
                     consecutive_old = 0
+                processed += 1
                 self._process_single_github_job(job)
             except Exception as e:
+                skipped_err += 1
                 logging.error(f"Failed to process SimplifyJobs job: {e}", exc_info=True)
+                if skipped_err <= 3:
+                    print(f"  ✗ Error: {job.get('company','?')}: {e}")
                 continue
+        print(f"  Simplify stats: {processed} processed, {skipped_old} too old, {skipped_err} errors")
 
         print(f"\n  Processing Vanshb repository...")
         consecutive_old = 0
