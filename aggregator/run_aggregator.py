@@ -506,7 +506,6 @@ class UnifiedJobAggregator:
                     slug = slug_match.group(1).replace('?utm_source=swelist', '').replace('?utm_source=', '')
                     slug_title = slug.replace('-', ' ').strip()
                     if len(slug_title) >= 5:
-                        from aggregator.processors import TitleProcessor
                         slug_title = TitleProcessor.clean_title_aggressive(slug_title)
                         if slug_title and len(slug_title) >= 5:
                             title = slug_title
@@ -1059,7 +1058,6 @@ class UnifiedJobAggregator:
             try:
                 import requests as _req
                 from aggregator.extractors import safe_parse_html as _sph
-                from aggregator.processors import TitleProcessor as _TP, ValidationHelper as _VH
                 zr_resp = _req.get(url, allow_redirects=True, timeout=10,
                                    headers={"User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)"})
                 if zr_resp and zr_resp.status_code == 200:
@@ -1067,7 +1065,7 @@ class UnifiedJobAggregator:
                     if zr_soup:
                         # Check CS/Engineering role using page description
                         zr_desc = zr_soup.get_text(separator=" ", strip=True)[:8000]
-                        is_cs = _TP.is_cs_engineering_role(title, zr_desc)
+                        is_cs = TitleProcessor.is_cs_engineering_role(title, zr_desc)
                         if not is_cs:
                             self.outcomes["skipped_not_cs"] = self.outcomes.get("skipped_not_cs", 0) + 1
                             self._print_rejected(company, "Not CS/Engineering")
@@ -1075,7 +1073,7 @@ class UnifiedJobAggregator:
                             self.source_stats[sender]["rejected"] += 1
                             return
                         # Check undergraduate-only
-                        ug_result, _ = _VH._check_undergraduate_only_requirements(zr_soup)
+                        ug_result, _ = ValidationHelper._check_undergraduate_only_requirements(zr_soup)
                         if ug_result:
                             self.outcomes["skipped_undergrad"] = self.outcomes.get("skipped_undergrad", 0) + 1
                             self._print_rejected(company, "Undergraduate students only")
@@ -1083,7 +1081,7 @@ class UnifiedJobAggregator:
                             self.source_stats[sender]["rejected"] += 1
                             return
                         # Check PhD-only
-                        phd_result, _ = _VH._check_phd_only_requirements(zr_soup)
+                        phd_result, _ = ValidationHelper._check_phd_only_requirements(zr_soup)
                         if phd_result:
                             self.outcomes["skipped_phd"] = self.outcomes.get("skipped_phd", 0) + 1
                             self._print_rejected(company, "PhD students only")
@@ -1091,7 +1089,7 @@ class UnifiedJobAggregator:
                             self.source_stats[sender]["rejected"] += 1
                             return
                         # Check page age (e.g. "Posted 29 days ago")
-                        zr_age = _VH.extract_page_age(zr_soup)
+                        zr_age = ValidationHelper.extract_page_age(zr_soup)
                         if zr_age is not None and zr_age > PAGE_AGE_THRESHOLD_DAYS:
                             self.outcomes["skipped_too_old"] += 1
                             self._print_rejected(company, f"Posted {zr_age}d ago")
