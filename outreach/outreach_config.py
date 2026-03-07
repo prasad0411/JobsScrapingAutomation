@@ -147,6 +147,7 @@ LOG_FILE = os.path.join(_ROOT, ".local", "outreach.log")
 DRAFT_HISTORY_FILE = os.path.join(_ROOT, ".local", "draft_history.json")
 RESUME_SDE = os.path.join(_ROOT, ".local", "Prasad Kanade SWE Resume.pdf")
 RESUME_ML = os.path.join(_ROOT, ".local", "Prasad Kanade ML Resume.pdf")
+RESUME_DA = os.path.join(_ROOT, ".local", "Prasad Kanade Data Resume.pdf")
 
 # ATS/internal domains that should never receive outreach emails
 SUSPICIOUS_EMAIL_DOMAINS = [

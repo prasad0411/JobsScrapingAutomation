@@ -405,7 +405,7 @@ class SheetsManager:
                 "range": {"sheetId": sheet.id, "startRowIndex": start_row+i-1, "endRowIndex": start_row+i,
                           "startColumnIndex": 9, "endColumnIndex": 10},
                 "rule": {"condition": {"type": "ONE_OF_LIST",
-                         "values": [{"userEnteredValue": "SDE"}, {"userEnteredValue": "ML"}]},
+                         "values": [{"userEnteredValue": "SDE"}, {"userEnteredValue": "ML"}, {"userEnteredValue": "DA"}]},
                          "showCustomUi": True, "strict": False},
             }
         } for i in range(num_rows)]
@@ -593,11 +593,20 @@ class SheetsManager:
     @staticmethod
     def _classify_resume(title):
         t = title.lower() if title else ''
-        for kw in ['machine learning', ' ml ', 'ml ', ' ai ', 'ai ', 'data science',
+        # DA: Data Engineer, Data Analyst, Data Scientist, BI roles
+        for kw in ['data engineer', 'data analyst', 'data science', 'data scientist',
+                    'business intelligence', ' bi ', 'bi ', 'data anal',
+                    'data management', 'analytics intern', 'data intern',
+                    'etl', 'data pipeline', 'data warehouse', 'power bi',
+                    'tableau', 'reporting analyst', 'database engineer',
+                    'data visualization', 'data operations']:
+            if kw in t:
+                return 'DA'
+        # ML: Machine Learning, AI, NLP, Computer Vision
+        for kw in ['machine learning', ' ml ', 'ml ', ' ai ', 'ai ',
                     'nlp', 'computer vision', 'deep learning', 'genai', 'neural',
                     'llm', 'natural language', 'reinforcement learning',
-                    '/ml', 'ml/', 'data anal', 'data engineer', 'data scientist',
-                    'cv/ml', 'ml/dl', 'ai/ml']:
+                    '/ml', 'ml/', 'cv/ml', 'ml/dl', 'ai/ml']:
             if kw in t:
                 return 'ML'
         return 'SDE'
