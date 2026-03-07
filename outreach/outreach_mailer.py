@@ -21,6 +21,7 @@ from outreach.outreach_config import (
     REC_BODY,
     RESUME_SDE,
     RESUME_ML,
+    RESUME_DA,
     DRAFT_HISTORY_FILE,
     warmup_limit,
 )
@@ -115,7 +116,12 @@ class Mailer:
 
     def send(self, to_email, subject, body, resume_type="SDE"):
         result = {"success": False, "error": "", "timestamp": ""}
-        resume_path = RESUME_ML if resume_type == "ML" else RESUME_SDE
+        if resume_type == "ML":
+            resume_path = RESUME_ML
+        elif resume_type == "DA":
+            resume_path = RESUME_DA
+        else:
+            resume_path = RESUME_SDE
 
         key = self._draft_key(to_email, subject)
         if key in self._drafts_created:
