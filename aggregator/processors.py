@@ -216,6 +216,16 @@ class TitleProcessor:
             if re.search(pattern, title_lower):
                 return False, "Hardware/non-CS role"
 
+        # Reject unpaid internships
+        if "unpaid" in title_lower:
+            return False, "Unpaid internship"
+
+        # Reject titles that are LinkedIn job card text
+        if " hiring " in title_lower and " in " in title_lower:
+            return False, "LinkedIn job card text, not real title"
+        if title_lower.endswith("| linkedin"):
+            return False, "LinkedIn job card text, not real title"
+
         spam_patterns = [
             r"^application$",
             r"^apply\s",
