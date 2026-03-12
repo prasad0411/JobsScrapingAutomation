@@ -208,36 +208,10 @@ class Finder:
             self.pc.detect(result["email"], parsed)
             self._clear_retry(retry_key)
         else:
-            # Last resort: try common patterns via provider (Google/Microsoft)
-            if domains:
-                pv_email, pv_pattern = self.pv.discover_pattern(parsed, domains[0])
-                if pv_email:
-                    result.update(email=pv_email, source=f"provider_{self.pv.get_provider(domains[0])}", status="Valid")
-                    self.pc.store(domains[0], pv_pattern)
-                    self._clear_retry(retry_key)
-                    log.info(f"Pattern discovered via provider: {pv_email}")
-                    return result
-            # Statistical inference — VERIFY before accepting
-            if domains and parsed and not parsed["single"]:
-                f = parsed["fa"].lower()
-                la = parsed["lc"]
-                if f and la:
-                    stat_email = f"{f}.{la}@{domains[0]}"
-                    verified_email, conf, vsource, vdetails = self._verify_and_score(stat_email, domains[0], source_hint="pattern_guess")
-                    if verified_email and conf >= AUTO_SEND_THRESHOLD:
-                        result.update(email=verified_email, source=f"statistical_verified_{vsource}", status="Valid")
-                        result["confidence"] = conf
-                        self.pc.store(domains[0], "{first}.{last}")
-                        self._clear_retry(retry_key)
-                        log.info(f"Statistical guess VERIFIED ({conf}): {verified_email}")
-                        return result
-                    elif verified_email and conf > 0:
-                        result.update(email=verified_email, source="statistical_unverified", status="Manual Review")
-                        result["confidence"] = conf
-                        log.info(f"Statistical guess LOW CONFIDENCE ({conf}): {verified_email}")
-                        return result
-                    else:
-                        log.info(f"Statistical guess REJECTED: {stat_email}")
+            # === API-ONLY MODE: Pattern guessing DISABLED ===
+            # Provider discover and statistical inference removed.
+            # Only Apollo, Hunter, Snov, Prospeo, Norbert APIs are used.
+            log.info(f"All APIs exhausted for {parsed.get('fa','')} {parsed.get('la','')} @ {domains[0] if domains else '?'}")
             self._track_retry(retry_key, domains[0] if domains else "", result.get("error", ""))
         return result
 
@@ -602,6 +576,7 @@ class Finder:
             lambda: self._apollo(p, dom, li),
             lambda: self._hunter(p, dom) if dom else None,
             lambda: self._snov(p, dom) if dom else None,
+            lambda: self._prospeo(p, dom, li) if dom or li else None,
         ]:
             res = fn()
             if res and res["status"] in ("Valid", "Manual Review"):
@@ -726,3 +701,42 @@ class Finder:
         except Exception as e:
             r["error"] = f"Snov:{str(e)[:80]}"
         return r
+
+    def _prospeo(self, p, dom, li):
+        r = {"email": "", "source": "prospeo", "status": "Failed", "error": ""}
+        if self.cr.avail("prospeo") <= 0:
+            r["error"] = "Prospeo exhausted"
+            return r
+        k = key("PROSPEO_API_KEY")
+        if not k:
+            r["error"] = "Prospeo key missing"
+            return r
+        try:
+            # Prospeo email finder API
+            params = {"key": k}
+            if li:
+                # LinkedIn-based lookup (more accurate)
+                resp = self._req("GET", "https://api.prospeo.io/linkedin-email-finder",
+                                params={**params, "url": li})
+            else:
+                # Domain-based lookup
+                resp = self._req("GET", "https://api.prospeo.io/email-finder",
+                                params={**params, "first_name": p["fa"], "last_name": p["la"], "company": dom})
+            if resp and resp.status_code == 200:
+                data = resp.json()
+                self.cr.use("prospeo")
+                email = data.get("response", {}).get("email", {}).get("email", "")
+                if not email:
+                    email = data.get("email", "")
+                if email:
+                    conf = data.get("response", {}).get("email", {}).get("email_confidence", 0)
+                    r["email"] = email
+                    r["status"] = "Valid" if conf and int(conf) >= 70 else "Manual Review"
+                    return r
+                r["error"] = "Prospeo: no email"
+            elif resp:
+                r["error"] = f"Prospeo: HTTP {resp.status_code}"
+        except Exception as e:
+            r["error"] = f"Prospeo:{str(e)[:80]}"
+        return r
+

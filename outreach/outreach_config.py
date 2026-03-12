@@ -124,6 +124,7 @@ APIS = {
     "apollo": {"limit": 120, "url": "https://api.apollo.io/api/v1/people/match"},
     "hunter": {"limit": 25, "url": "https://api.hunter.io/v2/email-finder"},
     "snov": {"limit": 50, "url": "https://api.snov.io/v1/get-emails-from-names"},
+    "prospeo": {"limit": 1500, "url": "https://api.prospeo.io/email-finder"},
 }
 
 REACHER_URL = "http://localhost:8080/v0/check_email"
