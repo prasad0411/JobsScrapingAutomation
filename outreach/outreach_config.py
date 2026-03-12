@@ -25,38 +25,40 @@ O_HEADERS = [
     "Sr. No.",              # A (0)
     "Company",              # B (1)
     "Job Title",            # C (2)
-    "Job ID",               # D (3)
-    "HM Name",              # E (4)
-    "HM LinkedIn URL",      # F (5)
-    "HM Email",             # G (6)
-    "HM LinkedIn Msg",      # H (7)
-    "Recruiter Name",       # I (8)
-    "Recruiter LinkedIn URL",  # J (9)
-    "Recruiter Email",      # K (10)
-    "Rec LinkedIn Msg",     # L (11)
-    "Send At",              # M (12)
-    "Sent Date",            # N (13)
-    "Notes",                # O (14)
-    "Confidence",           # P (15)
+    "Extract",              # D (3)
+    "Job ID",               # E (4)
+    "HM Name",              # F (5)
+    "HM LinkedIn URL",      # G (6)
+    "HM Email",             # H (7)
+    "HM LinkedIn Msg",      # I (8)
+    "Recruiter Name",       # J (9)
+    "Recruiter LinkedIn URL",  # K (10)
+    "Recruiter Email",      # L (11)
+    "Rec LinkedIn Msg",     # M (12)
+    "Send At",              # N (13)
+    "Sent Date",            # O (14)
+    "Notes",                # P (15)
+    "Confidence",           # Q (16)
 ]
 
 C = {
     "sr": 0,
     "company": 1,
     "title": 2,
-    "job_id": 3,
-    "hm_name": 4,
-    "hm_li": 5,
-    "hm_email": 6,
-    "hm_li_msg": 7,
-    "rec_name": 8,
-    "rec_li": 9,
-    "rec_email": 10,
-    "rec_li_msg": 11,
-    "send_at": 12,
-    "sent_dt": 13,
-    "notes": 14,
-    "confidence": 15,
+    "extract": 3,
+    "job_id": 4,
+    "hm_name": 5,
+    "hm_li": 6,
+    "hm_email": 7,
+    "hm_li_msg": 8,
+    "rec_name": 9,
+    "rec_li": 10,
+    "rec_email": 11,
+    "rec_li_msg": 12,
+    "send_at": 13,
+    "sent_dt": 14,
+    "notes": 15,
+    "confidence": 16,
 }
 
 SENDER_NAME = "Prasad Kanade"

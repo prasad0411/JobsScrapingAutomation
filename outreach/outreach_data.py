@@ -330,6 +330,7 @@ class Sheets:
                 nr = [""] * len(O_HEADERS)
                 nr[C["company"]] = co
                 nr[C["title"]] = ti
+                nr[C["extract"]] = "Skip"
                 nr[C["job_id"]] = jid
 
             result_rows.append(nr)
