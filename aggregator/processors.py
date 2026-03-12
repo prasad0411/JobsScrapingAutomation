@@ -211,6 +211,14 @@ class TitleProcessor:
             r"\bfield\s+service\s+engineer",
             r"\bsystems\s+test\s+intern",
             r"\baudio\s+digital\s+signal",
+            r"\bsales\s+(?:research|analyst|operations|support)",
+            r"\bcustomer\s+(?:data\s+research|service)\s+intern",
+            r"\binventory\s+(?:data\s+)?analyst",
+            r"\bsupply\s+chain\s+(?:data|analyst)",
+            r"\bhr\s+(?:analytics|operations)\s+intern",
+            r"\brecruiting\s+(?:coordinator|intern)",
+            r"\bclinical\s+(?:data|trial)\s+intern",
+            r"\breal\s+estate\s+(?:analyst|intern)",
         ]
         for pattern in hardware_patterns:
             if re.search(pattern, title_lower):
