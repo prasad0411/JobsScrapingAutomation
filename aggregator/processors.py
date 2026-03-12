@@ -1868,6 +1868,12 @@ class ValidationHelper:
             if citizenship_decision == "REJECT":
                 return citizenship_decision, citizenship_reason, []
 
+            grad_decision, grad_reason = (
+                ValidationHelper._check_graduation_requirements(soup)
+            )
+            if grad_decision == "REJECT":
+                return grad_decision, grad_reason, []
+
             perm_auth_decision, perm_auth_reason = (
                 ValidationHelper._check_permanent_authorization(soup)
             )
@@ -2271,13 +2277,15 @@ class ValidationHelper:
 
             # Patterns that indicate citizenship is required
             citizenship_patterns = [
-                r"us\s+citizenship\s+required",
-                r"must\s+be\s+(?:a\s+)?us\s+citizen",
-                r"us\s+citizen\s+or\s+permanent\s+resident\s+only",
+                r"u\.?s\.?\s+citizenship\s+required",
+                r"must\s+be\s+(?:a\s+)?u\.?s\.?\s+citizen",
+                r"u\.?s\.?\s+citizen\s+or\s+permanent\s+resident",
                 r"citizenship\s+requirement",
-                r"require(?:s|d)?\s+us\s+citizenship",
-                r"only\s+us\s+citizens",
-                r"us\s+citizens?\s+only",
+                r"require(?:s|d)?\s+u\.?s\.?\s+citizenship",
+                r"only\s+u\.?s\.?\s+citizens",
+                r"u\.?s\.?\s+citizens?\s+only",
+                r"must\s+be\s+authorized\s+to\s+work.*(?:without|no)\s+(?:employer\s+)?sponsor",
+                r"permanent\s+(?:us\s+)?work\s+authorization\s+required",
             ]
 
             for pattern in citizenship_patterns:
@@ -2288,6 +2296,29 @@ class ValidationHelper:
         except Exception as e:
             logging.debug(f"Citizenship check failed: {e}")
 
+        return None, None
+
+    @staticmethod
+    def _check_graduation_requirements(soup):
+        """Reject jobs requiring graduation by Fall 2026 or earlier (user graduates May 2027)."""
+        if not soup:
+            return None, None
+        try:
+            page_text = soup.get_text()[:15000].lower()
+            grad_patterns = [
+                r"graduat(?:e|ing|ion)\s+(?:by|before|no later than)\s+(?:fall|december|dec)\s+2026",
+                r"(?:fall|december|dec)\s+2026\s+graduat",
+                r"must\s+(?:be\s+)?graduat(?:e|ing)\s+(?:by|in)\s+(?:fall|december|dec)\s+2026",
+                r"juniors?,?\s+seniors?,?\s+or\s+master'?s?\s+students?\s+in\s+(?:the\s+)?fall\s+(?:of\s+)?2026",
+                r"graduating\s+(?:in\s+)?(?:fall|december)\s+202[0-5]",
+                r"ideal\s+intern.*graduat(?:e|ing)\s+by\s+december\s+2026",
+                r"complete\s+(?:ms|master|degree)\s+(?:by|in)\s+(?:fall|december|dec)\s+2026",
+            ]
+            for pattern in grad_patterns:
+                if re.search(pattern, page_text, re.I):
+                    return "REJECT", "Requires graduation by Fall/Dec 2026 (user graduates May 2027)"
+        except Exception:
+            pass
         return None, None
 
     @staticmethod
