@@ -210,7 +210,7 @@ class CircuitBreaker:
 
         if cb["tripped"]:
             return False, cb.get("trip_reason", "Circuit breaker tripped")
-        if cb["bounced"] >= MAX_DAILY_BOUNCES:
+        if cb["bounced"] >= MAX_DAILY_BOUNCES and cb["sent"] > 0:
             rate = cb["bounced"] / cb["sent"]
             if rate >= MAX_BOUNCE_RATE:
                 reason = f"Bounce rate {rate:.0%} exceeds {MAX_BOUNCE_RATE:.0%} ({cb['bounced']}/{cb['sent']})"
