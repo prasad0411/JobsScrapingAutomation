@@ -61,14 +61,26 @@ class BounceScanner:
                 'subject:"failure notice")'
             )
 
-            result = (
-                gmail_service.users()
-                .messages()
-                .list(userId="me", q=query, maxResults=100)
-                .execute()
-            )
+            # FIX 3b: also scan "Failed Emails" label explicitly
+            label_query = f"after:{after_date} label:failed-emails"
 
-            messages = result.get("messages", [])
+            messages = []
+            seen_ids = set()
+            for q in [query, label_query]:
+                try:
+                    result = (
+                        gmail_service.users()
+                        .messages()
+                        .list(userId="me", q=q, maxResults=100)
+                        .execute()
+                    )
+                    for m in result.get("messages", []):
+                        if m["id"] not in seen_ids:
+                            seen_ids.add(m["id"])
+                            messages.append(m)
+                except Exception as qe:
+                    log.debug(f"Bounce query failed ({q[:40]}): {qe}")
+
             if not messages:
                 log.info("Bounce scanner: no bounce messages found")
                 return set(bounced.keys())

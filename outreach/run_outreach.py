@@ -68,6 +68,10 @@ def phase_draft_existing(sheets, mailer):
         co = r[C["company"]].strip()
         title = r[C["title"]].strip()
         jid = r[C["job_id"]].strip()
+        # FIX 1b: Skip rows not marked for extraction
+        extract_val = r[C["extract"]].strip().lower() if len(r) > C["extract"] else ""
+        if extract_val != "yes":
+            continue
         if (not he and not re_) or send_at:
             continue
         resume_type = sheets.get_resume_type(co, title)
@@ -160,6 +164,32 @@ def phase_extract_and_draft(sheets, finder, mailer):
             if hasattr(sheets, "get_job_url_domain")
             else ""
         )
+        # FIX 2: Load bounce + failed pattern lists before extraction
+        _all_bounced = set(BounceScanner.load_bounced().keys())
+        _failed_pat_file = os.path.join(os.path.dirname(os.path.dirname(
+            os.path.abspath(__file__))), ".local", "failed_patterns.json")
+        _failed_pats = {}
+        try:
+            import json as _json
+            if os.path.exists(_failed_pat_file):
+                _failed_pats = _json.load(open(_failed_pat_file))
+        except Exception:
+            pass
+
+        def _is_blocked(email):
+            if not email or "@" not in email:
+                return False
+            el = email.lower().strip()
+            if el in _all_bounced:
+                log.info(f"Pre-send block: {email} is in bounce cache")
+                return True
+            domain = el.split("@")[1]
+            local = el.split("@")[0]
+            if local in _failed_pats.get(domain, []):
+                log.info(f"Pre-send block: {email} matches failed pattern for {domain}")
+                return True
+            return False
+
         if row["need_h"]:
             # Support multiple comma-separated HM names
             hm_names = [n.strip() for n in row["hn"].split(",") if n.strip()]
@@ -168,8 +198,13 @@ def phase_extract_and_draft(sheets, finder, mailer):
             for hm_name in hm_names:
                 hm_res = finder.find(hm_name, row["co"], row["hli"], job_url_domain=jud)
                 if hm_res["email"]:
-                    hm_emails.append(hm_res["email"])
-                    stats["extracted"] += 1
+                    if _is_blocked(hm_res["email"]):
+                        log.warning(f"Blocked pre-send: {hm_res['email']} for {row['co']}")
+                        hm_failed = True
+                        stats["extract_failed"] += 1
+                    else:
+                        hm_emails.append(hm_res["email"])
+                        stats["extracted"] += 1
                 else:
                     hm_failed = True
                     stats["extract_failed"] += 1
@@ -194,8 +229,13 @@ def phase_extract_and_draft(sheets, finder, mailer):
                     rec_name, row["co"], row["rli"], job_url_domain=jud
                 )
                 if rec_res["email"]:
-                    rec_emails.append(rec_res["email"])
-                    stats["extracted"] += 1
+                    if _is_blocked(rec_res["email"]):
+                        log.warning(f"Blocked pre-send: {rec_res['email']} for {row['co']}")
+                        rec_failed = True
+                        stats["extract_failed"] += 1
+                    else:
+                        rec_emails.append(rec_res["email"])
+                        stats["extracted"] += 1
             if rec_emails:
                 sheets.write_email(rn, "rec", ", ".join(rec_emails), rec_res["source"])
                 # Write confidence (use lowest of HM and Rec — weakest link)

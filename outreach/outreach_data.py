@@ -427,10 +427,16 @@ class Sheets:
             he, re_ = r[C["hm_email"]].strip(), r[C["rec_email"]].strip()
             err = ""  # Error Log column removed — errors in .local/outreach.log
 
+            # FIX 1: Skip rows not marked for extraction
+            extract_val = r[C["extract"]].strip().lower()
+            if extract_val != "yes":
+                continue
+
             hn_list = [n.strip() for n in hn.split(",") if n.strip()] if hn else []
             rn_list = [n.strip() for n in rn.split(",") if n.strip()] if rn else []
-            hn = hn_list[0] if hn_list else ""
-            rn = rn_list[0] if rn_list else ""
+            # FIX 6: Pass ALL names so phase_extract_and_draft gets full list
+            hn = ", ".join(hn_list)
+            rn = ", ".join(rn_list)
 
             need_h = bool(hn) and not he and "HM:" not in err
             need_r = bool(rn) and not re_ and "REC:" not in err
@@ -596,12 +602,24 @@ class Sheets:
                 pass
             if domain not in failed:
                 failed[domain] = []
+            # FIX 4: store both local part AND pattern string for domain-wide blocking
             if bounced_local not in failed[domain]:
                 failed[domain].append(bounced_local)
-                try:
-                    json.dump(failed, open(failed_file, "w"), indent=2)
-                except:
-                    pass
+            _f = parsed["fa"].lower() if parsed else ""
+            _la = parsed["lc"] if parsed else ""
+            _fi = parsed["fi"] if parsed else ""
+            _li = parsed["li"] if parsed else ""
+            from outreach.outreach_config import PAT_A, PAT_B, PAT_C
+            for _pat in PAT_A + PAT_B + PAT_C:
+                _gen = (_pat.replace("{first}", _f).replace("{last}", _la)
+                            .replace("{f}", _fi).replace("{l}", _li))
+                if _gen == bounced_local and _pat not in failed[domain]:
+                    failed[domain].append(_pat)
+                    break
+            try:
+                json.dump(failed, open(failed_file, "w"), indent=2)
+            except:
+                pass
 
             # Generate alternatives, skipping the failed pattern
             from outreach.outreach_config import PAT_A, PAT_B
@@ -629,10 +647,14 @@ class Sheets:
                     if result == "exists":
                         # Store the working pattern
                         new_local = candidate.split("@")[0]
-                        new_pat = (pat for pat in PAT_A + PAT_B
-                                   if pat.replace("{first}", f).replace("{last}", la)
-                                       .replace("{f}", fi).replace("{l}", li) == new_local)
-                        pat_str = next(new_pat, None)
+                        # FIX 3: avoid variable shadowing with outer `pat` loop var
+                        def _find_pat(nl, f=f, la=la, fi=fi, li=li):
+                            for _p in PAT_A + PAT_B:
+                                if (_p.replace("{first}", f).replace("{last}", la)
+                                      .replace("{f}", fi).replace("{l}", li)) == nl:
+                                    return _p
+                            return None
+                        pat_str = _find_pat(new_local)
                         if pat_str:
                             pc.store(domain, pat_str)
                         log.info(f"Bounce retry verified: {candidate}")
@@ -1173,6 +1195,15 @@ _SEED = {
     "netflix.com": "{first}.{last}",
     "salesforce.com": "{first}.{last}",
     "stripe.com": "{first}.{last}",
+    "bain.com": "{first}.{last}",
+    "neuralink.com": "{first}.{last}",
+    "rivian.com": "{first}.{last}",
+    "northwesternmutual.com": "{first}.{last}",
+    "f5.com": "{first}.{last}",
+    "hp.com": "{first}.{last}",
+    "seismic.com": "{first}.{last}",
+    "inogen.com": "{first}.{last}",
+    "snowflake.com": "{first}.{last}",
     "uber.com": "{first}.{last}",
     "airbnb.com": "{first}.{last}",
     "figma.com": "{first}.{last}",
