@@ -124,6 +124,13 @@ class CompanyNormalizer:
 
         try:
             name = company_name.strip()
+
+            # FIX 4: strip leading ATS internal codes like "F1138 " or "C2024-"
+            import re as _re_co
+            name = _re_co.sub(r"^[A-Z]\d{3,5}\s+", "", name).strip()
+            name = _re_co.sub(r"^\d{3,6}\s+", "", name).strip()
+            name = _re_co.sub(r"^[A-Z]{1,3}-\d{3,6}\s+", "", name).strip()
+
             name_lower = name.lower()
 
             for prefix in COMPANY_NAME_PREFIXES:

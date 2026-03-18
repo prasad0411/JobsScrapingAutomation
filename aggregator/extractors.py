@@ -1898,8 +1898,32 @@ class ZipRecruiterResolver:
     """Resolves ZipRecruiter job pages to actual company URLs."""
 
     @staticmethod
+    def _strip_auth_params(url):
+        """FIX 6: Remove expiring auth tokens from ZipRecruiter URLs before storing."""
+        if not url:
+            return url
+        try:
+            import urllib.parse
+            parsed = urllib.parse.urlparse(url)
+            params = urllib.parse.parse_qs(parsed.query, keep_blank_values=True)
+            # Remove known expiring/tracking params
+            _strip = {"auth_token", "expires", "contact_id", "tsid", "utm_source",
+                      "utm_medium", "utm_campaign", "utm_content", "utm_term"}
+            clean = {k: v for k, v in params.items() if k.lower() not in _strip}
+            new_query = urllib.parse.urlencode(clean, doseq=True)
+            clean_url = urllib.parse.urlunparse((
+                parsed.scheme, parsed.netloc, parsed.path,
+                parsed.params, new_query, ""
+            ))
+            return clean_url
+        except Exception:
+            return url
+
+    @staticmethod
     def resolve(ziprecruiter_url):
         """Fetch ZipRecruiter page, find Apply button, extract actual company URL."""
+        # FIX 6: strip auth tokens from the input URL before resolving
+        ziprecruiter_url = ZipRecruiterResolver._strip_auth_params(ziprecruiter_url)
         try:
             response = retry_request(ziprecruiter_url, max_retries=2)
             if not response or response.status_code != 200:

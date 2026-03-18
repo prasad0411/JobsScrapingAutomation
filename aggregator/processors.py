@@ -133,6 +133,21 @@ class TitleProcessor:
             return title
 
         original = title
+
+        # FIX 1: Strip email subject line prefixes like "Company is looking for X"
+        import re as _re_title
+        title = _re_title.sub(
+            r"^.{3,60}?\s+is\s+(?:looking|hiring|searching|seeking)\s+for\s+",
+            "", title, flags=re.I
+        ).strip()
+        # Strip "We are looking for X" style
+        title = _re_title.sub(
+            r"^(?:we\s+are|we're)\s+(?:looking|hiring|searching|seeking)\s+for\s+",
+            "", title, flags=re.I
+        ).strip()
+        # Strip leading ATS codes like "F1138 " at start of title
+        title = _re_title.sub(r"^[A-Z]\d{3,5}\s+", "", title).strip()
+
         title = _TITLE_CLEAN_PATTERN.sub("", title)
         title = _SEASON_PATTERN.sub("", title)
         title = _YEAR_PATTERN.sub(" ", title)
@@ -991,6 +1006,20 @@ class LocationProcessor:
             location = re.sub(
                 r",?\s*(?:USA|United States)\s*", "", location, flags=re.I
             )
+            # FIX 5: strip floor/suite/address details
+            location = re.sub(
+                r",?\s*(?:floor|fl\.?|suite|ste\.?|room|rm\.?|bldg\.?|building)\s*\d*",
+                "", location, flags=re.I
+            )
+            location = re.sub(
+                r"\b\d+(?:st|nd|rd|th)\s+(?:floor|fl\.?)\b",
+                "", location, flags=re.I
+            )
+            # Strip street addresses like "123 Main St" or "One Penn Plaza"
+            location = re.sub(
+                r"\b(?:one|two|three|\d+)\s+[A-Z][a-z]+(?:\s+[A-Z][a-z]+)*\s+(?:plaza|ave|st|street|blvd|drive|dr|road|rd|lane|ln|way|court|ct)\b",
+                "", location, flags=re.I
+            ).strip().strip(",").strip()
 
             match = _CITY_STATE_PATTERN.search(location)
             if match:
@@ -1125,7 +1154,7 @@ class LocationProcessor:
         if len(text) < 3:
             return False
 
-        # Reject garbage phrases
+        # FIX 2: Reject compensation/salary text leaking into location
         garbage_phrases = [
             "as well as",
             "in accordance with",
@@ -1133,6 +1162,22 @@ class LocationProcessor:
             "without regard to",
             "applicants",
             "candidates",
+            "equity",
+            "salary",
+            "compensation",
+            "benefits",
+            "internal equity",
+            "base pay",
+            "pay range",
+            "market rate",
+            "experience and",
+            "qualifications",
+            "applications",
+            "and internal",
+            "or experience",
+            "per hour",
+            "per year",
+            "annually",
         ]
 
         text_lower = text.lower()
@@ -1274,6 +1319,16 @@ class LocationProcessor:
 
             if "canada" in location_lower:
                 return "Location: Canada"
+
+            # FIX 3: catch ATS-style "CAN" suffix e.g. "Peterborough CAN", "Toronto CAN"
+            import re as _re_can
+            if _re_can.search(r"CAN", location):
+                return "Location: Canada (CAN suffix)"
+            # Also catch province codes used by some ATS systems
+            _can_suffixes = [" ON", " BC", " AB", " QC", " MB", " SK", " NS", " NB", " NL", " PE", " YT", " NT", " NU"]
+            for _sfx in _can_suffixes:
+                if location.upper().endswith(_sfx):
+                    return f"Location: Canada (province suffix {_sfx.strip()})"
 
             for full_name, code in CANADA_PROVINCE_NAMES.items():
                 if re.search(rf"\b{full_name}\b", location_lower, re.I):
