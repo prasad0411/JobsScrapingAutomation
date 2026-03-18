@@ -185,7 +185,22 @@ class TitleProcessor:
 
         for pattern in INVALID_TITLE_KEYWORDS:
             if re.search(pattern, title_lower):
-                return False, "PhD or military veteran role (not eligible)"
+                return False, "PhD, military, hardware or non-CS role (not eligible)"
+
+        # FIX 4: SkillBridge / DoD / military-only internships
+        skillbridge_patterns = [
+            r"skillbridge",
+            r"skill\s*bridge",
+            r"dod\s+skillbridge",
+            r"military\s+(?:intern|transition|separation)",
+            r"(?:active\s+duty|armed\s+forces)\s+(?:intern|transition)",
+            r"separation\s+from\s+(?:the\s+)?military",
+            r"within\s+180\s+days\s+of\s+separation",
+            r"honorable\s+discharge\s+required",
+        ]
+        for pat in skillbridge_patterns:
+            if re.search(pat, title_lower):
+                return False, "SkillBridge/military-only internship (not eligible)"
 
         # Hardware/non-CS roles to reject
         hardware_patterns = [
@@ -2173,6 +2188,12 @@ class ValidationHelper:
                 r"pursuing\s+undergraduate\s+degree",
                 r"current\s+undergraduate\s+status",
                 r"undergraduate\s+student\s+status",
+                r"(?:junior|senior)\s+or\s+senior\s+year",
+                r"in\s+their\s+(?:junior|senior)\s+or\s+senior\s+year",
+                r"junior\s+or\s+senior\s+year",
+                r"junior\s+or\s+senior\s+standing",
+                r"must\s+be\s+(?:a\s+)?(?:junior|senior)\s+(?:or\s+senior\s+)?(?:year|student)",
+                r"for\s+(?:junior|senior)\s+(?:year\s+)?students\s+only",
                 r"bachelor'?s?\s+level\s+student",
                 r"undergraduate\s+program\s+student",
                 r"enrolled\s+in\s+(?:a\s+)?4-year\s+(?:bachelor|undergraduate)",
@@ -2349,6 +2370,13 @@ class ValidationHelper:
                 r"u\.?s\.?\s+citizens?\s+only",
                 r"must\s+be\s+authorized\s+to\s+work.*(?:without|no)\s+(?:employer\s+)?sponsor",
                 r"permanent\s+(?:us\s+)?work\s+authorization\s+required",
+                # FIX 3: Trane-style combined citizenship+sponsorship phrase
+                r"u\.?s\.?\s+citizen\s+or\s+have\s+the\s+legal\s+right\s+to\s+work",
+                r"legal\s+right\s+to\s+work.*without\s+(?:requiring\s+)?sponsor",
+                r"without\s+requiring\s+sponsorship\s+now\s+or\s+in\s+the\s+future",
+                r"not\s+(?:now|currently).*require.*sponsorship.*future",
+                r"no\s+visa\s+sponsorship.*(?:now|future|available)",
+                r"students?\s+must\s+be\s+authorized\s+to\s+work\s+in\s+the\s+u\.?s\.?\s+without",
             ]
 
             for pattern in citizenship_patterns:
@@ -2793,13 +2821,20 @@ class ValidationHelper:
 
     @staticmethod
     def clean_legal_entity(company):
-        """ORIGINAL"""
+        """ORIGINAL + FIX 5: strip leading The/trailing Companies/Group/Holdings"""
         if not company:
             return company
         company = re.sub(r"^\d+\s+|^[A-Z]{2,4}[-\s]", "", company)
-        return re.sub(
+        company = re.sub(
             r",?\s+(Inc\.?|LLC\.?|Corp\.?|Ltd\.?)$", "", company, flags=re.I
         ).strip()
+        # FIX 5: strip "The X Companies" → "X", "X Holdings" → "X"
+        company = re.sub(r"^The\s+", "", company, flags=re.I).strip()
+        company = re.sub(
+            r"\s+(Companies|Company|Group|Holdings|Partners|Associates|Enterprises|Solutions|Services|Technologies|Technology)$",
+            "", company, flags=re.I
+        ).strip()
+        return company
 
     @staticmethod
     @lru_cache(maxsize=256)

@@ -1004,6 +1004,28 @@ class UnifiedJobAggregator:
     def _process_ziprecruiter_url(self, url, sender, email_html, subject):
         """Process ZipRecruiter URL: try HTTP redirect first, fall back to pre-parsed email data."""
         try:
+            # FIX 6: check expires param before fetching — skip if expired
+            try:
+                import urllib.parse as _urlparse, time as _time
+                _parsed = _urlparse.urlparse(url)
+                _params = _urlparse.parse_qs(_parsed.query)
+                _expires = _params.get("expires", [None])[0]
+                if _expires:
+                    _exp_ts = int(_expires)
+                    _now_ts = int(_time.time())
+                    _age_days = (_now_ts - (_exp_ts - 345600)) / 86400  # expires is ~4 days after post
+                    if _now_ts > _exp_ts:
+                        logging.info(f"ZipRecruiter URL expired (expires={_expires}), skipping")
+                        self.outcomes["skipped_too_old"] = self.outcomes.get("skipped_too_old", 0) + 1
+                        return
+                    # Also check if posted more than 3 days ago based on expires offset
+                    if _age_days > 3:
+                        logging.info(f"ZipRecruiter URL too old ({_age_days:.1f}d), skipping")
+                        self.outcomes["skipped_too_old"] = self.outcomes.get("skipped_too_old", 0) + 1
+                        return
+            except Exception as _exp_e:
+                logging.debug(f"ZipRecruiter expiry check failed: {_exp_e}")
+
             actual_url = None
             try:
                 import requests as _req
