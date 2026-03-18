@@ -1737,7 +1737,12 @@ class ValidationHelper:
 
     @staticmethod
     def check_url_for_international(url):
-        """ORIGINAL: Delegates to LocationProcessor"""
+        """FIX 8: checks Canada URL indicators — name kept for backward compat"""
+        return LocationProcessor._check_url_for_canada(url)
+
+    @staticmethod
+    def check_url_for_canada(url):
+        """FIX 8: explicit alias with accurate name"""
         return LocationProcessor._check_url_for_canada(url)
 
     @staticmethod

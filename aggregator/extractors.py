@@ -65,8 +65,34 @@ from aggregator.processors import (
 
 _SESSION = requests.Session()
 _SESSION.headers.update({"User-Agent": USER_AGENTS[0]})
-_URL_HEALTH_CACHE = {}
 _SELENIUM_DRIVER = None
+
+# FIX 3: persist URL health cache to disk with 24-hour TTL
+_URL_HEALTH_CACHE_FILE = os.path.join(".local", "url_health_cache.json")
+_URL_HEALTH_CACHE_TTL = 86400  # 24 hours
+
+def _load_url_health_cache():
+    try:
+        if os.path.exists(_URL_HEALTH_CACHE_FILE):
+            raw = json.load(open(_URL_HEALTH_CACHE_FILE))
+            now = time.time()
+            return {k: v for k, v in raw.items()
+                    if now - v.get("ts", 0) < _URL_HEALTH_CACHE_TTL}
+    except Exception:
+        pass
+    return {}
+
+def _save_url_health_cache(cache):
+    try:
+        os.makedirs(".local", exist_ok=True)
+        if len(cache) > 2000:
+            sorted_items = sorted(cache.items(), key=lambda x: x[1].get("ts", 0))
+            cache = dict(sorted_items[-2000:])
+        json.dump(cache, open(_URL_HEALTH_CACHE_FILE, "w"))
+    except Exception:
+        pass
+
+_URL_HEALTH_CACHE = _load_url_health_cache()
 _SELENIUM_LAST_USED = None
 
 # FIX 8: persist HTTP response cache to disk with 6-hour TTL
@@ -1244,19 +1270,25 @@ class PageFetcher:
 
     def check_url_health(self, url):
         if url in _URL_HEALTH_CACHE:
-            return _URL_HEALTH_CACHE[url]
+            cached = _URL_HEALTH_CACHE[url]
+            # FIX 3: support both old tuple format and new dict format
+            if isinstance(cached, dict):
+                return cached["healthy"], cached["status"]
+            return cached
         response = retry_request(url, method="HEAD", max_retries=2)
         if response:
             is_healthy = 200 <= response.status_code < 400 or response.status_code in [
-                301,
-                302,
-                303,
-                307,
-                308,
+                301, 302, 303, 307, 308,
             ]
-            _URL_HEALTH_CACHE[url] = (is_healthy, response.status_code)
+            _URL_HEALTH_CACHE[url] = {
+                "healthy": is_healthy,
+                "status": response.status_code,
+                "ts": time.time()
+            }
+            _save_url_health_cache(_URL_HEALTH_CACHE)
             return is_healthy, response.status_code
-        _URL_HEALTH_CACHE[url] = (False, 0)
+        _URL_HEALTH_CACHE[url] = {"healthy": False, "status": 0, "ts": time.time()}
+        _save_url_health_cache(_URL_HEALTH_CACHE)
         return False, 0
 
     _failed_urls = None
@@ -2206,6 +2238,7 @@ class SimplifyGitHubScraper:
         header = lines[header_idx]
         delimiter = "\t" if "\t" in header else "|"
         start = header_idx + 1 if delimiter == "\t" else header_idx + 2
+        last_company = ""  # FIX 6: initialize before loop to prevent UnboundLocalError
         for line in lines[start:]:
             if not line.strip():
                 continue
@@ -2218,6 +2251,8 @@ class SimplifyGitHubScraper:
                 last_company = company
             else:
                 company = last_company
+                if not company:
+                    continue  # FIX 6: skip continuation rows with no known parent company
             title = _EMOJI_PATTERN.sub("", parts[1]).strip()
             location = _EMOJI_PATTERN.sub("", parts[2]).strip()
             link_cell = parts[3]

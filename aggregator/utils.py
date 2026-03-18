@@ -575,6 +575,9 @@ class QualityScorer:
             location = job_data.get("location", "Unknown")
             if location and location != "Unknown":
                 score += 2
+            # FIX 4: penalize Unknown location — common sign of bad extraction
+            else:
+                score -= 1
 
             job_id = job_data.get("job_id", "N/A")
             if job_id and job_id != "N/A" and not job_id.startswith("HASH_"):
@@ -584,6 +587,10 @@ class QualityScorer:
             if 15 < len(title) < 120:
                 score += 1
 
+            # FIX 4: require at minimum valid company + title
+            if (not company or company in ["Unknown", "N/A"]) and                (not title or len(title) < 5):
+                score = 0
+
         except Exception as e:
             logging.debug(f"Quality scoring failed: {e}")
 
@@ -592,6 +599,22 @@ class QualityScorer:
     @staticmethod
     def is_acceptable_quality(score, min_score=4):
         return score >= min_score
+
+
+# FIX 7: module-level import for DataSanitizer hot-loop configs
+try:
+    from aggregator.config import (
+        DATA_SANITIZATION_PREFERENCES as _DS_PREFS,
+        FIELD_PREFIXES_TO_REMOVE as _DS_PREFIXES,
+        FULL_STATE_NAMES as _DS_STATE_NAMES,
+        validate_us_state_code as _DS_VALIDATE_STATE,
+    )
+    _DS_CONFIG_LOADED = True
+except Exception:
+    _DS_CONFIG_LOADED = False
+    _DS_PREFS = {}
+    _DS_PREFIXES = []
+    _DS_STATE_NAMES = {}
 
 
 class DataSanitizer:
@@ -653,8 +676,9 @@ class DataSanitizer:
 
         try:
             text = str(title)
-
-            from aggregator.config import DATA_SANITIZATION_PREFERENCES, FIELD_PREFIXES_TO_REMOVE
+            # FIX 7: use module-level imports instead of per-call imports
+            DATA_SANITIZATION_PREFERENCES = _DS_PREFS
+            FIELD_PREFIXES_TO_REMOVE = _DS_PREFIXES
 
             if DATA_SANITIZATION_PREFERENCES.get("remove_emojis", True):
                 text = cls._remove_emojis(text)
@@ -687,8 +711,9 @@ class DataSanitizer:
 
         try:
             text = str(company)
-
-            from aggregator.config import DATA_SANITIZATION_PREFERENCES, FIELD_PREFIXES_TO_REMOVE
+            # FIX 7: use module-level imports
+            DATA_SANITIZATION_PREFERENCES = _DS_PREFS
+            FIELD_PREFIXES_TO_REMOVE = _DS_PREFIXES
 
             if DATA_SANITIZATION_PREFERENCES.get("remove_emojis", True):
                 text = cls._remove_emojis(text)
