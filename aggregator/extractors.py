@@ -66,9 +66,37 @@ from aggregator.processors import (
 _SESSION = requests.Session()
 _SESSION.headers.update({"User-Agent": USER_AGENTS[0]})
 _URL_HEALTH_CACHE = {}
-_HTTP_RESPONSE_CACHE = {}
 _SELENIUM_DRIVER = None
 _SELENIUM_LAST_USED = None
+
+# FIX 8: persist HTTP response cache to disk with 6-hour TTL
+_HTTP_CACHE_FILE = os.path.join(".local", "http_response_cache.json")
+_HTTP_CACHE_TTL = 6 * 3600  # 6 hours
+
+def _load_http_cache():
+    try:
+        if os.path.exists(_HTTP_CACHE_FILE):
+            raw = json.load(open(_HTTP_CACHE_FILE))
+            now = time.time()
+            # Evict expired entries on load
+            return {k: v for k, v in raw.items()
+                    if now - v.get("ts", 0) < _HTTP_CACHE_TTL}
+    except Exception:
+        pass
+    return {}
+
+def _save_http_cache(cache):
+    try:
+        os.makedirs(".local", exist_ok=True)
+        # Keep max 500 entries — evict oldest
+        if len(cache) > 500:
+            sorted_items = sorted(cache.items(), key=lambda x: x[1].get("ts", 0))
+            cache = dict(sorted_items[-500:])
+        json.dump(cache, open(_HTTP_CACHE_FILE, "w"))
+    except Exception:
+        pass
+
+_HTTP_RESPONSE_CACHE = _load_http_cache()
 
 
 def _cleanup_selenium_driver():

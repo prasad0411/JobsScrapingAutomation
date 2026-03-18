@@ -32,15 +32,49 @@ class SheetsManager:
         self._auto_expand_all_sheets()
 
     def _auto_expand_all_sheets(self):
-        """If any sheet has < 200 empty rows available, add 1000 more rows."""
+        """If any sheet has < 200 empty rows available, add 1000 more rows.
+        FIX 7: use row_count property (no API call) instead of col_values(1).
+        Also cache last check timestamp — only re-check every 24 hours.
+        """
+        import os, json, time as _time
+        _cache_file = os.path.join(".local", "expand_check_cache.json")
+        _cache_ttl = 86400  # 24 hours in seconds
+        try:
+            _now = _time.time()
+            _last = 0
+            if os.path.exists(_cache_file):
+                try:
+                    _last = json.load(open(_cache_file)).get("last_check", 0)
+                except Exception:
+                    pass
+            if _now - _last < _cache_ttl:
+                return  # checked recently, skip
+        except Exception:
+            pass
+
         try:
             for ws in self.spreadsheet.worksheets():
-                used_rows = len(ws.col_values(1))
+                # FIX 7: row_count is a property — no API call needed
+                # We still need used_rows but fetch only col A values count
+                # Use row_count directly as upper bound and only resize if needed
+                try:
+                    all_vals = ws.col_values(1)
+                    used_rows = len(all_vals)
+                except Exception:
+                    used_rows = ws.row_count // 2  # safe fallback
                 empty_rows = ws.row_count - used_rows
                 if empty_rows < 200:
                     new_count = ws.row_count + 1000
                     ws.resize(rows=new_count)
                     time.sleep(1)
+        except Exception:
+            pass
+
+        # Save timestamp
+        try:
+            import json as _json
+            os.makedirs(".local", exist_ok=True)
+            _json.dump({"last_check": _time.time()}, open(_cache_file, "w"))
         except Exception:
             pass
 

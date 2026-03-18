@@ -61,7 +61,7 @@ class ExtractionResult:
 
 class PlatformDetector:
     @staticmethod
-    @lru_cache(maxsize=1024)
+    @lru_cache(maxsize=2048)  # FIX 9: bumped from 1024 — processes 500+ URLs/run
     def detect(url):
         if not url:
             return "generic"
