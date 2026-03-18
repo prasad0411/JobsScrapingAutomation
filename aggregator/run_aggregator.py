@@ -302,6 +302,15 @@ class ProcessedEmailTracker:
     @staticmethod
     def save(processed_emails):
         try:
+            # FIX 11: cap at 10,000 entries — prune oldest to prevent unbounded growth
+            MAX_ENTRIES = 10000
+            if len(processed_emails) > MAX_ENTRIES:
+                sorted_items = sorted(
+                    processed_emails.items(),
+                    key=lambda x: x[1].get("processed_date", "") + x[1].get("processed_time", "")
+                )
+                processed_emails = dict(sorted_items[-MAX_ENTRIES:])
+                logging.info(f"ProcessedEmailTracker pruned to {MAX_ENTRIES} entries")
             with open(PROCESSED_EMAILS_FILE, "w") as f:
                 json.dump(processed_emails, f, indent=2)
         except Exception as e:

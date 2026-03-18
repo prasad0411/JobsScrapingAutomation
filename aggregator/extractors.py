@@ -231,20 +231,65 @@ class SimplifyRedirectResolver:
                     return simplify_url, False
         click_url = f"https://simplify.jobs/jobs/click/{job_id}"
 
-        actual_url = SimplifyRedirectResolver._method_1_http_redirect(click_url)
-        if actual_url:
-            logging.info(f"Simplify HTTP: {actual_url[:70]}")
-            return actual_url, True
+        # FIX 10: learn which method works best — try preferred method first
+        _method_cache_file = os.path.join(".local", "simplify_method_cache.json")
+        _method_cache = {}
+        try:
+            if os.path.exists(_method_cache_file):
+                _method_cache = json.load(open(_method_cache_file))
+        except Exception:
+            pass
 
-        actual_url = SimplifyRedirectResolver._method_2_selenium_click(click_url)
-        if actual_url:
-            logging.info(f"Simplify Selenium: {actual_url[:70]}")
-            return actual_url, True
+        def _record_best(method_num):
+            try:
+                _method_cache["_global_best"] = method_num
+                json.dump(_method_cache, open(_method_cache_file, "w"))
+            except Exception:
+                pass
 
-        actual_url = SimplifyRedirectResolver._method_3_api_fetch(job_id)
-        if actual_url:
-            logging.info(f"Simplify API: {actual_url[:70]}")
-            return actual_url, True
+        _preferred = _method_cache.get("_global_best")
+        _tried = set()
+
+        def _try(method_num, fn):
+            _tried.add(method_num)
+            result = fn()
+            if result:
+                _record_best(method_num)
+            return result
+
+        if _preferred == 1:
+            actual_url = _try(1, lambda: SimplifyRedirectResolver._method_1_http_redirect(click_url))
+            if actual_url:
+                logging.info(f"Simplify HTTP (preferred): {actual_url[:70]}")
+                return actual_url, True
+        elif _preferred == 2:
+            actual_url = _try(2, lambda: SimplifyRedirectResolver._method_2_selenium_click(click_url))
+            if actual_url:
+                logging.info(f"Simplify Selenium (preferred): {actual_url[:70]}")
+                return actual_url, True
+        elif _preferred == 3:
+            actual_url = _try(3, lambda: SimplifyRedirectResolver._method_3_api_fetch(job_id))
+            if actual_url:
+                logging.info(f"Simplify API (preferred): {actual_url[:70]}")
+                return actual_url, True
+
+        if 1 not in _tried:
+            actual_url = _try(1, lambda: SimplifyRedirectResolver._method_1_http_redirect(click_url))
+            if actual_url:
+                logging.info(f"Simplify HTTP: {actual_url[:70]}")
+                return actual_url, True
+
+        if 2 not in _tried:
+            actual_url = _try(2, lambda: SimplifyRedirectResolver._method_2_selenium_click(click_url))
+            if actual_url:
+                logging.info(f"Simplify Selenium: {actual_url[:70]}")
+                return actual_url, True
+
+        if 3 not in _tried:
+            actual_url = _try(3, lambda: SimplifyRedirectResolver._method_3_api_fetch(job_id))
+            if actual_url:
+                logging.info(f"Simplify API: {actual_url[:70]}")
+                return actual_url, True
 
         actual_url = SimplifyRedirectResolver._method_4_github_lookup(job_id)
         if actual_url:

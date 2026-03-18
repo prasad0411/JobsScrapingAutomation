@@ -1973,3 +1973,63 @@ def get_city_state_from_zipcode(zipcode):
         except:
             pass
     return None, None
+
+
+# FIX 12: moved from run_aggregator.py
+GREENHOUSE_COMPANY_MAP = {
+    "tenstorrentuniversity": "Tenstorrent",
+    "alarmcom": "Alarm.com",
+    "skyryse": "Skyryse",
+    "trumid": "Trumid",
+    "leagueinc": "League",
+    "fccincinnati": "FC Cincinnati",
+    "antora": "Antora Energy",
+    "samsungresearchamericainternship": "Samsung Research America",
+    "point72": "Point72",
+    "sonatus": "Sonatus",
+}
+
+GARBAGE_COMPANY_NAMES = {
+    "myworkdayjobs",
+    "www",
+    "job-boards",
+    "company",
+    "unknown",
+    "careers",
+    "jobs",
+    "external",
+    "portal",
+    "applicant",
+    "job-boards.greenhouse.io",
+    "job-boards.eu.greenhouse.io",
+    "your future starts here",
+    "t commission",
+    "corporate office",
+    "learning",
+    "insurance services",
+    "gardacp",
+    "fiveringsllc",
+    "oakland",
+    "3s business",
+    "usa",
+    "us",
+    "worldwide",
+    "intelligent solutions",
+    "caliber holdings",
+    "cardinal health 5",
+    "beone medicines usa",
+    "vernova",
+    "calix north america",
+    "sono",
+    "amr-jones lang lasalle americas",
+    "company 19 - john hancock life insurance company (u.s.a.)",
+    "laboratories",
+    "international gmbh",
+    "management services",
+    "fintech services",
+    "employment services",
+    "marketing",
+    "ats",
+    "retail markets",
+    "y99000 general electric",
+}
