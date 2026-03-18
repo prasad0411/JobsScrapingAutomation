@@ -289,24 +289,34 @@ class ProviderVerifier:
 
         pattern = None
         if personal:
-            # Try to detect pattern from first personal email found
-            best = personal[0]
-            local = best.split("@")[0]
-            # Common pattern detection
-            if "." in local:
-                parts = local.split(".")
-                if len(parts) == 2 and len(parts[0]) > 1 and len(parts[1]) > 1:
-                    pattern = "{first}.{last}"
-            elif "_" in local:
-                parts = local.split("_")
-                if len(parts) == 2 and len(parts[0]) > 1 and len(parts[1]) > 1:
-                    pattern = "{first}_{last}"
-            elif "-" in local:
-                parts = local.split("-")
-                if len(parts) == 2 and len(parts[0]) > 1 and len(parts[1]) > 1:
-                    pattern = "{first}-{last}"
-            if pattern:
-                log.info(f"Website mining: {domain} -> {pattern} (from {best})")
+            # FIX 4: vote on pattern across ALL personal emails, not just first
+            from collections import Counter
+            pat_votes = Counter()
+            for em in personal:
+                local = em.split("@")[0]
+                parts_dot = local.split(".")
+                parts_und = local.split("_")
+                parts_hyp = local.split("-")
+                if "." in local and len(parts_dot) == 2 and len(parts_dot[0]) > 1 and len(parts_dot[1]) > 1:
+                    pat_votes["{first}.{last}"] += 1
+                elif "_" in local and len(parts_und) == 2 and len(parts_und[0]) > 1 and len(parts_und[1]) > 1:
+                    pat_votes["{first}_{last}"] += 1
+                elif "-" in local and len(parts_hyp) == 2 and len(parts_hyp[0]) > 1 and len(parts_hyp[1]) > 1:
+                    pat_votes["{first}-{last}"] += 1
+                elif "." not in local and "_" not in local and "-" not in local:
+                    if len(local) >= 2 and local[0].isalpha():
+                        # Could be flast or firstlast
+                        if len(local) <= 6:
+                            pat_votes["{f}{last}"] += 1
+                        else:
+                            pat_votes["{first}{last}"] += 1
+                elif "." in local and len(parts_dot) == 2 and len(parts_dot[0]) == 1:
+                    pat_votes["{f}.{last}"] += 1
+            if pat_votes:
+                pattern = pat_votes.most_common(1)[0][0]
+                total = sum(pat_votes.values())
+                winner_votes = pat_votes.most_common(1)[0][1]
+                log.info(f"Website mining: {domain} -> {pattern} ({winner_votes}/{total} votes from {len(personal)} emails)")
 
         # Cache result (even None, to avoid re-scraping)
         self._mx_cache[cache_key] = pattern

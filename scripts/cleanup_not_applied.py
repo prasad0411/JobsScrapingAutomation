@@ -3,6 +3,7 @@
 """
 Automatic cleanup script - moves 'Not Applied' jobs to Reviewed sheet.
 ENHANCED: Includes automatic 7-day backup to private GitHub repo.
+ENHANCED: Moves expired jobs (blank status, 3+ days old) to Reviewed sheet.
 """
 
 import gspread
@@ -20,8 +21,14 @@ REVIEWED_WORKSHEET = "Reviewed - Not Applied"
 CREDS_FILE = os.path.join(".local", "credentials.json")
 
 BACKUP_FOLDER = "../job-tracker-secrets"
-BACKUP_TRACKING_FILE = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), ".local", "last_backup_date.txt")
+BACKUP_TRACKING_FILE = os.path.join(
+    os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+    ".local",
+    "last_backup_date.txt",
+)
 BACKUP_INTERVAL_DAYS = 7
+
+EXPIRY_DAYS = 3  # Jobs older than this with no status get moved
 
 FILES_TO_BACKUP = [
     "credentials.json",
@@ -50,6 +57,17 @@ class ManualCleanup:
     }
 
     STATUS_VALUES = list(STATUS_COLORS.keys())
+
+    # Statuses that are PROTECTED - never moved regardless of age
+    PROTECTED_STATUSES = {
+        "Applied",
+        "Rejected",
+        "OA Round 1",
+        "OA Round 2",
+        "Interview 1",
+        "Offer accepted",
+        "Assessment",
+    }
 
     def __init__(self):
         scope = [
@@ -118,6 +136,118 @@ class ManualCleanup:
         except:
             pass
 
+    def _parse_entry_date(self, date_str):
+        """Parse Entry Date format: '17 March, 11:10 AM' → datetime object."""
+        if not date_str:
+            return None
+        try:
+            # Format: "17 March, 11:10 AM"
+            return datetime.datetime.strptime(date_str.strip(), "%d %B, %I:%M %p")
+        except ValueError:
+            try:
+                # Fallback: "17 March, 11:10 AM" with year missing — assume current year
+                dt = datetime.datetime.strptime(date_str.strip(), "%d %B, %I:%M %p")
+                return dt.replace(year=datetime.datetime.now().year)
+            except ValueError:
+                return None
+
+    def _is_expired(self, row):
+        """Returns True if row has no protected status AND entry date is 3+ days old."""
+        status = self._get_cell(row, 1)
+
+        # Protected statuses — never move
+        if status in self.PROTECTED_STATUSES:
+            return False
+
+        # Only move blank or "Not Applied" status rows
+        if status not in ("", "Not Applied"):
+            return False
+
+        # Check entry date (column index 11 = L = Entry Date)
+        entry_date_str = self._get_cell(row, 11)
+        if not entry_date_str:
+            return False
+
+        entry_date = self._parse_entry_date(entry_date_str)
+        if not entry_date:
+            return False
+
+        # Set current year since our date format has no year
+        now = datetime.datetime.now()
+        entry_date = entry_date.replace(year=now.year)
+
+        age_days = (now - entry_date).days
+        return age_days >= EXPIRY_DAYS
+
+    def cleanup_expired(self):
+        """Move blank-status jobs older than EXPIRY_DAYS days to Reviewed sheet."""
+        print("=" * 80)
+        print(
+            f"EXPIRY CLEANUP: Moving jobs with no status older than {EXPIRY_DAYS} days"
+        )
+        print("=" * 80)
+
+        try:
+            all_data = self.sheet.get_all_values()
+
+            if len(all_data) <= 1:
+                print("No jobs to check")
+                return
+
+            expired_rows = [row for row in all_data[1:] if self._is_expired(row)]
+            remaining_rows = [
+                row
+                for row in all_data[1:]
+                if not self._is_expired(row) and self._get_cell(row, 1)
+            ]  # keep rows with any status
+
+            # Also keep blank-status rows that are NOT expired yet
+            not_expired_blank = [
+                row
+                for row in all_data[1:]
+                if not self._is_expired(row)
+                and self._get_cell(row, 1) not in self.PROTECTED_STATUSES
+                and self._get_cell(row, 1) == ""
+            ]
+
+            remaining_rows = [
+                row
+                for row in all_data[1:]
+                if not self._is_expired(row) and self._get_cell(row, 0)
+            ]
+
+            if expired_rows:
+                print(f"Found {len(expired_rows)} expired jobs to move")
+                for row in expired_rows:
+                    company = self._get_cell(row, 2)
+                    entry_date = self._get_cell(row, 11)
+                    print(f"  → {company} (added {entry_date})")
+
+                self._move_to_reviewed(expired_rows, reason="Expired: 3+ days")
+                self._repopulate_main_sheet(all_data, remaining_rows)
+
+                current = self.sheet.row_count
+                used = len(remaining_rows) + 1
+                empty_rows = current - used
+                if empty_rows < 200:
+                    self.sheet.resize(rows=current + 1000)
+
+                print(
+                    f"✓ Moved {len(expired_rows)} expired jobs, {len(remaining_rows)} remaining"
+                )
+            else:
+                print(
+                    f"No expired jobs found (all blank-status jobs are under {EXPIRY_DAYS} days old)"
+                )
+
+            print("=" * 80 + "\n")
+
+        except Exception as e:
+            print(f"✗ Expiry cleanup error: {e}")
+            import traceback
+
+            traceback.print_exc()
+
     def cleanup(self):
         print("=" * 80)
         print("CLEANUP: Moving 'Not Applied' jobs")
@@ -143,11 +273,12 @@ class ManualCleanup:
                 print(
                     f"Moving {len(not_applied_rows)} jobs, keeping {len(remaining_rows)}"
                 )
-                self._move_to_reviewed(not_applied_rows)
+                self._move_to_reviewed(
+                    not_applied_rows, reason="Does not match profile"
+                )
                 self._repopulate_main_sheet(all_data, remaining_rows)
-                # Ensure buffer rows after cleanup
                 current = self.sheet.row_count
-                used = len(remaining_rows) + 1  # +1 for header
+                used = len(remaining_rows) + 1
                 empty_rows = current - used
                 if empty_rows < 200:
                     self.sheet.resize(rows=current + 1000)
@@ -165,7 +296,7 @@ class ManualCleanup:
         except Exception as e:
             print(f"✗ Cleanup error: {e}")
 
-    def _move_to_reviewed(self, not_applied_rows):
+    def _move_to_reviewed(self, rows_to_move, reason="Does not match profile"):
         reviewed_data = self.reviewed_sheet.get_all_values()
         used_rows = len(reviewed_data)
         total_rows = self.reviewed_sheet.row_count
@@ -185,7 +316,7 @@ class ManualCleanup:
         reviewed_rows = [
             [
                 next_row - 1 + idx,
-                "Does not match profile",
+                reason,
                 self._get_cell(row, 2),
                 self._get_cell(row, 3),
                 self._get_cell(row, 5),
@@ -197,7 +328,7 @@ class ManualCleanup:
                 self._get_cell(row, 11, "GitHub"),
                 self._get_cell(row, 12, "Unknown"),
             ]
-            for idx, row in enumerate(not_applied_rows)
+            for idx, row in enumerate(rows_to_move)
         ]
 
         range_name = f"A{next_row}:L{next_row + len(reviewed_rows) - 1}"
@@ -215,8 +346,9 @@ class ManualCleanup:
             },
         )
 
-        # Add clickable hyperlinks for Job URL column (E, index 4)
-        self._add_hyperlinks(self.reviewed_sheet, reviewed_rows, next_row, url_col_idx=4)
+        self._add_hyperlinks(
+            self.reviewed_sheet, reviewed_rows, next_row, url_col_idx=4
+        )
 
     def _repopulate_main_sheet(self, all_data, remaining_rows):
         if len(all_data) > 1:
@@ -412,7 +544,7 @@ def backup_to_private_repo():
     print("AUTOMATED BACKUP TO PRIVATE REPO")
     print("=" * 80)
 
-    project_dir = Path(__file__).parent.parent  # scripts/ → project root
+    project_dir = Path(__file__).parent.parent
     backup_dir = project_dir.parent / "job-tracker-secrets"
 
     if not backup_dir.exists():
@@ -465,10 +597,8 @@ def backup_to_private_repo():
         if "nothing to commit" in result.stdout:
             print(f"\n  ℹ️  No changes since last backup")
             os.chdir(original_dir)
-
             with open(BACKUP_TRACKING_FILE, "w") as f:
                 f.write(datetime.datetime.now().strftime("%Y-%m-%d"))
-
             print("=" * 80)
             return True
 
@@ -494,7 +624,6 @@ def backup_to_private_repo():
     except subprocess.CalledProcessError as e:
         os.chdir(original_dir)
         print(f"\n  ✗ Git error: {e}")
-        print(f"  Check GitHub authentication")
         print("=" * 80)
         return False
     except Exception as e:
@@ -506,6 +635,11 @@ def backup_to_private_repo():
 
 if __name__ == "__main__":
     cleaner = ManualCleanup()
+
+    # Run expiry cleanup FIRST (blank status, 3+ days old)
+    cleaner.cleanup_expired()
+
+    # Then run standard Not Applied cleanup
     cleaner.cleanup()
 
     if check_if_backup_needed():

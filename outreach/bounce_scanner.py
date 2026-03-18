@@ -110,6 +110,21 @@ class BounceScanner:
                                 "subject": subject[:200],
                                 "msg_id": msg_id,
                             }
+                            # FIX 8: invalidate stale email_verify_cache entry
+                            try:
+                                import os as _os
+                                _ev_file = _os.path.join(
+                                    _os.path.dirname(_os.path.dirname(_os.path.abspath(__file__))),
+                                    ".local", "email_verify_cache.json"
+                                )
+                                if _os.path.exists(_ev_file):
+                                    _ev = json.load(open(_ev_file))
+                                    if email_lower in _ev:
+                                        del _ev[email_lower]
+                                        json.dump(_ev, open(_ev_file, "w"), indent=2)
+                                        log.info(f"FIX8: Invalidated stale verify cache for {email_lower}")
+                            except Exception as _eve:
+                                log.debug(f"verify cache invalidation failed: {_eve}")
                             newly_found.add(email_lower)
                             log.info(f"Bounce detected: {email_lower} | {subject[:60]}")
                             
@@ -226,6 +241,13 @@ class BounceScanner:
                         if not existing:
                             DomainHistory.record_success(domain, pattern, email_lower)
                             confirmed_count += 1
+                            # FIX 2: also update PatternCache so find() uses it immediately
+                            try:
+                                from outreach.outreach_data import PatternCache
+                                PatternCache().store(domain, pattern)
+                                log.info(f"PatternCache updated: {domain} -> {pattern}")
+                            except Exception as _pce:
+                                log.debug(f"PatternCache update failed: {_pce}")
             if confirmed_count > 0:
                 log.info(f"DomainHistory: confirmed {confirmed_count} successful patterns from sent emails")
                 print(f"  Domain patterns: {confirmed_count} confirmed from successful deliveries")

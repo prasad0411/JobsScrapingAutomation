@@ -146,6 +146,11 @@ class Finder:
             r["error"] = f"No domain for '{company}'"
             return self._apis(parsed, "", linkedin, r) if linkedin else r
         for d in domains:
+            # FIX 3: check DomainHistory confirmed pattern first
+            confirmed_pat = DomainHistory.get_confirmed_pattern(d)
+            if confirmed_pat and not self.pc.get(d):
+                self.pc.store(d, confirmed_pat)
+                log.info(f"FIX3: Loaded confirmed pattern from DomainHistory: {d} -> {confirmed_pat}")
             email = self.pc.gen_single(parsed, d)
             if email:
                 # Check domain history — is this pattern known to fail?
@@ -208,11 +213,15 @@ class Finder:
             self.pc.detect(result["email"], parsed)
             self._clear_retry(retry_key)
         else:
-            # === API-ONLY MODE: Pattern guessing DISABLED ===
-            # Provider discover and statistical inference removed.
-            # Only Apollo, Hunter, Snov, Prospeo, Norbert APIs are used.
-            log.info(f"All APIs exhausted for {parsed.get('fa','')} {parsed.get('la','')} @ {domains[0] if domains else '?'}")
-            self._track_retry(retry_key, domains[0] if domains else "", result.get("error", ""))
+            error = result.get("error", "")
+            # FIX 6: only track permanent failures — not transient credit exhaustion
+            _credit_errors = ("exhausted", "key missing", "limit", "429")
+            _is_credit_error = any(e in error.lower() for e in _credit_errors)
+            if _is_credit_error:
+                log.info(f"FIX6: Skipping retry tracking for credit error: {error}")
+            else:
+                log.info(f"All APIs exhausted for {parsed.get('fa','')} {parsed.get('la','')} @ {domains[0] if domains else '?'}")
+                self._track_retry(retry_key, domains[0] if domains else "", error)
         return result
 
     @staticmethod

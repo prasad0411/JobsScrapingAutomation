@@ -180,14 +180,44 @@ def phase_extract_and_draft(sheets, finder, mailer):
             if not email or "@" not in email:
                 return False
             el = email.lower().strip()
+            # Check 1: known bounced email addresses
             if el in _all_bounced:
                 log.info(f"Pre-send block: {email} is in bounce cache")
                 return True
             domain = el.split("@")[1]
             local = el.split("@")[0]
-            if local in _failed_pats.get(domain, []):
-                log.info(f"Pre-send block: {email} matches failed pattern for {domain}")
-                return True
+            # Check 2: failed_patterns.json (local parts and pattern strings)
+            for entry in _failed_pats.get(domain, []):
+                if entry == local:
+                    log.info(f"Pre-send block: {email} matches failed local in failed_patterns.json")
+                    return True
+                # entry might be a pattern string like {first}.{last} — skip those here
+            # Check 3: domain_pattern_history.json failed patterns
+            try:
+                import json as _json2
+                _dh_file = os.path.join(os.path.dirname(os.path.dirname(
+                    os.path.abspath(__file__))), ".local", "domain_pattern_history.json")
+                if os.path.exists(_dh_file):
+                    _dh = _json2.load(open(_dh_file))
+                    _entry = _dh.get(domain, {})
+                    _failed_domain_pats = _entry.get("failed_patterns", [])
+                    # Detect pattern of this email
+                    _parts = local.split(".")
+                    if len(_parts) == 2 and len(_parts[0]) > 1 and len(_parts[1]) > 1:
+                        _pat = "{first}.{last}"
+                    elif len(_parts) == 2 and len(_parts[0]) == 1:
+                        _pat = "{f}.{last}"
+                    elif "_" in local:
+                        _pat = "{first}_{last}"
+                    elif "-" in local:
+                        _pat = "{first}-{last}"
+                    else:
+                        _pat = None
+                    if _pat and _pat in _failed_domain_pats:
+                        log.info(f"Pre-send block: {email} pattern '{_pat}' in domain_history failed list")
+                        return True
+            except Exception as _dhe:
+                log.debug(f"domain_history check failed: {_dhe}")
             return False
 
         if row["need_h"]:

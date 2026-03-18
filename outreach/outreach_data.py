@@ -686,6 +686,10 @@ class Sheets:
                 rn = r[C["rec_name"]].strip()
                 if not co:
                     continue
+                # FIX 9: skip rows not marked for extraction
+                extract_val = r[C["extract"]].strip().lower() if len(r) > C["extract"] else ""
+                if extract_val != "yes":
+                    continue
                 # HM LinkedIn Msg (supports multiple comma-separated names)
                 hm_existing = r[C["hm_li_msg"]].strip() if len(r) > C["hm_li_msg"] else ""
                 if not hm_existing and hn:

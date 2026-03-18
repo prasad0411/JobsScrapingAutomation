@@ -418,23 +418,16 @@ class EmailVerifier:
             provider = self.pv.get_provider(domain)
 
             if provider == "google":
-                result = self.pv._verify_google(email, domain)
-                if result == "exists":
-                    conf = 90 if source_hint != "pattern_guess" else 85
-                    return self._result(
-                        conf,
-                        "verified",
-                        f"google_gxlu",
-                        f"Google Workspace confirmed: {email}",
-                    )
-                elif result == "not_exists":
-                    return self._result(
-                        0,
-                        "rejected",
-                        "google_gxlu",
-                        f"Google Workspace rejected: {email}",
-                    )
-                # "unknown" means catch-all or gxlu failed — fall through
+                # FIX 5: gxlu unreliable as of Mar 2026 — skip directly to Reacher
+                # _verify_google always returns "unknown" now, wasting 2s per email
+                # When gxlu is fixed, remove this comment and restore the block below
+                pass
+                # result = self.pv._verify_google(email, domain)
+                # if result == "exists":
+                #     conf = 90 if source_hint != "pattern_guess" else 85
+                #     return self._result(conf, "verified", "google_gxlu", ...)
+                # elif result == "not_exists":
+                #     return self._result(0, "rejected", "google_gxlu", ...)
 
             elif provider == "microsoft":
                 result = self.pv._verify_microsoft(email)
