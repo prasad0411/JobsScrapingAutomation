@@ -1766,7 +1766,7 @@ class UnifiedJobAggregator:
             rejection_reasons[short] += 1
 
         if rejection_reasons:
-            # print("\n  TOP REJECTION REASONS:")
+            print("\n  TOP REJECTION REASONS:")
             sorted_reasons = sorted(
                 rejection_reasons.items(), key=lambda x: x[1], reverse=True
             )
