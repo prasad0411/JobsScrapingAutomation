@@ -100,16 +100,23 @@ _HTTP_CACHE_FILE = os.path.join(".local", "http_response_cache.json")
 _HTTP_CACHE_TTL = 6 * 3600  # 6 hours
 
 def _load_http_cache():
+    """Load HTTP cache — keep all entries, check TTL per-entry at lookup time."""
     try:
         if os.path.exists(_HTTP_CACHE_FILE):
-            raw = json.load(open(_HTTP_CACHE_FILE))
-            now = time.time()
-            # Evict expired entries on load
-            return {k: v for k, v in raw.items()
-                    if now - v.get("ts", 0) < _HTTP_CACHE_TTL}
+            return json.load(open(_HTTP_CACHE_FILE))
     except Exception:
         pass
     return {}
+
+def _http_cache_get(url):
+    """Get cached response only if not expired. Returns None if missing or stale."""
+    entry = _HTTP_RESPONSE_CACHE.get(url)
+    if not entry:
+        return None
+    if time.time() - entry.get("ts", 0) > _HTTP_CACHE_TTL:
+        del _HTTP_RESPONSE_CACHE[url]
+        return None
+    return entry
 
 def _save_http_cache(cache):
     try:
@@ -123,6 +130,26 @@ def _save_http_cache(cache):
         pass
 
 _HTTP_RESPONSE_CACHE = _load_http_cache()
+
+# Module-level Simplify method cache — loaded once, not per resolve() call
+_SIMPLIFY_METHOD_CACHE_FILE = os.path.join(".local", "simplify_method_cache.json")
+_SIMPLIFY_METHOD_CACHE = {}
+
+def _load_simplify_method_cache():
+    global _SIMPLIFY_METHOD_CACHE
+    try:
+        if os.path.exists(_SIMPLIFY_METHOD_CACHE_FILE):
+            _SIMPLIFY_METHOD_CACHE = json.load(open(_SIMPLIFY_METHOD_CACHE_FILE))
+    except Exception:
+        _SIMPLIFY_METHOD_CACHE = {}
+
+def _save_simplify_method_cache():
+    try:
+        json.dump(_SIMPLIFY_METHOD_CACHE, open(_SIMPLIFY_METHOD_CACHE_FILE, "w"))
+    except Exception:
+        pass
+
+_load_simplify_method_cache()
 
 
 def _cleanup_selenium_driver():
@@ -257,19 +284,13 @@ class SimplifyRedirectResolver:
                     return simplify_url, False
         click_url = f"https://simplify.jobs/jobs/click/{job_id}"
 
-        # FIX 10: learn which method works best — try preferred method first
-        _method_cache_file = os.path.join(".local", "simplify_method_cache.json")
-        _method_cache = {}
-        try:
-            if os.path.exists(_method_cache_file):
-                _method_cache = json.load(open(_method_cache_file))
-        except Exception:
-            pass
+        # Use module-level cache instead of reading JSON per call
+        _method_cache = _SIMPLIFY_METHOD_CACHE
 
         def _record_best(method_num):
             try:
-                _method_cache["_global_best"] = method_num
-                json.dump(_method_cache, open(_method_cache_file, "w"))
+                _SIMPLIFY_METHOD_CACHE["_global_best"] = method_num
+                _save_simplify_method_cache()
             except Exception:
                 pass
 

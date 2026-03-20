@@ -312,7 +312,77 @@ class TitleProcessor:
         except (ImportError, AttributeError):
             pass
 
+        # Borderline: keyword score was low but nonzero — ask Claude before rejecting
+        # Only triggers when tech_count > 0 (some signal) but didn't pass threshold
+        if any(kw in combined_text for kw in TECHNICAL_ROLE_KEYWORDS):
+            claude_result = TitleProcessor._claude_is_tech_role(title)
+            if claude_result is True:
+                logging.info(f"Claude tech override: '{title}' accepted as CS role")
+                return True
+
         return False
+
+    @staticmethod
+    def _claude_is_tech_role(title, company=""):
+        """
+        Ask Claude if this is a CS/Engineering role. Called only for borderline cases.
+        Returns True if Claude says yes, False otherwise. Returns None if API unavailable.
+        Cached to avoid repeat calls for same title.
+        """
+        import os as _os
+        cache_key = title.lower().strip()
+        if not hasattr(TitleProcessor, "_tech_cache"):
+            TitleProcessor._tech_cache = {}
+        if cache_key in TitleProcessor._tech_cache:
+            return TitleProcessor._tech_cache[cache_key]
+
+        _root = _os.path.dirname(_os.path.dirname(_os.path.abspath(__file__)))
+        _env = _os.path.join(_root, ".env")
+        _api_key = ""
+        if _os.path.exists(_env):
+            for ln in open(_env):
+                ln = ln.strip()
+                if ln.startswith("ANTHROPIC_API_KEY="):
+                    _api_key = ln.split("=", 1)[1].strip()
+                    break
+        _api_key = _api_key or _os.environ.get("ANTHROPIC_API_KEY", "")
+        if not _api_key:
+            TitleProcessor._tech_cache[cache_key] = None
+            return None
+
+        try:
+            import urllib.request, json as _j
+            prompt = (
+                f"Job title: {title}\nCompany: {company or 'unknown'}\n\n"
+                "Is this a software engineering, data science, ML, or CS internship role "
+                "that a Computer Science MS student should apply to? "
+                "Answer ONLY 'yes' or 'no'."
+            )
+            body = _j.dumps({
+                "model": "claude-haiku-4-5-20251001",
+                "max_tokens": 5,
+                "messages": [{"role": "user", "content": prompt}]
+            }).encode()
+            req = urllib.request.Request(
+                "https://api.anthropic.com/v1/messages",
+                data=body,
+                headers={
+                    "x-api-key": _api_key,
+                    "anthropic-version": "2023-06-01",
+                    "content-type": "application/json",
+                }
+            )
+            resp = urllib.request.urlopen(req, timeout=8)
+            data = _j.loads(resp.read())
+            answer = data["content"][0]["text"].strip().lower().rstrip(".")
+            result = answer == "yes"
+            TitleProcessor._tech_cache[cache_key] = result
+            logging.debug(f"Claude tech check: '{title}' → {result}")
+            return result
+        except Exception as e:
+            logging.debug(f"Claude tech check failed for '{title}': {e}")
+            TitleProcessor._tech_cache[cache_key] = None
+            return None
 
     @staticmethod
     def is_title_extraction_reliable(title):

@@ -7,6 +7,7 @@ import re
 import json
 import os
 import logging
+import sqlite3
 from collections import defaultdict
 from bs4 import BeautifulSoup
 
@@ -326,6 +327,70 @@ class ProcessedEmailTracker:
         }
 
 
+# Module-level Claude sponsorship classifier
+# Returns "no" if company is known to not sponsor, "unknown" otherwise.
+# Uses a simple cache to avoid repeat API calls for same company.
+_SPONSORSHIP_CACHE = {}
+
+def _claude_sponsorship_check(company, title):
+    """
+    Ask Claude whether this company sponsors F-1/H-1B visas.
+    Returns 'no' only when highly confident. Returns 'unknown' on any doubt.
+    Skips if ANTHROPIC_API_KEY not set — zero impact on existing behaviour.
+    """
+    import os as _os
+    _root = _os.path.dirname(_os.path.abspath(__file__))
+    _env = _os.path.join(_root, ".env")
+    _api_key = ""
+    if _os.path.exists(_env):
+        for ln in open(_env):
+            ln = ln.strip()
+            if ln.startswith("ANTHROPIC_API_KEY="):
+                _api_key = ln.split("=", 1)[1].strip()
+                break
+    _api_key = _api_key or _os.environ.get("ANTHROPIC_API_KEY", "")
+    if not _api_key:
+        return "unknown"
+
+    cache_key = company.lower().strip()
+    if cache_key in _SPONSORSHIP_CACHE:
+        return _SPONSORSHIP_CACHE[cache_key]
+
+    try:
+        import urllib.request, json as _j
+        prompt = (
+            f"Company: {company}\nJob title: {title}\n\n"
+            "Does this company sponsor F-1 OPT or H-1B visas for internships? "
+            "Answer ONLY with one word: 'yes', 'no', or 'unknown'. "
+            "Answer 'no' only if you are highly confident this company never sponsors. "
+            "Answer 'unknown' if unsure."
+        )
+        body = _j.dumps({
+            "model": "claude-haiku-4-5-20251001",
+            "max_tokens": 10,
+            "messages": [{"role": "user", "content": prompt}]
+        }).encode()
+        req = urllib.request.Request(
+            "https://api.anthropic.com/v1/messages",
+            data=body,
+            headers={
+                "x-api-key": _api_key,
+                "anthropic-version": "2023-06-01",
+                "content-type": "application/json",
+            }
+        )
+        resp = urllib.request.urlopen(req, timeout=8)
+        data = _j.loads(resp.read())
+        answer = data["content"][0]["text"].strip().lower().rstrip(".")
+        result = "no" if answer == "no" else "unknown"
+        _SPONSORSHIP_CACHE[cache_key] = result
+        logging.info(f"Claude sponsorship: {company} → {result}")
+        return result
+    except Exception as e:
+        logging.debug(f"Claude sponsorship check failed for {company}: {e}")
+        return "unknown"
+
+
 class UnifiedJobAggregator:
     def __init__(self):
         print("=" * 80)
@@ -355,6 +420,9 @@ class UnifiedJobAggregator:
 
     def run(self):
         start_time = time.time()
+
+        # Selenium health check — catch ChromeDriver mismatches immediately
+        self._check_selenium_health()
 
         if not self.jobright_auth.cookies:
             if os.environ.get("CI") or os.environ.get("GITHUB_ACTIONS"):
@@ -398,6 +466,90 @@ class UnifiedJobAggregator:
         print("=" * 80 + "\n")
 
         logging.info(f"SUMMARY: {added_valid} valid, {added_discarded} discarded")
+        self._log_run_to_db(added_valid, added_discarded, elapsed)
+
+    def _log_run_to_db(self, valid, discarded, elapsed_seconds):
+        """Append this run's stats to .local/run_history.db for trend analysis."""
+        try:
+            db_path = os.path.join(".local", "run_history.db")
+            os.makedirs(".local", exist_ok=True)
+            con = sqlite3.connect(db_path)
+            cur = con.cursor()
+            cur.execute("""
+                CREATE TABLE IF NOT EXISTS runs (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    ts TEXT NOT NULL,
+                    valid INTEGER,
+                    discarded INTEGER,
+                    duplicate_url INTEGER,
+                    duplicate_job INTEGER,
+                    skipped_old INTEGER,
+                    skipped_non_tech INTEGER,
+                    skipped_international INTEGER,
+                    skipped_clearance INTEGER,
+                    skipped_blacklisted INTEGER,
+                    failed_http INTEGER,
+                    elapsed_seconds REAL
+                )
+            """)
+            cur.execute("""
+                INSERT INTO runs (
+                    ts, valid, discarded, duplicate_url, duplicate_job,
+                    skipped_old, skipped_non_tech, skipped_international,
+                    skipped_clearance, skipped_blacklisted, failed_http, elapsed_seconds
+                ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)
+            """, (
+                datetime.datetime.now().isoformat(),
+                valid,
+                discarded,
+                self.outcomes.get("skipped_duplicate_url", 0),
+                self.outcomes.get("skipped_duplicate_company_title", 0),
+                self.outcomes.get("skipped_too_old", 0),
+                self.outcomes.get("skipped_non_tech", 0),
+                self.outcomes.get("skipped_international", 0),
+                self.outcomes.get("skipped_page_restriction", 0),
+                self.outcomes.get("skipped_blacklisted", 0),
+                self.outcomes.get("failed_http", 0),
+                elapsed_seconds,
+            ))
+            con.commit()
+            con.close()
+            logging.info(f"Run logged to {db_path}")
+        except Exception as e:
+            logging.debug(f"Run log failed (non-fatal): {e}")
+
+    def _check_selenium_health(self):
+        """Quick Selenium sanity check. Warns immediately if ChromeDriver is broken."""
+        try:
+            from aggregator.extractors import PageFetcher as _PF
+            _pf = _PF()
+            resp, _, _ = _pf.fetch_page("https://www.google.com", force_requests=True)
+            if resp:
+                logging.info("Selenium health check: OK (requests mode)")
+                return
+        except Exception:
+            pass
+        try:
+            from selenium import webdriver
+            from selenium.webdriver.chrome.options import Options
+            opts = Options()
+            opts.add_argument("--headless")
+            opts.add_argument("--no-sandbox")
+            opts.add_argument("--disable-dev-shm-usage")
+            driver = webdriver.Chrome(options=opts)
+            driver.get("about:blank")
+            driver.quit()
+            logging.info("Selenium health check: OK")
+        except Exception as e:
+            msg = (
+                "\n" + "="*60 + "\n"
+                f"  WARNING: Selenium/ChromeDriver may be broken: {e}\n"
+                "  Workday, Ashby, Oracle jobs will fail silently.\n"
+                "  Fix: chromedriver --version  vs  google-chrome --version\n"
+                + "="*60
+            )
+            print(msg)
+            logging.warning(f"Selenium health check FAILED: {e}")
 
     def _scrape_simplify_github(self):
         simplify_jobs = self._safe_scrape(SIMPLIFY_URL, "SimplifyJobs")
@@ -546,6 +698,16 @@ class UnifiedJobAggregator:
                         logging.info(f"Simplify: No H1B sponsorship for this role")
                     if smeta.get("no_h1b"):
                         logging.info(f"Simplify metadata: No H1B sponsorship detected")
+                        # Reject immediately — no sponsorship confirmed by Simplify
+                        self.outcomes["skipped_page_restriction"] = self.outcomes.get("skipped_page_restriction", 0) + 1
+                        self._add_discarded(
+                            company_from_github, title, location_from_github, "Unknown",
+                            resolved_url, "N/A", "Internship", source,
+                            "No H1B sponsorship (Simplify metadata)"
+                        )
+                        self._print_rejected(company_from_github, "No H1B sponsorship (Simplify)")
+                        logging.info(f"REJECTED | {company_from_github} | {title} | No H1B (Simplify metadata)")
+                        return
                 except Exception:
                     pass
 
@@ -609,6 +771,31 @@ class UnifiedJobAggregator:
                 f"REJECTED | {company_from_github} | {title} | Blacklisted: {reason}"
             )
             return
+
+        # Claude sponsorship check for GitHub jobs (no full page fetch available)
+        # Only runs when ANTHROPIC_API_KEY is set — skips silently if not configured
+        sponsorship_github = _claude_sponsorship_check(company_from_github, title)
+        if sponsorship_github == "no":
+            self.outcomes["skipped_page_restriction"] = self.outcomes.get("skipped_page_restriction", 0) + 1
+            self._add_discarded(
+                company_from_github, title, location_from_github, "Unknown",
+                resolved_url, "N/A", "Internship", source,
+                "No sponsorship (Claude classification)"
+            )
+            self._print_rejected(company_from_github, "No sponsorship (AI check)")
+            logging.info(f"REJECTED | {company_from_github} | {title} | No sponsorship (Claude)")
+            return
+
+        # HQ fallback: if location still Unknown, try known company HQ
+        if not location_from_github or location_from_github == "Unknown":
+            try:
+                from aggregator.config import COMPANY_HQ as _HQ
+                _hq = _HQ.get(company_from_github.lower().strip())
+                if _hq:
+                    location_from_github = _hq
+                    logging.info(f"HQ fallback: {company_from_github} → {_hq}")
+            except Exception:
+                pass
 
         international_check = LocationProcessor.check_if_international(
             location_from_github, url=resolved_url, title=title
