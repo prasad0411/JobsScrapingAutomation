@@ -62,7 +62,15 @@ C = {
 }
 
 SENDER_NAME = "Prasad Kanade"
-SENDER_EMAIL = "prasadckanade@gmail.com"
+SENDER_EMAIL = "prasadckanade@gmail.com"      # Gmail — used for bounce scanning only
+MS_SENDER_EMAIL = "kanade.pra@northeastern.edu"  # Microsoft — used for sending
+MS_SENDER_NAME = "Prasad Kanade"
+
+# Microsoft public client ID (works with any M365 account, no Azure registration needed)
+# This is Microsoft's own Office desktop client ID — universally trusted
+MS_CLIENT_ID = "d3590ed6-52b3-4102-aeff-aad2292ab01c"
+MS_AUTHORITY = "https://login.microsoftonline.com/common"
+MS_SCOPES = ["https://graph.microsoft.com/Mail.Send"]
 
 HM_SUBJ = "Prasad Kanade \u2014 Application for {title} | {job_id}"
 HM_BODY = (
@@ -148,6 +156,7 @@ CREDITS_FILE = os.path.join(_ROOT, ".local", "outreach_credits.json")
 PATTERNS_FILE = os.path.join(_ROOT, ".local", "outreach_patterns.json")
 LOG_FILE = os.path.join(_ROOT, ".local", "outreach.log")
 DRAFT_HISTORY_FILE = os.path.join(_ROOT, ".local", "draft_history.json")
+MS_TOKEN_FILE = os.path.join(_ROOT, ".local", "ms_token.json")
 RESUME_SDE = os.path.join(_ROOT, ".local", "Prasad Kanade SWE Resume.pdf")
 RESUME_ML = os.path.join(_ROOT, ".local", "Prasad Kanade ML Resume.pdf")
 RESUME_DA = os.path.join(_ROOT, ".local", "Prasad Kanade Data Resume.pdf")

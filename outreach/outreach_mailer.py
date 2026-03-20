@@ -12,6 +12,12 @@ from outreach.outreach_config import (
     GMAIL_SCOPES,
     SENDER_NAME,
     SENDER_EMAIL,
+    MS_SENDER_EMAIL,
+    MS_SENDER_NAME,
+    MS_CLIENT_ID,
+    MS_AUTHORITY,
+    MS_SCOPES,
+    MS_TOKEN_FILE,
     MAX_HOURLY,
     DELAY_MIN,
     DELAY_MAX,
@@ -84,6 +90,40 @@ class Mailer:
 
     def _draft_key(self, to_email, subject):
         return f"{to_email.lower().strip()}||{subject.strip()}"
+
+    def _ms_token(self):
+        """Get Microsoft Graph access token via MSAL device flow or cached token."""
+        import msal, json as _j
+        from outreach.outreach_config import MS_CLIENT_ID, MS_AUTHORITY, MS_SCOPES, MS_TOKEN_FILE, MS_SENDER_EMAIL
+        cache = msal.SerializableTokenCache()
+        if os.path.exists(MS_TOKEN_FILE):
+            try:
+                cache.deserialize(open(MS_TOKEN_FILE).read())
+            except Exception:
+                pass
+        app = msal.PublicClientApplication(MS_CLIENT_ID, authority=MS_AUTHORITY, token_cache=cache)
+        accounts = app.get_accounts()
+        result = None
+        if accounts:
+            result = app.acquire_token_silent(MS_SCOPES, account=accounts[0])
+        if not result or "access_token" not in result:
+            print("\n" + "="*60)
+            print("Microsoft sign-in required for Northeastern email.")
+            print(f"Sign in with: {MS_SENDER_EMAIL}")
+            print("="*60 + "\n")
+            flow = app.initiate_device_flow(scopes=MS_SCOPES)
+            if "user_code" not in flow:
+                raise Exception(f"MS auth failed: {flow.get('error_description')}")
+            print(flow["message"])
+            result = app.acquire_token_by_device_flow(flow)
+        if cache.has_state_changed:
+            try:
+                open(MS_TOKEN_FILE, "w").write(cache.serialize())
+            except Exception as e:
+                log.debug(f"MS token cache save failed: {e}")
+        if "access_token" not in result:
+            raise Exception(f"MS token error: {result.get('error_description', result)}")
+        return result["access_token"]
 
     def _service(self):
         if self._svc:
@@ -183,10 +223,64 @@ class Mailer:
             else:
                 log.warning(f"Resume not found: {resume_path}")
 
-            raw = base64.urlsafe_b64encode(msg.as_bytes()).decode()
-            svc.users().drafts().create(
-                userId="me", body={"message": {"raw": raw}}
-            ).execute()
+            # Send via Microsoft Graph (Northeastern .edu address)
+            import requests as _req, json as _j
+            token = self._ms_token()
+
+            # Build message payload for Graph API
+            msg_payload = {
+                "message": {
+                    "subject": subject,
+                    "body": {
+                        "contentType": "HTML",
+                        "content": html_body,
+                    },
+                    "toRecipients": [
+                        {"emailAddress": {"address": to_email}}
+                    ],
+                    "from": {
+                        "emailAddress": {
+                            "name": MS_SENDER_NAME,
+                            "address": MS_SENDER_EMAIL,
+                        }
+                    },
+                    "replyTo": [
+                        {"emailAddress": {
+                            "name": MS_SENDER_NAME,
+                            "address": MS_SENDER_EMAIL,
+                        }}
+                    ],
+                },
+                "saveToSentItems": "true",
+            }
+
+            # Attach resume
+            if os.path.exists(resume_path):
+                with open(resume_path, "rb") as rf:
+                    import base64 as _b64
+                    file_bytes = rf.read()
+                    encoded = _b64.b64encode(file_bytes).decode()
+                    msg_payload["message"]["attachments"] = [{
+                        "@odata.type": "#microsoft.graph.fileAttachment",
+                        "name": os.path.basename(resume_path),
+                        "contentType": "application/pdf",
+                        "contentBytes": encoded,
+                    }]
+            else:
+                log.warning(f"Resume not found: {resume_path}")
+
+            resp = _req.post(
+                f"https://graph.microsoft.com/v1.0/users/{MS_SENDER_EMAIL}/sendMail",
+                headers={
+                    "Authorization": f"Bearer {token}",
+                    "Content-Type": "application/json",
+                },
+                data=_j.dumps(msg_payload),
+                timeout=30,
+            )
+
+            if resp.status_code not in (200, 202):
+                raise Exception(f"Graph API error {resp.status_code}: {resp.text[:200]}")
 
             self._hourly += 1
             self.cr.use_gmail()
@@ -195,9 +289,9 @@ class Mailer:
 
             result["success"] = True
             result["timestamp"] = now.strftime("%Y-%m-%d %H:%M:%S")
-            log.info(f"Draft created -> {to_email}")
+            log.info(f"Sent via Northeastern -> {to_email}")
         except Exception as e:
-            result["error"] = f"Draft failed: {str(e)[:120]}"
+            result["error"] = f"Send failed: {str(e)[:120]}"
             log.error(result["error"])
         return result
 
