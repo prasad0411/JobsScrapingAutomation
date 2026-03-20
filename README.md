@@ -1,18 +1,22 @@
 # Automated Job Hunt Pipeline
 
-End-to-end system that aggregates 8,000+ weekly internship postings, validates eligibility, discovers hiring manager emails, and creates personalized outreach drafts — all automatically.
+End-to-end system that aggregates 8,000+ weekly internship postings, validates eligibility, discovers hiring manager emails, and sends personalized outreach emails automatically — all from your Northeastern University email address.
 
 **Built by [Prasad Kanade](https://www.linkedin.com/in/prasad-kanade-/) | MS Computer Science @ Northeastern University**
 
+---
+
 ## What It Does
 
-Two Python modules work together to automate the entire job search workflow:
+Two Python modules work together to automate the entire job search workflow with zero daily manual intervention:
 
 **Module 1 — Job Aggregator** scrapes GitHub repositories (SimplifyJobs, vanshb03) and Gmail alerts (Jobright, SWE List, ZipRecruiter, Company Newsletters), validates each job against 25+ eligibility criteria, deduplicates across 1,500+ tracked entries, and maintains an organized Google Sheets tracker.
 
-**Module 2 — Outreach Pipeline** takes validated jobs, mirrors them to an Outreach Tracker sheet in exact order, discovers hiring manager and recruiter email addresses through an 8-layer verification system, creates personalized email drafts in Gmail with resume attachment, schedules timezone-aware delivery, tracks delivery status, auto-retries bounced emails with alternative patterns, and generates LinkedIn connection messages for both HMs and recruiters.
+**Module 2 — Outreach Pipeline** takes validated jobs, mirrors them to an Outreach Tracker sheet, auto-sets Extract=yes based on smart signals (location, sponsorship, pattern history), discovers hiring manager and recruiter email addresses through an 8-layer verification system, sends personalized emails with resume attachment from `kanade.pra@northeastern.edu` via Microsoft Graph API, schedules timezone-aware delivery at 9:30 AM in the company's local timezone, tracks delivery status, auto-retries bounced emails with alternative patterns, and generates LinkedIn connection messages.
 
-**Impact:** 6 hours/week → 45 minutes/week. Zero duplicate applications. 98%+ classification accuracy. 25+ outreach emails generated per run.
+**Impact:** 6 hours/week → 15 minutes/week. Zero duplicate applications. 98%+ classification accuracy. 25+ outreach emails sent per run, fully automatically.
+
+---
 
 ## Screenshots
 
@@ -48,8 +52,15 @@ Recruiter LinkedIn URLs, emails, LinkedIn messages, Send At scheduling, and sent
 
 ### Gmail Drafts
 
-Personalized email drafts auto-created in Gmail with resume attachment, ready for scheduled sending.
+Personalized email drafts created in Gmail prior to the MS Graph migration.
 ![Gmail Drafts](docs/screenshots/gmail_drafts.png)
+
+### GitHub Actions — Scheduled Email Sending
+
+Send Scheduled Emails workflow running 4× daily via GitHub Actions, covering all US timezones.
+![GitHub Actions](docs/screenshots/github_actions.png)
+
+---
 
 ## How It Works
 
@@ -60,16 +71,15 @@ GitHub Repos + Gmail Alerts
     → Parse 2,000+ weekly postings
     → Resolve redirects (SimplifyJobs, Jobright, ZipRecruiter)
     → Detect INACTIVE Simplify listings (auto-skip)
-    → Extract metadata from Simplify pages (location, remote, sponsorship)
+    → Extract Simplify metadata (location, remote, sponsorship, no_h1b flag)
     → Fetch career pages (Selenium + BeautifulSoup)
     → Extract metadata (company, location, job ID, type)
     → 25-stage validation (visa, degree, geography, role type, posting age...)
     → Multi-signal deduplication (URL + company|title + job ID)
     → Company name normalization (20+ alias mappings)
     → Google Sheets output
+    → SQLite run history logged for trend analysis
 ```
-
-The aggregator processes jobs from multiple sources simultaneously. Each job passes through eligibility filters including F-1 visa requirements, explicit foreign national rejection detection, security clearance detection, degree level filtering (BA/BS-only and PhD-only detection), undergraduate-only role detection, junior/senior year standing detection, geographic restrictions (40+ international countries detected), posting age validation (including ZipRecruiter 3-day freshness check with URL expiry pre-validation), season verification, expired job detection, hardware/optics/laser/SkillBridge role filtering, and smart deduplication that catches the same job posted across different platforms.
 
 ### Email Discovery Pipeline
 
@@ -77,7 +87,7 @@ The aggregator processes jobs from multiple sources simultaneously. Each job pas
 Company + Hiring Manager Name
     │
     ▼
-Layer 1: Seed pattern cache (45+ companies, instant)
+Layer 1: Seed pattern cache (125+ companies, instant)
 Layer 2: DomainHistory confirmed pattern (learned from past deliveries)
 Layer 3: Microsoft 365 verification (definitive yes/no)
 Layer 4: Website pattern mining (votes across all found emails)
@@ -87,243 +97,305 @@ Layer 7: API cascade (Apollo → Hunter → Snov → Prospeo)
 Layer 8: Statistical inference (80% of companies use first.last)
     │
     ▼
-Pre-send bounce check → Gmail Draft Created → Delivery Tracking → Bounce Auto-Retry
+Pre-send bounce check → MS Graph send → Delivery Tracking → Bounce Auto-Retry
 ```
 
-The system learns over time. Every successful email discovery teaches it the pattern for that company's entire domain — immediately updating both `DomainHistory` and `PatternCache`. Failed patterns are stored and never retried. Bounced emails invalidate the email verification cache. After two weeks of operation, most companies resolve instantly from cache.
+### Automated Email Delivery
+
+```
+Outreach run (midnight) discovers emails + writes Send At = next business day 9:30 AM local time
+    → send_scheduled.py fires at 9:00 AM ET  → delivers to US/Eastern companies
+    → send_scheduled.py fires at 10:30 AM ET → delivers to US/Central companies
+    → send_scheduled.py fires at 11:30 AM ET → delivers to US/Mountain companies
+    → send_scheduled.py fires at 12:30 PM ET → delivers to US/Pacific companies
+    → All emails sent from kanade.pra@northeastern.edu via Microsoft Graph API
+    → 45-second delay between emails, 15 emails per run cap (protects account reputation)
+    → Nightly digest sent to personal Gmail at 12:22 AM with full run summary
+```
 
 ### Outreach Lifecycle
 
 ```
 Job validated → Synced to Outreach Tracker (exact Valid sheet order)
-    → Mark Extract=yes manually for rows to process
+    → Extract=yes auto-set (sponsorship=Yes, tech hub location, PatternCache hit)
     → Email discovered for HM/Recruiter (only Extract=yes rows)
-    → Pre-send check: blocked if email in bounce cache or failed patterns
-    → Personalized Gmail draft created with resume attachment
-    → Scheduled for delivery in company's timezone
-    → LinkedIn messages generated (separate templates for HM and Recruiter)
-    → Email sent at scheduled time
+    → Resume type determined (SDE/ML/DA from Valid Entries)
+    → Send At computed: next business day 9:30 AM in company's timezone
+    → Email sent via Microsoft Graph from kanade.pra@northeastern.edu
     → [12 hours pass]
-    → No bounce detected → Notes: "Delivered to HM and Rec"
-    → Bounce detected → Notes: "HM email bounced on Mar 01, 2026"
-        → Auto-retry with alternative email pattern
+    → No bounce → Notes: "Delivered to HM and Rec"
+    → Bounce detected → Notes: "HM email bounced on Mar 20, 2026"
+        → DomainHistory queried for proven pattern at same domain
+        → Auto-retry with domain-informed alternative pattern
         → Notes updated: "Retried: flast@co.com"
-        → Bounce invalidates email verify cache for that address
 ```
+
+---
 
 ## Key Features
 
 ### Multi-Source Aggregation
 
 - GitHub repositories (SimplifyJobs, vanshb03) with section category trust
-- Gmail API integration (Jobright alerts, SWE List, ZipRecruiter emails)
+- Gmail API integration (Jobright, SWE List, ZipRecruiter, Company Newsletters)
 - Simplify URL resolution (5 methods with learned best-method cache per domain)
-- Simplify metadata extraction (location, remote status, sponsorship from page text)
+- Simplify metadata extraction including `no_h1b` flag — immediate rejection if set
 - INACTIVE job detection on Simplify pages
-- ZipRecruiter URL expiry pre-validation (rejects before fetching if `expires` param is stale)
+- ZipRecruiter URL expiry pre-validation (rejects before fetching if `expires` param stale)
 - ZipRecruiter page age validation (rejects postings older than 3 days)
 - Selenium fallback for JavaScript-heavy career pages (Workday, Oracle, Ashby)
-- HTTP response cache persisted to disk (6-hour TTL, max 500 entries)
+- HTTP response cache persisted to disk (6-hour per-entry TTL, max 500 entries)
+- Selenium health check at startup — warns immediately if ChromeDriver is broken
+- SQLite run history: every run logged with valid/discarded/failed counts and elapsed time
 
 ### 25-Stage Validation
 
-- Company and platform blacklists
-- Security clearance and US Person requirements
+- Company and platform blacklists (auto-growing via weekly build_auto_blacklist.py)
+- Security clearance and US Person requirement detection
 - Explicit F-1/foreign national visa rejection detection
-- Citizenship required detection (including combined phrases like "legal right to work without sponsorship")
+- "Unable to sponsor" detection — catches all variants including "unable to sponsor or take over sponsorship"
+- Citizenship required detection (including combined "legal right to work without sponsorship")
 - Degree level filtering (BA/BS-only and PhD-only roles)
-- Undergraduate-only role detection (junior/senior year standing, pursuing bachelor's)
-- Hardware/optics/photonics/laser/materials science role filtering
+- Undergraduate-only role detection (junior/senior standing, four-year college enrollment, "obtaining a bachelor's degree")
+- Hardware/optics/photonics/laser/materials science/AOSP/HAL/BSP role filtering
 - SkillBridge and DoD military-only internship filtering
-- Geographic restrictions (40+ international countries, Canadian province/CAN suffix detection)
+- Geographic restrictions (40+ international countries, German city/typo detection, Canadian province/CAN suffix)
 - Ambiguous city disambiguation (Burlington MA vs Burlington ON)
-- Permanent US work authorization detection
-- Graduation year alignment (May 2027)
-- Job posting age validation (configurable threshold)
-- Smart season detection (ignores copyright years, financial data)
-- Non-CS/Engineering role filtering with GitHub category override
+- Rotational Program detection (full-time programs disguised as internships)
+- Posting age validation (configurable threshold, 3-day default)
+- Smart season detection (ignores copyright years, financial data; rejects Spring 2026 explicitly)
+- Non-CS/Engineering role filtering with early title-level CS check before page fetch
 - Expired job detection (20+ dead page patterns)
-- ATS platform company name extraction (Workday, Greenhouse, Lever, iCIMS, UltiPro, Jobvite)
-- Company name normalization with legal suffix stripping, ATS code removal, "The X Companies" → "X"
-- Location cleaning: strips compensation text, floor/address details, CAN suffix
+- ATS platform company name extraction
+- Company name normalization with legal suffix stripping
+- Location cleaning with COMPANY_HQ fallback (60 top companies)
 
 ### Intelligent Deduplication
 
 - URL normalization and matching
 - Company + title fuzzy matching
-- Job ID cross-reference
-- Company name normalization (20+ alias mappings: WD/Sandisk → Western Digital, Boxinc → Box)
+- Job ID cross-reference (including JR_XXXXX underscore pattern)
+- Company name normalization (20+ alias mappings)
 
 ### Email Discovery and Verification
 
-- Provider detection: MX record lookup identifies Google Workspace (~40%) vs Microsoft 365 (~35%) vs self-hosted
+- Provider detection: MX record lookup identifies Google Workspace vs Microsoft 365 vs self-hosted
 - Microsoft 365 verification: Definitive email existence check via GetCredentialType endpoint
-- Website mining: Scrapes company about/team/contact pages, votes across all found emails to learn pattern
-- Pattern learning: Every successful delivery updates both DomainHistory and PatternCache immediately
-- Dual failure tracking: failed_patterns.json + domain_pattern_history.json cross-referenced on every send
-- Pre-send blocking: emails checked against bounce cache AND failed patterns before drafting
-- Statistical inference: When all else fails, uses the most common pattern (first.last, 80% accuracy)
-- Multi-person support: Comma-separated names generate individual emails for each contact
-- Anti-bot measures: 2-3 second delays, rotating user agents, catch-all detection
-- Apollo, Hunter, Snov, Prospeo API cascade with credit tracking and daily auto-reset
+- Website mining: Scrapes company pages, votes across found emails to learn domain pattern
+- Pattern learning: Every successful delivery updates DomainHistory and PatternCache immediately
+- DomainHistory memory cache: loaded once per process, zero disk I/O on repeated lookups
+- Clearbit domain cache: persisted to disk with 30-day TTL, never re-calls for known companies
+- Dual failure tracking: failed_patterns.json + domain_pattern_history.json
+- Pre-send blocking: emails checked against bounce cache AND failed patterns before sending
+- Statistical inference: most common pattern (first.last) as last resort
+- Apollo, Hunter, Snov, Prospeo API cascade with credit tracking
+
+### Microsoft Graph Email Sending
+
+- All outreach emails sent from `kanade.pra@northeastern.edu` via Microsoft Graph API
+- MSAL authentication with token cached to `.local/ms_token.json`
+- Silent token refresh on every Mailer init — never needs manual re-authentication
+- Resume type (SDE/ML/DA) correctly matched from Valid Entries per job
+- 45-second delay between sends, 15 emails per run cap
+- Correct resume attached per role type (SWE/ML/Data resume auto-selected)
+- Emails saved to Sent Items in Northeastern Outlook automatically
+
+### Smart Auto-Extract
+
+- `auto_extract.py` runs after every outreach pull
+- Sets Extract=yes for: sponsorship=Yes, location in 30+ major tech hubs, company in PatternCache
+- Sets Extract=Skip for: sponsorship=No (never target these)
+- Tech hubs covered: SF Bay Area, Seattle, NYC, Austin, Boston, Chicago, LA, San Jose, Mountain View, Palo Alto, Redmond, Bellevue, Denver, Atlanta, Reston, Remote, and more
+- 347 rows auto-set on first run
+
+### Timezone-Aware Scheduling
+
+- `compute_send_at()` converts company location to US timezone
+- All emails scheduled for 9:30 AM in company's local time
+- send_scheduled.py fires 4× daily: 9:00, 10:30, 11:30, 12:30 ET
+- Covers all US timezones: ET → CT → MT → PT
+- Deduplication: never sends same email twice within 7 days
+- Dead letter queue: after 3 failed attempts, marks row permanently
 
 ### Delivery Tracking and Bounce Recovery
 
-- Bounce scanner reads Gmail inbox AND "Failed Emails" label for delivery failure notifications
-- Bounced emails invalidate stale email_verify_cache.json entries automatically
-- Failed emails are cleared and noted in plain language
-- Auto-retry generates alternative email patterns, skipping the failed one
-- Failed patterns stored as both local parts AND pattern strings for domain-wide blocking
+- Bounce scanner reads Gmail inbox AND "Failed Emails" label for DSN notifications
+- Bounced emails invalidate email_verify_cache.json entries automatically
+- DomainHistory queried on bounce — uses proven pattern from same domain instead of guessing alphabetically
+- Auto-retry generates domain-informed alternative patterns
 - Delivery confirmed after 12 hours with no bounce
-- Late bounces overwrite delivery status (bounce is always the truth)
+- Late bounces always override delivery status
 
-### Dual LinkedIn Message Generation
+### Nightly Digest
 
-- Separate templates for Hiring Managers and Recruiters
-- HM message emphasizes team contribution and role fit
-- Recruiter message emphasizes eagerness and next steps
-- Supports multiple comma-separated names per row
-- Auto-truncates long titles to stay within LinkedIn's 300-character limit
-- Only generates messages for rows marked Extract=yes (skips Skip rows)
+- Sent every night at 12:22 AM to `prasadckanade@gmail.com`
+- Shows: jobs added, emails sent today, bounces in 24h, pending extraction queue
+- Last aggregator run stats: valid/discarded/failed HTTP/elapsed time
+- Last 5 error lines from outreach.log
+- Circuit breaker status
+- Subject prefixed with ⚠ if errors, 🚨 if circuit breaker tripped
 
 ### Self-Improving System
 
-- DomainHistory confirmed patterns consulted before any API call — instant resolution for known domains
-- PatternCache updated immediately on every successful delivery
-- Website mining votes across all personal emails found (not just first) to determine pattern
-- Simplify resolver learns and caches the best resolution method per domain
+- DomainHistory consulted before any API call — instant resolution for known domains
+- PatternCache updated on every successful delivery (125+ domains learned)
+- Simplify resolver learns best resolution method per domain
+- Auto-blacklist: `build_auto_blacklist.py` reads Discarded Entries, promotes companies with 3+ identical rejections
 - ProcessedEmailTracker capped at 10,000 entries with oldest-first pruning
-- MX cache and email verification cache prevent redundant lookups
-- Domain overrides for companies with wrong Clearbit results
-- Outreach sheet stays perfectly synchronized with Valid Entries (exact order, verbatim names)
-- LinkedIn URL columns are read-only — never overwritten by automation
-- Retry tracker distinguishes permanent failures from transient credit exhaustion
-- Bounce invalidates verify cache — system never re-trusts a bounced address
+- SQLite run history enables trend analysis over time
 
 ### Automated Scheduling (macOS launchd)
 
-- Aggregator runs at 8 AM, 3 PM, 9 PM daily via launchd
-- Cleanup runs every 2 days at 7 AM via launchd
-- **Catch-up on wake**: if Mac was asleep at scheduled time, job runs immediately on next wake
-- Screen lock (`Cmd+Ctrl+Q`) does not interrupt scheduled jobs
-- Resume auto-sync: latest resumes copied from Downloads to `.local/` before every run
+- **Aggregator**: 8 AM, 3 PM, 9 PM daily
+- **Outreach**: midnight daily
+- **Send Scheduled**: 9:00 AM, 10:30 AM, 11:30 AM, 12:30 PM daily
+- **Nightly Digest**: 12:22 AM daily
+- **Cleanup**: every 2 days at 7 AM
+- Catch-up on wake: missed runs execute immediately when Mac wakes
 - All logs saved to `.local/cron_logs/` with 7-day retention
+- Resume auto-sync: latest PDFs copied from Downloads to `.local/` before every run
+
+---
 
 ## Performance
 
-| Metric                  | Before      | After              |
-| ----------------------- | ----------- | ------------------ |
-| Weekly manual work      | 6 hours     | 45 minutes         |
-| Job processing time     | 40 min      | 10 min             |
-| Duplicate applications  | 2-5/run     | 0                  |
-| Classification accuracy | ~85%        | 98%+               |
-| Email extraction rate   | 0% (manual) | ~95% automated     |
-| Outreach emails/run     | 0 (manual)  | 25+                |
-| LinkedIn messages/run   | 0 (manual)  | 25+ auto-generated |
-| Tracked entries         | 0           | 587+               |
-| Outreach emails sent    | 0           | 100+               |
+| Metric                  | Before      | After                       |
+| ----------------------- | ----------- | --------------------------- |
+| Weekly manual work      | 6 hours     | 15 minutes                  |
+| Job processing time     | 40 min      | 10 min                      |
+| Duplicate applications  | 2–5/run     | 0                           |
+| Classification accuracy | ~85%        | 98%+                        |
+| Email extraction rate   | 0% (manual) | ~95% automated              |
+| Outreach emails/run     | 0 (manual)  | 25+ auto-sent               |
+| LinkedIn messages/run   | 0 (manual)  | 25+ auto-generated          |
+| Tracked entries         | 0           | 636+                        |
+| Outreach emails sent    | 0           | 130+                        |
+| Sender address          | Gmail       | kanade.pra@northeastern.edu |
+| Manual Extract=yes      | 100% manual | 95% automated               |
+
+---
 
 ## Tech Stack
 
-**Core:** Python 3.12+, Google Sheets API, Gmail API
+**Core:** Python 3.12+, Google Sheets API, Gmail API, Microsoft Graph API
 
 **Web Scraping:** Selenium WebDriver, BeautifulSoup4, Requests, lxml
 
 **Email Discovery:** dnspython (MX records), Reacher (SMTP verification via Docker), Apollo API, Hunter API, Snov API, Prospeo API, Microsoft 365 GetCredentialType
 
-**Infrastructure:** Docker (Reacher container), macOS launchd (scheduled automation), Google Cloud service accounts, OAuth 2.0
+**Email Sending:** Microsoft Graph API, MSAL (Microsoft Authentication Library)
 
-**Codebase:** 11,500+ lines across 14 production modules
+**Infrastructure:** Docker (Reacher container), macOS launchd (scheduled automation), Google Cloud service accounts, OAuth 2.0, SQLite (run history)
+
+**Intelligence:** Claude Haiku API (borderline CS role classification, GitHub sponsorship check)
+
+**Codebase:** 13,000+ lines across 17 production modules
+
+---
 
 ## Architecture
 
 ```
 Job Hunt Tracker/
-├── aggregator/                # Module 1: Job aggregation
-│   ├── config.py              # Patterns, blacklists, normalizations (2,000+ lines)
-│   ├── extractors.py          # Page fetching, Simplify resolution, GitHub scraper
-│   ├── processors.py          # Validation, extraction, location processing (3,200+ lines)
-│   ├── run_aggregator.py      # Pipeline orchestration
-│   ├── sheets_manager.py      # Google Sheets integration
-│   └── utils.py               # HTTP retry, sanitization, date parsing
-├── outreach/                  # Module 2: Email outreach
-│   ├── outreach_config.py     # Column mapping, email templates, API keys
-│   ├── outreach_data.py       # Sheets sync, PatternCache, NameParser, bounce handling
-│   ├── outreach_finder.py     # 8-layer email discovery pipeline
-│   ├── outreach_mailer.py     # Gmail draft creation with resume attachment
-│   ├── outreach_provider.py   # MX lookup, Microsoft 365, website mining
-│   ├── outreach_verifier.py   # Confidence scoring, CircuitBreaker, DomainHistory
-│   ├── bounce_scanner.py      # Gmail bounce detection (RFC 3464 + Failed Emails label)
-│   └── run_outreach.py        # Pipeline orchestration, delivery tracking
-├── scripts/                   # Automation utilities
-│   ├── cron_runner.sh         # launchd aggregator runner (syncs resumes first)
-│   ├── cron_cleanup.sh        # launchd cleanup runner (2-day gate)
-│   ├── cleanup_not_applied.py # Moves Not Applied + expired jobs to Reviewed sheet
-│   ├── resume_sync.sh         # Syncs latest resumes from Downloads to .local/
-│   ├── com.prasad.jobtracker.aggregator.plist  # launchd agent: aggregator
-│   └── com.prasad.jobtracker.cleanup.plist     # launchd agent: cleanup
-├── .local/                    # Credentials, caches, logs (gitignored)
-│   ├── credentials.json           # Google Sheets service account
-│   ├── gmail_credentials.json     # Gmail OAuth client
-│   ├── gmail_token.pickle         # Gmail OAuth token
-│   ├── domain_overrides.json      # Manual company-to-domain fixes
-│   ├── failed_patterns.json       # Bounced email patterns (never retried)
-│   ├── bounced_emails.json        # Known bounced addresses
-│   ├── outreach_patterns.json     # Learned email patterns per domain
-│   ├── domain_pattern_history.json # Confirmed/failed patterns with staleness tracking
-│   ├── email_verify_cache.json    # Provider verification cache (invalidated on bounce)
-│   ├── retry_tracker.json         # Failed companies (3-day TTL)
-│   ├── simplify_method_cache.json # Best Simplify resolution method per domain
-│   ├── http_response_cache.json   # Persisted HTTP cache (6-hour TTL)
-│   └── outreach.log               # Rotating log (5MB × 3)
-├── docker-compose.yml         # Reacher email verifier
+├── aggregator/                    # Module 1: Job aggregation
+│   ├── config.py                  # Patterns, blacklists, normalizations (2,000+ lines)
+│   ├── extractors.py              # Page fetching, Simplify resolution, GitHub scraper
+│   ├── processors.py              # Validation, extraction, location processing (3,200+ lines)
+│   ├── run_aggregator.py          # Pipeline orchestration
+│   ├── sheets_manager.py          # Google Sheets integration
+│   └── utils.py                   # HTTP retry, sanitization, date parsing
+├── outreach/                      # Module 2: Email outreach
+│   ├── outreach_config.py         # Column mapping, email templates, API keys
+│   ├── outreach_data.py           # Sheets sync, PatternCache, NameParser, bounce handling
+│   ├── outreach_finder.py         # 8-layer email discovery pipeline
+│   ├── outreach_mailer.py         # MS Graph email sending with resume attachment
+│   ├── outreach_provider.py       # MX lookup, Microsoft 365, website mining
+│   ├── outreach_verifier.py       # Confidence scoring, CircuitBreaker, DomainHistory
+│   ├── bounce_scanner.py          # Gmail bounce detection (RFC 3464 + Failed Emails label)
+│   └── run_outreach.py            # Pipeline orchestration, delivery tracking
+├── scripts/                       # Automation utilities
+│   ├── send_scheduled.py          # MS Graph scheduled sender (4×/day)
+│   ├── nightly_digest.py          # Nightly summary email to personal Gmail
+│   ├── auto_extract.py            # Auto-sets Extract=yes based on smart signals
+│   ├── build_auto_blacklist.py    # Weekly auto-blacklist from Discarded Entries
+│   ├── cleanup_not_applied.py     # Moves Not Applied + expired jobs to Reviewed sheet
+│   ├── test_ms_auth.py            # Microsoft Graph authentication helper
+│   ├── cron_runner.sh             # launchd runner (syncs resumes, runs modules)
+│   ├── cron_cleanup.sh            # launchd cleanup runner (2-day gate)
+│   ├── install_new_plists.sh      # Installs all launchd agents
+│   ├── com.prasad.jobtracker.aggregator.plist
+│   ├── com.prasad.jobtracker.outreach.plist
+│   ├── com.prasad.jobtracker.send.plist      # 9:00, 10:30, 11:30, 12:30 ET
+│   ├── com.prasad.jobtracker.digest.plist    # 12:22 AM daily
+│   └── com.prasad.jobtracker.cleanup.plist
+├── .local/                        # Credentials, caches, logs (gitignored)
+│   ├── credentials.json               # Google Sheets service account
+│   ├── gmail_credentials.json         # Gmail OAuth client
+│   ├── gmail_token.pickle             # Gmail OAuth token
+│   ├── ms_token.json                  # Microsoft Graph OAuth token (MSAL)
+│   ├── outreach_patterns.json         # Learned email patterns (125+ domains)
+│   ├── domain_pattern_history.json    # Confirmed/failed patterns per domain
+│   ├── bounced_emails.json            # Known bounced addresses
+│   ├── failed_patterns.json           # Bounced email patterns (never retried)
+│   ├── domain_cache.json              # Clearbit company→domain cache (30-day TTL)
+│   ├── sent_log.json                  # Deduplication log (7-day window)
+│   ├── send_fail_counts.json          # Dead letter queue state
+│   ├── run_history.db                 # SQLite: one row per aggregator run
+│   ├── simplify_method_cache.json     # Best Simplify resolution method per domain
+│   ├── http_response_cache.json       # Persisted HTTP cache (6-hour per-entry TTL)
+│   ├── retry_tracker.json             # Failed companies (3-day TTL)
+│   └── outreach.log                   # Rotating log (5MB × 3)
+├── test_pipeline.py               # 202-test production test suite (99% pass rate)
+├── docker-compose.yml             # Reacher email verifier
 ├── requirements.txt
 └── README.md
 ```
+
+---
 
 ## Google Sheets Structure
 
 ### Valid Entries
 
-Validated internship postings with status tracking: Sr. No., Status, Company, Title, Date Applied, Job URL, Job ID, Job Type, Location, Resume, Remote?, Entry Date, Source, Sponsorship, and Notes.
+Validated internship postings: Sr. No., Status, Company, Title, Date Applied, Job URL, Job ID, Job Type, Location, Resume, Remote?, Entry Date, Source, Sponsorship, Notes.
 
 ### Outreach Tracker
 
-Email outreach tracking synchronized with Valid Entries: Sr. No., Company, Job Title, Extract, Job ID, HM Name, HM LinkedIn URL, HM Email, HM LinkedIn Msg, Recruiter Name, Recruiter LinkedIn URL, Recruiter Email, Rec LinkedIn Msg, Send At, Sent Date, Notes, Confidence.
+Email outreach tracking: Sr. No., Company, Job Title, Extract, Job ID, HM Name, HM LinkedIn URL, HM Email, HM LinkedIn Msg, Recruiter Name, Recruiter LinkedIn URL, Recruiter Email, Rec LinkedIn Msg, Send At, Sent Date, Notes, Confidence.
 
-The **Extract** column controls outreach processing:
+The **Extract** column is auto-managed:
 
-- `yes` → pipeline discovers emails, creates drafts, generates LinkedIn messages
-- `Skip` → row is ignored entirely by all outreach automation
-
-LinkedIn URL columns are preserved as read-only — automation never overwrites manually entered profile links.
+- `yes` → auto-set for tech hub locations, sponsorship=Yes, PatternCache companies
+- `Skip` → auto-set for sponsorship=No; ignored by all outreach automation
 
 ### Discarded Entries
 
-Rejected postings with the specific discard reason (Non-USA location, Non-tech role, Blacklisted company, Undergraduate only, PhD only, Security clearance required, Wrong season, Expired posting, Hardware/laser role, SkillBridge military-only, etc.), preserving full metadata for review.
+Rejected postings with specific discard reason, full metadata preserved for review and weekly auto-blacklist building.
 
 ### Reviewed — Not Applied
 
-Jobs moved from Valid Entries either manually (marked Not Applied) or automatically (blank status, entry date 3+ days old). Reason column tracks why each job was moved.
+Jobs moved from Valid Entries automatically (blank status, entry date 2+ days old) or manually. Reason column tracks why each was moved.
 
 ### Outreach Notes Column
 
-| Status              | Example Notes                                            |
+| Status              | Example                                                  |
 | ------------------- | -------------------------------------------------------- |
-| Delivered to one    | Delivered to HM                                          |
 | Delivered to both   | Delivered to HM and Rec                                  |
-| One bounced         | HM email bounced on Mar 01, 2026                         |
-| Both bounced        | HM and Rec emails bounced on Mar 01, 2026                |
-| Bounced and retried | HM email bounced on Mar 01, 2026 · Retried: flast@co.com |
-| Partial delivery    | HM email bounced on Mar 01, 2026 · Delivered to Rec      |
+| One bounced         | HM email bounced on Mar 20, 2026                         |
+| Bounced and retried | HM email bounced on Mar 20, 2026 · Retried: flast@co.com |
+| Send failed         | Send failed Mar 20                                       |
+
+---
 
 ## Results
 
-**Daily aggregation:** Processes 500+ postings, produces ~70 valid, ~50 discarded, and ~200 duplicates caught in 10 minutes.
+**Daily aggregation:** Processes 500+ postings, produces ~70 valid, ~50 discarded, ~200 duplicates caught in 10 minutes.
 
-**Email discovery:** 25+ emails extracted per run across 15 companies. The 8-layer system resolves previously-impossible companies (T-Mobile, Skyryse, Cleveland Clinic).
+**Email discovery:** 25+ emails found per run across 15 companies. 8-layer system resolves previously-impossible companies.
 
-**Cumulative:** 587+ tracked entries, 100+ outreach emails sent, zero duplicate applications across 7 months of operation.
+**Cumulative:** 636+ tracked entries, 130+ outreach emails sent from Northeastern address, zero duplicate applications, fully automated end-to-end.
+
+---
 
 ## Quick Start
 
@@ -331,7 +403,8 @@ Jobs moved from Valid Entries either manually (marked Not Applied) or automatica
 
 - Python 3.12+
 - Google Sheets API credentials (service account)
-- Gmail API credentials (OAuth)
+- Gmail API credentials (OAuth) — for bounce scanning only
+- Microsoft account (Northeastern .edu) — for sending emails
 - Docker (optional, for Reacher SMTP verification)
 - ChromeDriver (for Selenium-based page fetching)
 
@@ -341,6 +414,7 @@ Jobs moved from Valid Entries either manually (marked Not Applied) or automatica
 python3 -m venv venv
 source venv/bin/activate
 pip install -r requirements-local.txt
+pip install msal
 
 # Optional: Reacher for SMTP verification
 docker compose up -d
@@ -352,8 +426,17 @@ docker compose up -d
 # Aggregate new jobs
 python3 -m aggregator
 
-# Find emails and create outreach drafts
+# Find emails and send outreach
 python3 -m outreach
+
+# Send scheduled emails (runs automatically via launchd)
+python3 scripts/send_scheduled.py
+
+# Send nightly digest
+python3 scripts/nightly_digest.py
+
+# Auto-set Extract=yes
+python3 scripts/auto_extract.py
 
 # Move reviewed/expired jobs
 python3 scripts/cleanup_not_applied.py
@@ -362,11 +445,13 @@ python3 scripts/cleanup_not_applied.py
 ### Automated Scheduling (macOS)
 
 ```bash
-# Install launchd agents (runs aggregator 3x/day, cleanup every 2 days)
-# Automatically catches up missed runs when Mac wakes from sleep
-bash scripts/install_launchd.sh
+# Install all launchd agents
+bash scripts/install_new_plists.sh
 
-# Check status
+# Authenticate Microsoft Graph (one-time)
+python3 scripts/test_ms_auth.py
+
+# Check all agents are loaded
 launchctl list | grep com.prasad
 
 # View logs
@@ -384,22 +469,28 @@ ls -lt .local/cron_logs/
    PROSPEO_API_KEY=your_key
    SNOV_API_KEY=your_key
    SNOV_USER_ID=your_id
+   ANTHROPIC_API_KEY=your_key   # optional: Claude-powered CS role check
+   SLACK_WEBHOOK_URL=your_url   # optional: Slack run alerts
    ```
-4. Edit `outreach/outreach_config.py` for sender name and email templates
-5. Add domain overrides in `.local/domain_overrides.json` for companies with wrong Clearbit results
-6. Place resumes in Downloads folder (auto-synced to `.local/` before each run):
+4. Run Microsoft Graph auth once: `python3 scripts/test_ms_auth.py`
+5. Place resumes in Downloads folder (auto-synced before each run):
    - `Prasad Kanade SWE Resume.pdf`
    - `Prasad Kanade ML Resume.pdf`
    - `Prasad Kanade Data Resume.pdf`
 
-### Outreach Workflow
+### Checking Run History
 
-1. Run aggregator — new jobs appear in Valid Entries
-2. Open Outreach Tracker — new rows auto-synced
-3. Manually add HM/Recruiter names and LinkedIn URLs for companies you want to target
-4. Set `Extract` column to `yes` for those rows
-5. Run outreach — emails discovered, drafts created, LinkedIn messages generated
-6. Review drafts in Gmail — send manually or let the email sender script run
+```bash
+# Last 10 aggregator runs
+python3 -c "
+import sqlite3
+con = sqlite3.connect('.local/run_history.db')
+for r in con.execute('SELECT ts,valid,discarded,failed_http FROM runs ORDER BY ts DESC LIMIT 10'):
+    print(r)
+"
+```
+
+---
 
 ## Contact
 
