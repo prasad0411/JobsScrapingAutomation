@@ -25,7 +25,6 @@ NEVER_BLACKLIST = {
     "myworkdayjobs", "corporate office", "usa", "us", "simplify",
     "unknown", "company", "careers", "jobs", "external", "portal",
     "job-boards", "worldwide", "ats", "marketing", "learning",
-    "coherent",  # has both valid CS roles and hardware roles — don't blanket blacklist
 }
 
 # Reasons that qualify for auto-blacklist
@@ -87,8 +86,6 @@ def main():
     candidates = []
     for company, reason_counts in counts.items():
         if company in existing:
-            continue
-        if company.lower().strip() in NEVER_BLACKLIST:
             continue
         for reason, count in reason_counts.items():
             if count >= MIN_REJECTIONS:

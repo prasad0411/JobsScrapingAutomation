@@ -25,7 +25,6 @@ NEVER_BLACKLIST = {
     "myworkdayjobs", "corporate office", "usa", "us", "simplify",
     "unknown", "company", "careers", "jobs", "external", "portal",
     "job-boards", "worldwide", "ats", "marketing", "learning",
-    "coherent",  # has both valid CS roles and hardware roles — don't blanket blacklist
 }
 
 # Reasons that qualify for auto-blacklist
