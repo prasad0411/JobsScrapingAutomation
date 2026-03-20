@@ -2308,6 +2308,11 @@ class ValidationHelper:
                 r"bachelor'?s?\s+program\s+enrollment",
                 r"(?:junior|senior)\s+year\s+standing",
                 r"class\s+standing:\s*(?:junior|senior)",
+                r"enrolled\s+(?:as\s+a\s+)?(?:full.?time\s+)?student\s+at\s+(?:an?\s+)?accredited\s+(?:four.year|4.year)",
+                r"currently\s+enrolled\s+(?:as\s+a\s+)?(?:full.?time\s+)?student.*(?:four.year|4.year|college|university)",
+                r"must\s+be\s+(?:a\s+)?(?:current|active|full.?time)\s+student.*(?:four.year|4.year|college|university)",
+                r"accredited\s+four.year\s+(?:college|university)",
+                r"enrolled.*(?:fulltime|full.time).*(?:college|university).*(?:bachelor|undergraduate|four.year)",
                 r"pursuing\s+undergraduate\s+degree",
                 r"current\s+undergraduate\s+status",
                 r"undergraduate\s+student\s+status",
@@ -2995,7 +3000,13 @@ class ValidationHelper:
                 r"(?:will|does|provides?)\s+sponsor|h-?1b.*sponsor", page_text, re.I
             ):
                 return "Yes"
-            if re.search(r"(?:no|not|doesn't)\s+sponsor", page_text, re.I):
+            if re.search(r"(?:no|not|doesn\'t|cannot|can\'t|unable\s+to|will\s+not|does\s+not)\s+(?:provide\s+)?(?:visa\s+)?sponsor", page_text, re.I):
+                return "No"
+            if re.search(r"unable\s+to\s+sponsor\s+or\s+take\s+over\s+sponsorship", page_text, re.I):
+                return "No"
+            if re.search(r"not\s+able\s+to\s+(?:provide\s+)?(?:visa\s+)?sponsor", page_text, re.I):
+                return "No"
+            if re.search(r"sponsorship\s+(?:is\s+)?(?:not\s+)?available", page_text, re.I):
                 return "No"
         except Exception as e:
             logging.debug(f"Sponsorship check failed: {e}")

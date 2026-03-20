@@ -470,6 +470,12 @@ PREFERRED_DEGREE_MISMATCH_PATTERNS = [
 INVALID_TITLE_KEYWORDS = [
     r"hardware\s+engineering\s+(?:intern|co-op|coop)",
     r"hardware\s+engineer\s+(?:intern|co-op|coop)",
+    r"\baosp\b",
+    r"android\s+(?:aosp|platform|bsp|hal\b)",
+    r"\bhal\b.*(?:intern|engineer)",
+    r"\bbsp\b.*(?:intern|engineer)",
+    r"hardware\s+abstraction\s+layer",
+    r"board\s+support\s+package",
     r"hardware\s+engineering\s+(?:intern|co-op|coop)",
     r"hardware\s+engineer\s+(?:intern|co-op|coop)",
     r"military.*veteran",

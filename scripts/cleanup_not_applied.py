@@ -28,7 +28,7 @@ BACKUP_TRACKING_FILE = os.path.join(
 )
 BACKUP_INTERVAL_DAYS = 7
 
-EXPIRY_DAYS = 3  # Jobs older than this with no status get moved
+EXPIRY_DAYS = 2  # Jobs older than this with no status get moved
 
 FILES_TO_BACKUP = [
     "credentials.json",
@@ -152,7 +152,7 @@ class ManualCleanup:
                 return None
 
     def _is_expired(self, row):
-        """Returns True if row has no protected status AND entry date is 3+ days old."""
+        """Returns True if row has no protected status AND entry date is 2+ days old."""
         status = self._get_cell(row, 1)
 
         # Protected statuses — never move
@@ -223,7 +223,7 @@ class ManualCleanup:
                     entry_date = self._get_cell(row, 11)
                     print(f"  → {company} (added {entry_date})")
 
-                self._move_to_reviewed(expired_rows, reason="Expired: 3+ days")
+                self._move_to_reviewed(expired_rows, reason="Expired: 2+ days")
                 self._repopulate_main_sheet(all_data, remaining_rows)
 
                 current = self.sheet.row_count
