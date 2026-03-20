@@ -971,10 +971,24 @@ class UnifiedJobAggregator:
             self.outcomes["skipped_duplicate_url"] += 1
             return "duplicate"
 
+        # Extract company and title hints from SWE List subject "Title @ Company | Simplify"
+        _company_hint = ""
+        _title_hint = ""
+        if subject:
+            import re as _re
+            _at_match = _re.search(r'@\s*([^|]+?)(?:\s*\||\s*$)', subject)
+            if _at_match:
+                _company_hint = _at_match.group(1).strip()
+            _title_match = _re.match(r'^(.+?)\s*@', subject)
+            if _title_match:
+                _title_hint = _title_match.group(1).strip()
+
         result = self._process_single_job_comprehensive(
             resolved_url,
             source=sender,
             email_html=email_html,
+            company_hint=_company_hint or "",
+            title_hint=_title_hint or "",
         )
         if result:
             alert = RoleCategorizer.get_terminal_alert(result["title"])
