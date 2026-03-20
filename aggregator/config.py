@@ -489,7 +489,7 @@ INVALID_TITLE_KEYWORDS = [
     r"optic(?:al|s)?\s+(?:engineer|intern|technician)",
     r"opto[- ]?mechanical\s+(?:engineer|intern|system|design)",
     r"optomechanical\s+(?:engineer|intern)",
-    r"photonic\s+(?:engineer|intern|technician)",
+    r"photonics?\s+(?:engineer|intern|technician|design)",
     r"materials?\s+science\s+(?:intern|engineer|co-op)",
     r"mechanical\s+engineer(?:ing)?\s+(?:intern|co-op)",
     r"process\s+engineer(?:ing)?\s+(?:intern|co-op)",
@@ -1739,8 +1739,6 @@ TECHNICAL_ROLE_KEYWORDS = {
     "ran",
     "baseband",
     "wireless",
-    "product management",
-    "product manager",
     "information services",
     "information systems",
     "site reliability",
@@ -1865,6 +1863,10 @@ TECHNICAL_PATTERNS = [
 ]
 
 NON_TECHNICAL_PURE = {
+    "supply chain",
+    "supply chain management",
+    "product management",
+    "product manager",
     "marketing analyst",
     "sales",
     "recruiter",

@@ -296,6 +296,12 @@ class TitleProcessor:
 
         combined_text = (title + " " + description).lower()
 
+        # Early rejection: purely non-technical title
+        _ntl = (title or "").lower()
+        _nt = sum(1 for kw in NON_TECHNICAL_PURE if kw in _ntl)
+        _tt = sum(1 for kw in TECHNICAL_ROLE_KEYWORDS if kw in _ntl)
+        if _nt > 0 and _tt == 0:
+            return False
         if any(kw in combined_text for kw in TECHNICAL_ROLE_KEYWORDS):
             non_tech_pure = sum(1 for kw in NON_TECHNICAL_PURE if kw in combined_text)
             tech_count = sum(1 for kw in TECHNICAL_ROLE_KEYWORDS if kw in combined_text)
@@ -1452,7 +1458,7 @@ class LocationProcessor:
 
             # FIX 3: catch ATS-style "CAN" suffix e.g. "Peterborough CAN", "Toronto CAN"
             import re as _re_can
-            if _re_can.search(r"CAN", location):
+            if _re_can.search(r"\bCAN\b", location):
                 return "Location: Canada (CAN suffix)"
             # Also catch province codes used by some ATS systems
             _can_suffixes = [" ON", " BC", " AB", " QC", " MB", " SK", " NS", " NB", " NL", " PE", " YT", " NT", " NU"]
@@ -2246,7 +2252,11 @@ class ValidationHelper:
             for pattern in [
                 r"bachelor'?s?\s+(?:students?|degree|candidates?)\s+only",
                 r"undergraduate\s+(?:students?|only)",
+                r"undergraduate\s+students?\s+only",
+                r"open\s+to\s+undergraduate\s+students?",
+                r"for\s+undergraduate\s+students?\s+only",
                 r"currently\s+pursuing\s+a?\s+bachelor",
+                r"only\s+open\s+to\s+undergraduate",
             ]:
                 match = re.search(pattern, page_text, re.I)
                 if match:
@@ -2256,7 +2266,7 @@ class ValidationHelper:
                         )
                     ]
                     if not any(
-                        kw in context for kw in ["master", "ms/phd", "graduate"]
+                        any(re.search(rf"\\b{kw}\\b", context) for kw in ["master", "ms/phd", "graduate degree", "grad student", "graduate program"])
                     ):
                         return "REJECT", "Bachelor's students only"
         except Exception as e:
@@ -2347,7 +2357,7 @@ class ValidationHelper:
 
                     # If context mentions graduate/master's, it's flexible
                     if any(
-                        kw in context
+                        bool(re.search(rf"\b{kw}\b", context))
                         for kw in [
                             "master",
                             "graduate",
@@ -2997,7 +3007,7 @@ class ValidationHelper:
             page_text = soup.get_text()[:3000]
 
             if re.search(
-                r"(?:will|does|provides?)\s+sponsor|h-?1b.*sponsor", page_text, re.I
+                r"(?:will|does|provides?)\s+sponsor|h-?1b.*sponsor|sponsor.*h-?1b|h-?1b\s+visa\s+sponsor", page_text, re.I
             ):
                 return "Yes"
             if re.search(r"(?:no|not|doesn\'t|cannot|can\'t|unable\s+to|will\s+not|does\s+not)\s+(?:provide\s+)?(?:visa\s+)?sponsor", page_text, re.I):
