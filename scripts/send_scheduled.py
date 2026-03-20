@@ -1,251 +1,156 @@
 #!/usr/bin/env python3
-"""
-Send Scheduled Emails
-Reads Outreach Tracker for rows where:
-  - Send At time has passed
-  - Sent Date is empty (not yet sent)
-  - HM or Rec email exists
-Finds matching Gmail draft and sends it.
-
-Features:
-  - Deduplication: won't send to same recipient+subject within 7 days
-  - Dead letter queue: after 3 failed attempts across runs, marks as "Failed"
-  - Retry with backoff on transient errors
-"""
-import sys, os, re, datetime, time, logging, base64, json
-
+"""Send scheduled outreach emails via Microsoft Graph from kanade.pra@northeastern.edu"""
+import sys, os, datetime, time, logging, json, base64, re
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from outreach.outreach_config import (
-    C,
-    SHEETS_CREDS,
-    SPREADSHEET,
-    OUTREACH_TAB,
-    SENDER_EMAIL,
+    C, SHEETS_CREDS, SPREADSHEET, OUTREACH_TAB,
+    MS_SENDER_EMAIL, MS_SENDER_NAME, MS_CLIENT_ID, MS_AUTHORITY, MS_SCOPES, MS_TOKEN_FILE,
+    HM_SUBJ, HM_BODY, REC_SUBJ, REC_BODY, RESUME_SDE, RESUME_ML, RESUME_DA,
 )
-from outreach.outreach_data import _pad, _cl
-
-import gspread
+from outreach.outreach_data import _pad, _cl, NameParser
+import gspread, requests as _req
 from oauth2client.service_account import ServiceAccountCredentials
 
-logging.basicConfig(level=logging.INFO, format="%(message)s")
 log = logging.getLogger(__name__)
+logging.basicConfig(level=logging.INFO, format="%(message)s")
 
-# --- Persistent state files ---
-_LOCAL_DIR = os.path.join(
-    os.path.dirname(os.path.dirname(os.path.abspath(__file__))), ".local"
-)
-SENT_LOG_FILE = os.path.join(_LOCAL_DIR, "sent_log.json")
-FAIL_COUNT_FILE = os.path.join(_LOCAL_DIR, "send_fail_counts.json")
-DEAD_LETTER_MAX = 3  # Max failures before marking as dead
+_LOCAL = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), ".local")
+SENT_LOG_FILE   = os.path.join(_LOCAL, "sent_log.json")
+FAIL_COUNT_FILE = os.path.join(_LOCAL, "send_fail_counts.json")
+DEAD_MAX = 3
 
 
-# ============================================================================
-# Deduplication Guard
-# ============================================================================
-def load_sent_log():
-    """Load {recipient||subject: timestamp} of recently sent emails."""
+# ── helpers ──────────────────────────────────────────────────────────────────
+
+def _load(f):
     try:
-        if os.path.exists(SENT_LOG_FILE):
-            return json.load(open(SENT_LOG_FILE))
-    except Exception:
-        pass
+        if os.path.exists(f): return json.load(open(f))
+    except Exception: pass
     return {}
 
+def _save(f, d):
+    try: json.dump(d, open(f, "w"), indent=2)
+    except Exception as e: log.error(f"save failed {f}: {e}")
 
-def save_sent_log(sent_log):
-    try:
-        os.makedirs(_LOCAL_DIR, exist_ok=True)
-        json.dump(sent_log, open(SENT_LOG_FILE, "w"), indent=2)
-    except Exception as e:
-        log.error(f"Failed to save sent log: {e}")
+def _dup(sl, email, subj, days=7):
+    k = f"{email.lower()}||{subj.lower()}"
+    ts = sl.get(k)
+    if not ts: return False
+    try: return (datetime.datetime.now() - datetime.datetime.fromisoformat(ts)).days < days
+    except Exception: return False
 
+def _rec(sl, email, subj):
+    sl[f"{email.lower()}||{subj.lower()}"] = datetime.datetime.now().isoformat()
 
-def is_duplicate(sent_log, to_email, subject, days=7):
-    """Check if we already sent to this recipient+subject within N days."""
-    key = f"{to_email.lower().strip()}||{subject.strip().lower()}"
-    ts = sent_log.get(key)
-    if not ts:
-        return False
-    try:
-        sent_at = datetime.datetime.fromisoformat(ts)
-        age = (datetime.datetime.now() - sent_at).total_seconds() / 86400
-        return age < days
-    except Exception:
-        return False
+def _clean_sl(sl, days=14):
+    cut = datetime.datetime.now() - datetime.timedelta(days=days)
+    return {k: v for k, v in sl.items() if datetime.datetime.fromisoformat(v) > cut}
 
+def _row_key(co, title, email):
+    return f"{co.lower()}||{title.lower()}||{email.lower()}"
 
-def record_sent(sent_log, to_email, subject):
-    """Record that we sent an email to this recipient+subject."""
-    key = f"{to_email.lower().strip()}||{subject.strip().lower()}"
-    sent_log[key] = datetime.datetime.now().isoformat()
-
-
-def cleanup_sent_log(sent_log, days=14):
-    """Remove entries older than N days to keep the file small."""
-    cutoff = datetime.datetime.now() - datetime.timedelta(days=days)
-    cleaned = {}
-    for key, ts in sent_log.items():
-        try:
-            if datetime.datetime.fromisoformat(ts) > cutoff:
-                cleaned[key] = ts
-        except Exception:
-            pass
-    return cleaned
-
-
-# ============================================================================
-# Dead Letter Queue
-# ============================================================================
-def load_fail_counts():
-    """Load {row_key: fail_count} for tracking repeated send failures."""
-    try:
-        if os.path.exists(FAIL_COUNT_FILE):
-            return json.load(open(FAIL_COUNT_FILE))
-    except Exception:
-        pass
-    return {}
-
-
-def save_fail_counts(fail_counts):
-    try:
-        os.makedirs(_LOCAL_DIR, exist_ok=True)
-        json.dump(fail_counts, open(FAIL_COUNT_FILE, "w"), indent=2)
-    except Exception as e:
-        log.error(f"Failed to save fail counts: {e}")
-
-
-def get_row_key(company, title, email):
-    """Unique key for tracking failures per email per job."""
-    return (
-        f"{company.lower().strip()}||{title.lower().strip()}||{email.lower().strip()}"
-    )
-
-
-# ============================================================================
-# Gmail & Sheets helpers
-# ============================================================================
-def get_gmail_service():
-    """Authenticate with Gmail using OAuth pickle token."""
-    import pickle
-    from google.auth.transport.requests import Request
-    from googleapiclient.discovery import build
-
-    token_path = os.path.join(_LOCAL_DIR, "gmail_token.pickle")
-    creds = None
-    if os.path.exists(token_path):
-        with open(token_path, "rb") as f:
-            creds = pickle.load(f)
-    if not creds or not creds.valid:
-        if creds and creds.expired and creds.refresh_token:
-            creds.refresh(Request())
-            with open(token_path, "wb") as f:
-                pickle.dump(creds, f)
-        else:
-            log.error("Gmail token expired. Re-authenticate on your Mac.")
-            sys.exit(1)
-    return build("gmail", "v1", credentials=creds)
-
-
-def get_sheets():
-    """Get the Outreach Tracker worksheet."""
-    scope = [
-        "https://spreadsheets.google.com/feeds",
-        "https://www.googleapis.com/auth/drive",
-    ]
-    creds = ServiceAccountCredentials.from_json_keyfile_name(SHEETS_CREDS, scope)
-    gc = gspread.authorize(creds)
-    ss = gc.open(SPREADSHEET)
-    return ss.worksheet(OUTREACH_TAB)
-
-
-def parse_send_at(send_at_str):
-    """Parse 'Mar 02, 9:00 AM ET' into a datetime object in US/Eastern."""
+def _parse_send_at(s):
+    if not s or not s.strip(): return None
     try:
         from zoneinfo import ZoneInfo
     except ImportError:
         from backports.zoneinfo import ZoneInfo
-
-    if not send_at_str or send_at_str.strip() == "":
-        return None
-
-    clean = send_at_str.replace(" ET", "").strip()
-    year = datetime.datetime.now().year
-    try:
-        dt = datetime.datetime.strptime(f"{clean} {year}", "%b %d, %I:%M %p %Y")
-    except ValueError:
-        log.warning(f"Cannot parse Send At: '{send_at_str}'")
-        return None
-
-    est = ZoneInfo("US/Eastern")
-    return dt.replace(tzinfo=est)
-
-
-def find_matching_draft(service, to_email, subject_fragment):
-    """Find a Gmail draft matching the recipient and subject."""
-    try:
-        drafts = service.users().drafts().list(userId="me").execute()
-        draft_list = drafts.get("drafts", [])
-
-        for draft_meta in draft_list:
-            draft = (
-                service.users()
-                .drafts()
-                .get(userId="me", id=draft_meta["id"], format="metadata")
-                .execute()
-            )
-
-            headers = draft.get("message", {}).get("payload", {}).get("headers", [])
-            draft_to = ""
-            draft_subject = ""
-            for h in headers:
-                if h["name"].lower() == "to":
-                    draft_to = h["value"].lower()
-                if h["name"].lower() == "subject":
-                    draft_subject = h["value"]
-
-            if (
-                to_email.lower() in draft_to
-                and subject_fragment.lower() in draft_subject.lower()
-            ):
-                return draft_meta["id"]
-
-    except Exception as e:
-        log.error(f"Error finding draft: {e}")
+    clean = s.replace(" ET", "").replace(" PT", "").replace(" CT", "").replace(" MT", "").strip()
+    yr = datetime.datetime.now().year
+    for fmt in ["%b %d, %I:%M %p %Y", "%b %d %I:%M %p %Y"]:
+        try:
+            dt = datetime.datetime.strptime(f"{clean} {yr}", fmt)
+            return dt.replace(tzinfo=ZoneInfo("US/Eastern"))
+        except ValueError:
+            continue
     return None
 
+def _get_token():
+    import msal
+    cache = msal.SerializableTokenCache()
+    if os.path.exists(MS_TOKEN_FILE):
+        cache.deserialize(open(MS_TOKEN_FILE).read())
+    app = msal.PublicClientApplication(MS_CLIENT_ID, authority=MS_AUTHORITY, token_cache=cache)
+    accts = app.get_accounts()
+    result = app.acquire_token_silent(MS_SCOPES, account=accts[0]) if accts else None
+    if not result or "access_token" not in result:
+        raise Exception("MS token expired — run: python3 scripts/test_ms_auth.py")
+    if cache.has_state_changed:
+        open(MS_TOKEN_FILE, "w").write(cache.serialize())
+    return result["access_token"]
 
-def send_draft(service, draft_id):
-    """Send an existing Gmail draft."""
-    try:
-        result = (
-            service.users().drafts().send(userId="me", body={"id": draft_id}).execute()
-        )
-        return True, result.get("id", "")
-    except Exception as e:
-        log.error(f"Failed to send draft: {e}")
-        return False, str(e)
+def _build_email(name, contact_type, co, title, jid):
+    parsed = NameParser.parse(name)
+    first = parsed["first"] if parsed else (name.split()[0] if name else co)
+    st, bt = (HM_SUBJ, HM_BODY) if contact_type == "hm" else (REC_SUBJ, REC_BODY)
+    jid_clean = jid if jid and jid not in ("N/A", "") else ""
+    if not jid_clean:
+        st = st.replace(" | {job_id}", "")
+        bt = bt.replace(" | {job_id}", "")
+    vals = {"first": first, "title": title, "job_id": jid_clean, "company": co}
+    for k, v in vals.items():
+        st = st.replace(f"{{{k}}}", v)
+        bt = bt.replace(f"{{{k}}}", v)
+    return st, bt.replace("\n\n\n", "\n\n")
 
+def _to_html(body):
+    style = "font-family:Arial,sans-serif;font-size:14px;line-height:1.6;color:#333;margin:0 0 14px 0;"
+    parts = [f'<p style="{style}">{p.strip().replace(chr(10),"<br>")}</p>'
+             for p in body.split("\n\n") if p.strip()]
+    return '<div style="font-family:Arial,sans-serif;">' + "".join(parts) + "</div>"
 
-def sheets_retry(func, *args, retries=3, **kwargs):
-    """Retry Sheets API calls with exponential backoff."""
-    for attempt in range(retries):
-        try:
-            return func(*args, **kwargs)
+def _resume_path(resume_type):
+    return {"ML": RESUME_ML, "DA": RESUME_DA}.get(resume_type, RESUME_SDE)
+
+def _send_ms(token, to_email, subject, body_html, resume_type):
+    attach = []
+    rp = _resume_path(resume_type)
+    if os.path.exists(rp):
+        attach = [{
+            "@odata.type": "#microsoft.graph.fileAttachment",
+            "name": os.path.basename(rp),
+            "contentType": "application/pdf",
+            "contentBytes": base64.b64encode(open(rp, "rb").read()).decode(),
+        }]
+    payload = {
+        "message": {
+            "subject": subject,
+            "body": {"contentType": "HTML", "content": body_html},
+            "toRecipients": [{"emailAddress": {"address": to_email}}],
+            "from": {"emailAddress": {"name": MS_SENDER_NAME, "address": MS_SENDER_EMAIL}},
+            "replyTo": [{"emailAddress": {"name": MS_SENDER_NAME, "address": MS_SENDER_EMAIL}}],
+        },
+        "saveToSentItems": "true",
+    }
+    if attach:
+        payload["message"]["attachments"] = attach
+    resp = _req.post(
+        f"https://graph.microsoft.com/v1.0/users/{MS_SENDER_EMAIL}/sendMail",
+        headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"},
+        json=payload, timeout=30,
+    )
+    if resp.status_code not in (200, 202):
+        raise Exception(f"Graph {resp.status_code}: {resp.text[:200]}")
+    return True
+
+def _get_sheets():
+    scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
+    creds = ServiceAccountCredentials.from_json_keyfile_name(SHEETS_CREDS, scope)
+    return gspread.authorize(creds).open(SPREADSHEET).worksheet(OUTREACH_TAB)
+
+def _sheets_retry(fn, *a, **kw):
+    for i in range(3):
+        try: return fn(*a, **kw)
         except Exception as e:
             if "429" in str(e) or "RESOURCE_EXHAUSTED" in str(e):
-                wait = 2 ** (attempt + 1)
-                log.warning(f"Sheets rate limit, retrying in {wait}s...")
-                time.sleep(wait)
-            elif attempt < retries - 1:
-                time.sleep(2)
-            else:
-                raise
+                time.sleep(2 ** (i + 1))
+            elif i < 2: time.sleep(2)
+            else: raise
 
 
-# ============================================================================
-# Main
-# ============================================================================
+# ── main ─────────────────────────────────────────────────────────────────────
+
 def main():
     try:
         from zoneinfo import ZoneInfo
@@ -254,168 +159,130 @@ def main():
 
     est = ZoneInfo("US/Eastern")
     now = datetime.datetime.now(est)
-
-    print(f"SEND SCHEDULED EMAILS  {now.strftime('%b %d, %Y %I:%M %p ET')}")
+    print(f"SEND SCHEDULED  {now.strftime('%b %d, %Y %I:%M %p ET')}")
     print("-" * 50)
 
-    # Load persistent state
-    sent_log = load_sent_log()
-    sent_log = cleanup_sent_log(sent_log)  # Prune old entries
-    fail_counts = load_fail_counts()
+    sl = _clean_sl(_load(SENT_LOG_FILE))
+    fc = _load(FAIL_COUNT_FILE)
 
-    gmail = get_gmail_service()
-    ws = get_sheets()
-    time.sleep(1)
-
-    data = sheets_retry(ws.get, "A1:Q600")
-    time.sleep(1)
-
-    if not data or len(data) < 2:
-        print("No data found.")
+    try:
+        token = _get_token()
+    except Exception as e:
+        print(f"  ERROR: {e}")
         return
 
-    sent_count = 0
-    skipped_count = 0
-    failed_count = 0
-    dedup_count = 0
-    dead_count = 0
+    ws = _get_sheets()
+    time.sleep(1)
+    data = _sheets_retry(ws.get_all_values)
+    time.sleep(1)
+    if not data or len(data) < 2:
+        print("No data."); return
+
+    sent = skipped = failed = dedup = dead = 0
+    MAX_PER_RUN = 15  # cap per run to protect edu account reputation
 
     for i, row in enumerate(data[1:], start=2):
         row = _pad(row)
+        send_at_str  = row[C["send_at"]].strip()
+        sent_date    = row[C["sent_dt"]].strip()
+        he           = row[C["hm_email"]].strip()
+        re_          = row[C["rec_email"]].strip()
+        co           = row[C["company"]].strip()
+        title        = row[C["title"]].strip()
+        jid          = row[C["job_id"]].strip()
+        hn           = row[C["hm_name"]].strip()
+        rn           = row[C["rec_name"]].strip()
+        conf         = row[C["confidence"]].strip() if len(row) > C["confidence"] else ""
+        resume_type  = "SDE"
 
-        send_at_str = row[C["send_at"]].strip()
-        sent_date = row[C["sent_dt"]].strip()
-        he = row[C["hm_email"]].strip()
-        re_ = row[C["rec_email"]].strip()
-        co = row[C["company"]].strip()
-        title = row[C["title"]].strip()
-        jid = row[C["job_id"]].strip()
-
-        # Skip if no Send At, already sent, or no emails
+        # Skip if no Send At, already sent, no emails, or low confidence
         if not send_at_str or sent_date or (not he and not re_):
             continue
+        if conf == "Low":
+            skipped += 1; continue
+        if sent >= MAX_PER_RUN:
+            skipped += 1; continue
 
-        # Parse Send At time
-        send_time = parse_send_at(send_at_str)
-        if not send_time:
-            continue
+        send_time = _parse_send_at(send_at_str)
+        if not send_time or now < send_time:
+            skipped += 1; continue
 
-        # Check if it's time to send
-        if now < send_time:
-            skipped_count += 1
-            continue
+        # Skip if stale (>7 days)
+        if (now - send_time).total_seconds() > 168 * 3600:
+            skipped += 1; continue
 
-        # Check staleness (skip if older than 7 days)
-        age_hours = (now - send_time).total_seconds() / 3600
-        if age_hours > 168:  # 7 days
-            log.info(f"  {co}: Skipped (too old: {age_hours:.0f}h)")
-            skipped_count += 1
-            continue
+        # Get resume type directly from Valid Entries sheet (cache-safe)
+        try:
+            import gspread as _gs
+            from oauth2client.service_account import ServiceAccountCredentials as _SAC
+            from outreach.outreach_config import SHEETS_CREDS, SPREADSHEET
+            if not hasattr(_parse_send_at, "_resume_map"):
+                _scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
+                _creds = _SAC.from_json_keyfile_name(SHEETS_CREDS, _scope)
+                _ws = _gs.authorize(_creds).open(SPREADSHEET).worksheet("Valid Entries")
+                _parse_send_at._resume_map = {}
+                for _r in _ws.get_all_values()[1:]:
+                    if len(_r) > 9:
+                        _k = (_r[2].strip().lower(), _r[3].strip().lower())
+                        _v = _r[9].strip()
+                        _parse_send_at._resume_map[_k] = _v if _v in ("SDE","ML","DA") else "SDE"
+            resume_type = _parse_send_at._resume_map.get((co.lower(), title.lower()), "SDE")
+        except Exception:
+            pass
 
-        # Check confidence label — refuse to send Low confidence
-        conf_label = row[C.get("confidence", 15)].strip() if len(row) > C.get("confidence", 15) else ""
-        if conf_label == "Low":
-            print(f"  {co}: Skipped (confidence: Low)")
-            skipped_count += 1
-            continue
+        print(f"  {co} | {title[:35]}...")
+        emails_sent_this_row = []
+        row_failed = False
 
-        print(f"  {co} | {title[:40]}...")
-
-        emails_sent = []
-        row_had_failure = False
-
-        # Process HM and Rec emails
-        for label, email_field in [("HM", he), ("Rec", re_)]:
-            if not email_field:
-                continue
-
+        for label, email_field, name in [("HM", he, hn), ("Rec", re_, rn)]:
+            if not email_field: continue
             for email in [e.strip() for e in email_field.split(",") if e.strip()]:
-                subject_frag = title if not jid or jid == "N/A" else f"{title} | {jid}"
-                subject_for_dedup = f"Prasad Kanade — Application for {subject_frag}"
+                subj, body = _build_email(name or co, "hm" if label == "HM" else "rec", co, title, jid)
+                rk = _row_key(co, title, email)
 
-                # --- Dead letter check ---
-                row_key = get_row_key(co, title, email)
-                current_fails = fail_counts.get(row_key, 0)
-                if current_fails >= DEAD_LETTER_MAX:
-                    print(
-                        f"    ☠ {label} dead letter: {email} (failed {current_fails}x)"
-                    )
-                    dead_count += 1
-                    continue
+                if fc.get(rk, 0) >= DEAD_MAX:
+                    print(f"    x {label} dead: {email}"); dead += 1; continue
+                if _dup(sl, email, subj):
+                    print(f"    o {label} dup: {email}"); dedup += 1; continue
 
-                # --- Deduplication check ---
-                if is_duplicate(sent_log, email, subject_for_dedup):
-                    print(f"    ⊘ {label} duplicate skipped: {email}")
-                    dedup_count += 1
-                    continue
+                try:
+                    _send_ms(token, email, subj, _to_html(body), resume_type)
+                    print(f"    + {label} sent: {email}")
+                    emails_sent_this_row.append(email)
+                    sent += 1
+                    _rec(sl, email, subj)
+                    fc.pop(rk, None)
+                except Exception as e:
+                    print(f"    - {label} failed: {email} ({e})")
+                    failed += 1; row_failed = True
+                    fc[rk] = fc.get(rk, 0) + 1
 
-                # --- Find and send draft ---
-                draft_id = find_matching_draft(gmail, email, subject_frag)
-                if draft_id:
-                    success, msg_id = send_draft(gmail, draft_id)
-                    if success:
-                        print(f"    ✓ {label} sent: {email}")
-                        emails_sent.append(email)
-                        sent_count += 1
-                        record_sent(sent_log, email, subject_for_dedup)
-                        # Clear fail count on success
-                        if row_key in fail_counts:
-                            del fail_counts[row_key]
-                    else:
-                        print(f"    ✗ {label} failed: {email} ({msg_id})")
-                        failed_count += 1
-                        row_had_failure = True
-                        # Increment fail count
-                        fail_counts[row_key] = current_fails + 1
-                        if fail_counts[row_key] >= DEAD_LETTER_MAX:
-                            print(
-                                f"    ☠ {label} moved to dead letter after {DEAD_LETTER_MAX} failures: {email}"
-                            )
-                else:
-                    print(f"    ⊘ {label} draft not found: {email}")
-                    skipped_count += 1
+                time.sleep(45)  # 45s between emails — safe for new MS account
 
-                time.sleep(3)
-
-        # Update Sent Date if any emails were sent
-        if emails_sent:
-            sent_date_str = now.strftime("%b %d, %Y")
+        if emails_sent_this_row:
             try:
-                sheets_retry(ws.update_acell, f"{_cl(C['sent_dt'])}{i}", sent_date_str)
+                _sheets_retry(ws.update_acell, f"{_cl(C['sent_dt'])}{i}", now.strftime("%b %d, %Y"))
                 time.sleep(0.5)
             except Exception as e:
-                log.error(f"Failed to update Sent Date for row {i}: {e}")
+                log.error(f"Sent Date update failed row {i}: {e}")
 
-        # If row had failures, note it in the Notes column
-        if row_had_failure:
+        if row_failed:
             try:
-                notes_col = _cl(C["notes"])
-                existing_notes = sheets_retry(ws.acell, f"{notes_col}{i}")
-                existing = (
-                    existing_notes.value
-                    if existing_notes and existing_notes.value
-                    else ""
-                )
+                nc = _cl(C["notes"])
+                existing = (_sheets_retry(ws.acell, f"{nc}{i}").value or "")
+                time.sleep(0.5)
                 if "Send failed" not in existing:
-                    fail_note = f"Send failed on {now.strftime('%b %d')}"
-                    updated = (
-                        f"{existing} | {fail_note}".strip(" |")
-                        if existing
-                        else fail_note
-                    )
-                    sheets_retry(ws.update_acell, f"{notes_col}{i}", updated)
+                    note = f"Send failed {now.strftime('%b %d')}"
+                    _sheets_retry(ws.update_acell, f"{nc}{i}",
+                                  f"{existing} | {note}".strip(" |") if existing else note)
                     time.sleep(0.5)
             except Exception as e:
-                log.error(f"Failed to update notes for row {i}: {e}")
+                log.error(f"Notes update failed row {i}: {e}")
 
-    # Save persistent state
-    save_sent_log(sent_log)
-    save_fail_counts(fail_counts)
-
+    _save(SENT_LOG_FILE, sl)
+    _save(FAIL_COUNT_FILE, fc)
     print("-" * 50)
-    print(
-        f"Sent: {sent_count} | Skipped: {skipped_count} | Failed: {failed_count} | Dedup: {dedup_count} | Dead: {dead_count}"
-    )
+    print(f"Sent:{sent} Skipped:{skipped} Failed:{failed} Dup:{dedup} Dead:{dead}")
 
 
 if __name__ == "__main__":

@@ -1,0 +1,208 @@
+#!/usr/bin/env python3
+"""
+Auto-set Extract=yes in Outreach Tracker based on smart signals.
+Signals that set Extract=yes:
+  - Sponsorship = Yes (explicit)
+  - Location in a major US tech hub
+  - Company in PatternCache (we've successfully emailed them before)
+Signals that set Extract=Skip:
+  - Sponsorship = No (never target)
+  - Extract already set (never overwrite)
+"""
+import sys, os, time, logging, json
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+from outreach.outreach_config import C, SHEETS_CREDS, SPREADSHEET, OUTREACH_TAB, PATTERNS_FILE
+from outreach.outreach_data import _pad, _cl
+import gspread
+from oauth2client.service_account import ServiceAccountCredentials
+
+log = logging.getLogger(__name__)
+logging.basicConfig(level=logging.INFO, format="%(message)s")
+
+# Major US tech hub cities and states
+TECH_HUB_KEYWORDS = {
+    # California
+    "san francisco", "sf", "bay area", "silicon valley", "san jose",
+    "santa clara", "sunnyvale", "mountain view", "palo alto", "menlo park",
+    "redwood city", "foster city", "burlingame", "san mateo", "fremont",
+    "oakland", "berkeley", "cupertino", "los angeles", "la", "santa monica",
+    "venice", "culver city", "san diego", "irvine", "los gatos",
+    # Washington
+    "seattle", "bellevue", "redmond", "kirkland", "bothell",
+    # Texas
+    "austin", "dallas", "houston", "san antonio", "round rock",
+    # Massachusetts
+    "boston", "cambridge", "waltham", "burlington", "lexington",
+    "woburn", "somerville", "watertown", "andover",
+    # New York
+    "new york", "nyc", "brooklyn", "manhattan", "new york city",
+    # Illinois
+    "chicago",
+    # Colorado
+    "denver", "boulder",
+    # Georgia
+    "atlanta",
+    # Virginia
+    "reston", "mclean", "arlington", "herndon",
+    # Remote is always worth targeting
+    "remote",
+    # State abbreviations
+    ", ca", ", wa", ", tx", ", ma", ", ny", ", il", ", co",
+}
+
+def _load_pattern_cache():
+    """Load learned company domains from PatternCache."""
+    try:
+        if os.path.exists(PATTERNS_FILE):
+            return set(json.load(open(PATTERNS_FILE)).keys())
+    except Exception:
+        pass
+    return set()
+
+def _is_tech_hub(location):
+    if not location or location == "Unknown":
+        return False
+    loc = location.lower()
+    return any(kw in loc for kw in TECH_HUB_KEYWORDS)
+
+def _should_extract(row, pattern_domains):
+    """Return 'yes', 'skip', or None (don't change)."""
+    sponsorship = row[14].strip() if len(row) > 14 else ""  # column O in Valid Entries
+    # We read from Outreach Tracker which has company/title but not sponsorship directly
+    # So we use the signals available in the outreach row
+    extract = row[C["extract"]].strip().lower() if len(row) > C["extract"] else ""
+
+    # Never overwrite existing yes/skip
+    if extract in ("yes", "skip"):
+        return None
+
+    company = row[C["company"]].strip().lower()
+    notes   = row[C["notes"]].strip().lower() if len(row) > C["notes"] else ""
+    hm_email = row[C["hm_email"]].strip() if len(row) > C["hm_email"] else ""
+    rec_email = row[C["rec_email"]].strip() if len(row) > C["rec_email"] else ""
+
+    # If we already have emails, mark yes automatically
+    if hm_email or rec_email:
+        return "yes"
+
+    # Company in pattern cache = we've emailed them before = high value
+    for domain in pattern_domains:
+        domain_co = domain.split(".")[0].lower()
+        if domain_co and len(domain_co) > 3 and domain_co in company:
+            return "yes"
+
+    return None  # Can't determine without location/sponsorship — leave blank
+
+
+def _get_valid_entries_signals():
+    """Read location and sponsorship from Valid Entries sheet."""
+    try:
+        from outreach.outreach_config import VALID_TAB
+        scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
+        creds = ServiceAccountCredentials.from_json_keyfile_name(SHEETS_CREDS, scope)
+        gc = gspread.authorize(creds)
+        ss = gc.open(SPREADSHEET)
+        valid = ss.worksheet("Valid Entries")
+        rows = valid.get_all_values()[1:]
+        # Build lookup: (company.lower(), title.lower()) -> (location, sponsorship)
+        signals = {}
+        for row in rows:
+            if len(row) < 14:
+                continue
+            co    = row[2].strip().lower()
+            title = row[3].strip().lower()
+            loc   = row[8].strip() if len(row) > 8 else ""
+            spon  = row[13].strip() if len(row) > 13 else ""
+            signals[(co, title)] = {"location": loc, "sponsorship": spon}
+        return signals, ss
+    except Exception as e:
+        log.error(f"Valid Entries read failed: {e}")
+        return {}, None
+
+
+def main():
+    print(f"AUTO EXTRACT  setting Extract=yes based on smart signals")
+    print("-" * 50)
+
+    pattern_domains = _load_pattern_cache()
+    signals, ss = _get_valid_entries_signals()
+    if ss is None:
+        print("  ERROR: Could not connect to sheets")
+        return
+
+    try:
+        ws = ss.worksheet(OUTREACH_TAB)
+    except Exception as e:
+        print(f"  ERROR: {e}")
+        return
+
+    time.sleep(1)
+    data = ws.get_all_values()
+    time.sleep(1)
+
+    updates = []
+    yes_count = skip_count = 0
+
+    for i, row in enumerate(data[1:], start=2):
+        row = _pad(row)
+        extract = row[C["extract"]].strip().lower() if len(row) > C["extract"] else ""
+
+        # Never overwrite existing
+        if extract in ("yes", "skip"):
+            continue
+
+        co    = row[C["company"]].strip()
+        title = row[C["title"]].strip()
+        key   = (co.lower(), title.lower())
+        sig   = signals.get(key, {})
+        loc   = sig.get("location", "")
+        spon  = sig.get("sponsorship", "")
+
+        new_val = None
+
+        # Hard reject: sponsorship = No
+        if spon.lower() == "no":
+            new_val = "Skip"
+            skip_count += 1
+
+        # Strong yes signals
+        elif spon.lower() == "yes":
+            new_val = "yes"
+            yes_count += 1
+
+        elif _is_tech_hub(loc):
+            new_val = "yes"
+            yes_count += 1
+
+        else:
+            # Check pattern cache
+            co_lower = co.lower()
+            for domain in pattern_domains:
+                domain_co = domain.split(".")[0].lower()
+                if domain_co and len(domain_co) > 3 and domain_co in co_lower:
+                    new_val = "yes"
+                    yes_count += 1
+                    break
+
+        if new_val:
+            col = _cl(C["extract"])
+            updates.append({"range": f"{col}{i}", "values": [[new_val]]})
+
+    if updates:
+        for chunk in range(0, len(updates), 50):
+            try:
+                ws.batch_update(updates[chunk:chunk+50], value_input_option="USER_ENTERED")
+                time.sleep(1)
+            except Exception as e:
+                log.error(f"Batch update failed: {e}")
+        print(f"  Set Extract=yes: {yes_count} rows")
+        print(f"  Set Extract=Skip: {skip_count} rows")
+    else:
+        print("  No rows to update")
+
+    print("-" * 50)
+
+
+if __name__ == "__main__":
+    main()

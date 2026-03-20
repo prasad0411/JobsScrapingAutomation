@@ -12,7 +12,12 @@ echo "=== $MODULE started at $(date) ===" >> "$LOG_FILE"
 # Sync latest resumes from Downloads before running
 bash scripts/resume_sync.sh >> "$LOG_FILE" 2>&1
 
-python3 -m "$MODULE" >> "$LOG_FILE" 2>&1
+# Support both module paths (e.g. "aggregator") and script paths (e.g. "scripts/send_scheduled")
+if [[ "$MODULE" == scripts/* ]]; then
+    python3 "${MODULE}.py" >> "$LOG_FILE" 2>&1
+else
+    python3 -m "$MODULE" >> "$LOG_FILE" 2>&1
+fi
 EXIT_CODE=$?
 echo "=== $MODULE finished at $(date) (exit: $EXIT_CODE) ===" >> "$LOG_FILE"
 # Keep only last 7 days of logs

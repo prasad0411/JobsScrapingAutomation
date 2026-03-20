@@ -426,6 +426,13 @@ def main():
     phase_pull(sh)
     sh.sync_with_valid()
 
+    # Auto-set Extract=yes based on location/sponsorship/pattern signals
+    try:
+        import subprocess, sys as _sys
+        subprocess.run([_sys.executable, "scripts/auto_extract.py"], timeout=120)
+    except Exception as _ae:
+        log.debug(f"auto_extract skipped: {_ae}")
+
     # Mark delivered emails (sent 12h+ ago, no bounce)
     try:
         all_bounced = set(BounceScanner.load_bounced().keys())
