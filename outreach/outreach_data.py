@@ -104,8 +104,8 @@ class Sheets:
                         },
                     },
                 )
-            except:
-                pass
+            except Exception as _e:
+                log.debug(f"sheets op failed: {_e}")
 
             try:
                 end = _cl(len(O_HEADERS) - 1)
@@ -117,8 +117,8 @@ class Sheets:
                         "textFormat": {"fontFamily": "Times New Roman", "fontSize": 13},
                     },
                 )
-            except:
-                pass
+            except Exception as _e:
+                log.debug(f"sheets op failed: {_e}")
 
             try:
                 self.ss.batch_update(
@@ -140,8 +140,8 @@ class Sheets:
                         ]
                     }
                 )
-            except:
-                pass
+            except Exception as _e:
+                log.debug(f"sheets op failed: {_e}")
 
             try:
                 widths = []
@@ -176,8 +176,8 @@ class Sheets:
                         }
                     )
                 self.ss.batch_update({"requests": widths})
-            except:
-                pass
+            except Exception as _e:
+                log.debug(f"sheets op failed: {_e}")
 
             try:
                 self.ss.batch_update(
@@ -195,8 +195,8 @@ class Sheets:
                         ]
                     }
                 )
-            except:
-                pass
+            except Exception as _e:
+                log.debug(f"sheets op failed: {_e}")
 
             self._p()
         # Always apply body formatting (runs every session, not just creation)
@@ -257,8 +257,8 @@ class Sheets:
             if fmt_requests:
                 self.ss.batch_update({"requests": fmt_requests})
             self._p()
-        except:
-            pass
+        except Exception as _e:
+            log.debug(f"op failed: {_e}")
 
     def pull(self):
         """Full positional sync: mirror Valid sheet order, copy Company/Title/JobID verbatim."""
@@ -598,8 +598,8 @@ class Sheets:
             try:
                 if os.path.exists(failed_file):
                     failed = json.load(open(failed_file))
-            except:
-                pass
+            except Exception as _e:
+                log.debug(f"sheets op failed: {_e}")
             if domain not in failed:
                 failed[domain] = []
             # FIX 4: store both local part AND pattern string for domain-wide blocking
@@ -618,8 +618,8 @@ class Sheets:
                     break
             try:
                 json.dump(failed, open(failed_file, "w"), indent=2)
-            except:
-                pass
+            except Exception as _e:
+                log.debug(f"sheets op failed: {_e}")
 
             # Generate alternatives, skipping the failed pattern
             from outreach.outreach_config import PAT_A, PAT_B
@@ -689,6 +689,11 @@ class Sheets:
                 # FIX 9: skip rows not marked for extraction
                 extract_val = r[C["extract"]].strip().lower() if len(r) > C["extract"] else ""
                 if extract_val != "yes":
+                    continue
+                # Skip if no emails discovered yet — LinkedIn msg without email is useless
+                he = r[C["hm_email"]].strip() if len(r) > C["hm_email"] else ""
+                re_ = r[C["rec_email"]].strip() if len(r) > C["rec_email"] else ""
+                if not he and not re_:
                     continue
                 # HM LinkedIn Msg (supports multiple comma-separated names)
                 hm_existing = r[C["hm_li_msg"]].strip() if len(r) > C["hm_li_msg"] else ""
@@ -837,23 +842,30 @@ class Sheets:
         """Errors logged to .local/outreach.log only — no sheet column."""
         log.debug(f"Row {row}: {msg}")
 
+    def _build_resume_cache(self):
+        """Build resume cache from Valid Entries. Safe to call multiple times."""
+        try:
+            valid = self.ss.worksheet("Valid Entries")
+            rows = valid.get_all_values()
+            self._p()
+            Sheets._resume_cache = {}
+            for row in rows[1:]:
+                if len(row) > V_RESUME:
+                    key = (
+                        row[V_COMPANY].strip().lower(),
+                        row[V_TITLE].strip().lower(),
+                    )
+                    r = row[V_RESUME].strip()
+                    Sheets._resume_cache[key] = r if r in ("SDE", "ML", "DA") else "SDE"
+        except Exception as e:
+            import logging as _log
+            _log.getLogger(__name__).debug(f"resume cache build failed: {e}")
+            if Sheets._resume_cache is None:
+                Sheets._resume_cache = {}
+
     def get_resume_type(self, company, title):
         if Sheets._resume_cache is None:
-            try:
-                valid = self.ss.worksheet("Valid Entries")
-                rows = valid.get_all_values()
-                self._p()
-                Sheets._resume_cache = {}
-                for row in rows[1:]:
-                    if len(row) > V_RESUME:
-                        key = (
-                            row[V_COMPANY].strip().lower(),
-                            row[V_TITLE].strip().lower(),
-                        )
-                        r = row[V_RESUME].strip()
-                        Sheets._resume_cache[key] = r if r in ("SDE", "ML") else "SDE"
-            except:
-                Sheets._resume_cache = {}
+            self._build_resume_cache()
         return Sheets._resume_cache.get(
             (company.strip().lower(), title.strip().lower()), "SDE"
         )
@@ -1015,16 +1027,16 @@ class Credits:
                 self._d = json.load(open(CREDITS_FILE))
                 self._auto_reset()
                 return
-            except:
-                pass
+            except Exception as _e:
+                log.debug(f"sheets op failed: {_e}")
         self._d = self._default()
         self._save()
 
     def _save(self):
         try:
             json.dump(self._d, open(CREDITS_FILE, "w"), indent=2)
-        except:
-            pass
+        except Exception as _e:
+            log.debug(f"op failed: {_e}")
 
     def _auto_reset(self):
         today = datetime.datetime.now().strftime("%Y-%m-%d")
@@ -1248,14 +1260,14 @@ class PatternCache:
         if os.path.exists(PATTERNS_FILE):
             try:
                 self._d.update(json.load(open(PATTERNS_FILE)))
-            except:
-                pass
+            except Exception as _e:
+                log.debug(f"sheets op failed: {_e}")
 
     def _save(self):
         try:
             json.dump(self._d, open(PATTERNS_FILE, "w"), indent=2)
-        except:
-            pass
+        except Exception as _e:
+            log.debug(f"op failed: {_e}")
 
     def get(self, domain):
         return self._d.get(domain.lower())

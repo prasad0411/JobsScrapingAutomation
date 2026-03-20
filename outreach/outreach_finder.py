@@ -33,13 +33,38 @@ except ImportError:
     _DNS = False
 
 
+_DOMAIN_CACHE_FILE = os.path.join(
+    os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+    ".local", "domain_cache.json"
+)
+_DOMAIN_CACHE_TTL_DAYS = 30
+
+
+def _load_domain_cache():
+    try:
+        if os.path.exists(_DOMAIN_CACHE_FILE):
+            raw = json.load(open(_DOMAIN_CACHE_FILE))
+            cutoff = __import__('time').time() - _DOMAIN_CACHE_TTL_DAYS * 86400
+            return {k: v for k, v in raw.items() if v.get("ts", 0) > cutoff}
+    except Exception:
+        pass
+    return {}
+
+
+def _save_domain_cache(cache):
+    try:
+        json.dump(cache, open(_DOMAIN_CACHE_FILE, "w"), indent=2)
+    except Exception as e:
+        log.debug(f"domain_cache save failed: {e}")
+
+
 class Finder:
     def __init__(self, credits: Credits):
         self.cr = credits
         self.pc = PatternCache()
         self.pv = ProviderVerifier()
         self._reacher = None
-        self._dom = {}
+        self._dom = _load_domain_cache()
         self.verifier = EmailVerifier(
             provider_verifier=self.pv,
             reacher_verify_fn=self._verify,
@@ -258,7 +283,8 @@ class Finder:
             return []
         k = company.strip().lower()
         if k in self._dom:
-            return self._dom[k]
+            v = self._dom[k]
+            return v["domains"] if isinstance(v, dict) else v
         doms = []
         try:
             resp = requests.get(
@@ -275,8 +301,8 @@ class Finder:
                             log.warning(f"Clearbit suspect domain BLOCKED: {company} → {d} (no name overlap). Add to .local/domain_overrides.json if correct.")
                             continue  # BLOCK suspect domains instead of using them
                     doms.append(d)
-        except:
-            pass
+        except Exception as _e:
+            log.debug(f"finder op failed: {_e}")
         if not doms:
             clean = self._clean(company)
             if clean:
@@ -306,7 +332,8 @@ class Finder:
                 if self._mx(d):
                     doms = [d]
         unique = list(dict.fromkeys(d.lower() for d in doms))
-        self._dom[k] = unique
+        self._dom[k] = {"domains": unique, "ts": __import__('time').time()}
+        _save_domain_cache(self._dom)
         return unique
 
     @staticmethod
@@ -336,8 +363,8 @@ class Finder:
             try:
                 dns.resolver.resolve(domain, "MX")
                 return True
-            except:
-                pass
+            except Exception as _e:
+                log.debug(f"finder op failed: {_e}")
             try:
                 dns.resolver.resolve(domain, "A")
                 return True
@@ -429,8 +456,8 @@ class Finder:
             )
             if resp.status_code == 200:
                 return resp.json().get("is_reachable", "unknown")
-        except:
-            pass
+        except Exception as _e:
+            log.debug(f"finder op failed: {_e}")
         return "unknown"
 
     @staticmethod
@@ -446,8 +473,8 @@ class Finder:
                 for k, v in overrides.items():
                     if k.lower() == key.lower():
                         return v
-        except:
-            pass
+        except Exception as _e:
+            log.debug(f"finder op failed: {_e}")
         return ""
 
     @staticmethod
@@ -455,8 +482,8 @@ class Finder:
         try:
             if os.path.exists(RETRY_FILE):
                 return json.load(open(RETRY_FILE))
-        except:
-            pass
+        except Exception as _e:
+            log.debug(f"finder op failed: {_e}")
         return {}
 
     @staticmethod
@@ -470,8 +497,8 @@ class Finder:
         retries[company_key]["ts"] = time.time()
         try:
             json.dump(retries, open(RETRY_FILE, "w"), indent=2)
-        except:
-            pass
+        except Exception as _e:
+            log.debug(f"finder op failed: {_e}")
 
     @staticmethod
     def _clear_retry(company_key):
@@ -480,8 +507,8 @@ class Finder:
             del retries[company_key]
             try:
                 json.dump(retries, open(RETRY_FILE, "w"), indent=2)
-            except:
-                pass
+            except Exception as _e:
+                log.debug(f"finder op failed: {_e}")
 
     def _is_catchall(self, domain):
         """Test if domain accepts all emails (catch-all)."""
@@ -500,8 +527,8 @@ class Finder:
                 if reachable == "safe":
                     log.info(f"Catch-all domain: {domain}")
                     return True
-        except:
-            pass
+        except Exception as _e:
+            log.debug(f"finder op failed: {_e}")
         return False
 
     def _rok(self):

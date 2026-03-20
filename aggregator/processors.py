@@ -964,8 +964,8 @@ class LocationExtractor:
                     location = match.group(1).strip()
                     if 3 < len(location) < 100:
                         return ExtractionResult(location, conf, "selenium_text")
-        except:
-            pass
+        except Exception as _e:
+            logging.debug(f"op failed: {_e}")
 
         return None
 
@@ -1496,8 +1496,8 @@ class LocationProcessor:
             match = re.search(r"[?&]city=([A-Za-z]+)", url, re.I)
             if match:
                 return match.group(1)
-        except:
-            pass
+        except Exception as _e:
+            logging.debug(f"op failed: {_e}")
         return None
 
     @staticmethod

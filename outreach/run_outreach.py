@@ -8,6 +8,31 @@ Outreach Pipeline
 """
 
 import sys, os, datetime, logging
+
+
+def _notify(msg):
+    """Post run summary to Slack if SLACK_WEBHOOK_URL is set in .env."""
+    try:
+        _root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        _env = os.path.join(_root, ".env")
+        _url = ""
+        if os.path.exists(_env):
+            for ln in open(_env):
+                ln = ln.strip()
+                if ln.startswith("SLACK_WEBHOOK_URL="):
+                    _url = ln.split("=", 1)[1].strip()
+                    break
+        if not _url:
+            return
+        import urllib.request, json as _j
+        data = _j.dumps({"text": msg}).encode()
+        req = urllib.request.Request(_url, data=data,
+                                     headers={"Content-Type": "application/json"})
+        urllib.request.urlopen(req, timeout=5)
+    except Exception:
+        pass  # Never crash the pipeline over a notification
+
+
 from outreach.outreach_config import LOG_FILE
 from outreach.outreach_data import Sheets, Credits
 from outreach.outreach_finder import Finder
@@ -153,6 +178,26 @@ def phase_extract_and_draft(sheets, finder, mailer):
         "draft_failed": 0,
     }
 
+    # Load bounce + failed pattern data ONCE before the loop (not per row)
+    _all_bounced = set(BounceScanner.load_bounced().keys())
+    _failed_pat_file = os.path.join(os.path.dirname(os.path.dirname(
+        os.path.abspath(__file__))), ".local", "failed_patterns.json")
+    _failed_pats = {}
+    try:
+        import json as _json
+        if os.path.exists(_failed_pat_file):
+            _failed_pats = _json.load(open(_failed_pat_file))
+    except Exception:
+        pass
+    _dh_file = os.path.join(os.path.dirname(os.path.dirname(
+        os.path.abspath(__file__))), ".local", "domain_pattern_history.json")
+    _dh_data = {}
+    try:
+        if os.path.exists(_dh_file):
+            _dh_data = _json.load(open(_dh_file))
+    except Exception:
+        pass
+
     for row in rows:
         rn = row["row"]
         stats["processed"] += 1
@@ -164,17 +209,6 @@ def phase_extract_and_draft(sheets, finder, mailer):
             if hasattr(sheets, "get_job_url_domain")
             else ""
         )
-        # FIX 2: Load bounce + failed pattern lists before extraction
-        _all_bounced = set(BounceScanner.load_bounced().keys())
-        _failed_pat_file = os.path.join(os.path.dirname(os.path.dirname(
-            os.path.abspath(__file__))), ".local", "failed_patterns.json")
-        _failed_pats = {}
-        try:
-            import json as _json
-            if os.path.exists(_failed_pat_file):
-                _failed_pats = _json.load(open(_failed_pat_file))
-        except Exception:
-            pass
 
         def _is_blocked(email):
             if not email or "@" not in email:
@@ -192,13 +226,10 @@ def phase_extract_and_draft(sheets, finder, mailer):
                     log.info(f"Pre-send block: {email} matches failed local in failed_patterns.json")
                     return True
                 # entry might be a pattern string like {first}.{last} — skip those here
-            # Check 3: domain_pattern_history.json failed patterns
+            # Check 3: domain_pattern_history.json failed patterns (pre-loaded above)
             try:
-                import json as _json2
-                _dh_file = os.path.join(os.path.dirname(os.path.dirname(
-                    os.path.abspath(__file__))), ".local", "domain_pattern_history.json")
-                if os.path.exists(_dh_file):
-                    _dh = _json2.load(open(_dh_file))
+                _dh = _dh_data
+                if _dh:
                     _entry = _dh.get(domain, {})
                     _failed_domain_pats = _entry.get("failed_patterns", [])
                     # Detect pattern of this email
@@ -413,6 +444,12 @@ def main():
         f"Email IDs: {s['extracted']} extracted, {s['extract_failed']} failed ({s['processed']} processed)"
     )
     print(f"Drafts:    {s['drafts']} created, {s['draft_failed']} failed")
+    _notify(
+        f":outbox_tray: *Outreach run complete* ({now})\n"
+        f"Extracted: {s['extracted']} emails, {s['extract_failed']} failed\n"
+        f"Drafts: {s['drafts']} created, {s['draft_failed']} failed\n"
+        f"Circuit breaker: {CircuitBreaker.status()}"
+    )
 
 
 if __name__ == "__main__":

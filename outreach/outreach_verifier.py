@@ -38,6 +38,9 @@ _LOCAL = os.path.join(
 CIRCUIT_BREAKER_FILE = os.path.join(_LOCAL, "circuit_breaker.json")
 DOMAIN_HISTORY_FILE = os.path.join(_LOCAL, "domain_pattern_history.json")
 
+# Module-level cache — loaded once, invalidated on every write
+_DH_CACHE = None
+
 AUTO_SEND_THRESHOLD = 75
 MANUAL_REVIEW_THRESHOLD = 50
 MAX_DAILY_BOUNCES = 2
@@ -264,20 +267,27 @@ class DomainHistory:
 
     @staticmethod
     def load():
+        global _DH_CACHE
+        if _DH_CACHE is not None:
+            return _DH_CACHE
         try:
             if os.path.exists(DOMAIN_HISTORY_FILE):
-                return json.load(open(DOMAIN_HISTORY_FILE))
+                _DH_CACHE = json.load(open(DOMAIN_HISTORY_FILE))
+                return _DH_CACHE
         except Exception:
             pass
-        return {}
+        _DH_CACHE = {}
+        return _DH_CACHE
 
     @staticmethod
     def save(data):
+        global _DH_CACHE
+        _DH_CACHE = data  # invalidate in-memory cache with new data
         try:
             os.makedirs(_LOCAL, exist_ok=True)
             json.dump(data, open(DOMAIN_HISTORY_FILE, "w"), indent=2)
-        except Exception:
-            pass
+        except Exception as e:
+            log.debug(f"DomainHistory save failed: {e}")
 
     @staticmethod
     def record_success(domain, pattern, email):
