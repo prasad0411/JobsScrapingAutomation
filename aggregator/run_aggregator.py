@@ -1285,6 +1285,15 @@ class UnifiedJobAggregator:
                 logging.info(f"REJECTED | {company} | {title} | Not internship | ZipRecruiter")
                 self.source_stats[sender]["rejected"] += 1
                 return
+
+            # Early CS role check on title alone — avoids fetching non-CS pages
+            _early_cs = TitleProcessor.is_cs_engineering_role(title)
+            if not _early_cs:
+                self.outcomes["skipped_non_tech"] = self.outcomes.get("skipped_non_tech", 0) + 1
+                self._print_rejected(company, "Not CS/Engineering (title)")
+                logging.info(f"REJECTED | {company} | {title} | Not CS/Engineering (early title check) | ZipRecruiter")
+                self.source_stats[sender]["rejected"] += 1
+                return
             # ── Full page validation on ZipRecruiter page itself ──────
             try:
                 import requests as _req

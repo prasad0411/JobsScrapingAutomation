@@ -468,6 +468,8 @@ INVALID_TITLE_KEYWORDS = [
     # FIX 2: hardware/optics/photonics/laser/materials/SkillBridge roles
     r"laser\s+(?:application|engineer|technician|optic)",
     r"optic(?:al|s)?\s+(?:engineer|intern|technician)",
+    r"opto[- ]?mechanical\s+(?:engineer|intern|system|design)",
+    r"optomechanical\s+(?:engineer|intern)",
     r"photonic\s+(?:engineer|intern|technician)",
     r"materials?\s+science\s+(?:intern|engineer|co-op)",
     r"mechanical\s+engineer(?:ing)?\s+(?:intern|co-op)",
@@ -482,6 +484,8 @@ INVALID_TITLE_KEYWORDS = [
     r"skill\s*bridge",
     r"\bsales\s+(?:intern|internship|co-op|coop)",
     r"\bsales\s+(?:development|representative)\s+intern",
+    r"rotational\s+(?:program|engineer|developer)(?!.*intern)",
+    r"rotation\s+program(?!.*intern)",
     r"\bmarketing\s+(?:intern|internship)(?!.*(?:analytics|data|tech|engineer))",
     r"\brecruiting\s+(?:intern|internship)",
     r"\bhr\s+(?:intern|internship)",
@@ -1552,6 +1556,7 @@ JOB_ID_PATTERNS = [
     (r"/careers/jobs/(\d{4,6})", 0.92),
     (r"/careers/jobs/(\d{4,6})", 0.92),
     (r"_([A-Z]R?-?\d{5,})(?:-\d+)?(?:\?|$)", 0.93),
+    (r"_([A-Z]{1,3}_\d{4,})(?:\?|$|/)", 0.91),  # e.g. JR_14561
     (r"/([A-Z]{2,3}\d{5,})(?:-\d+)?(?:\?|$)", 0.91),
     (r"(?:jobs\.)?lever\.co/[^/]+/([a-f0-9-]{36})", 0.96),
     (r"(?:jobs\.)?ashbyhq\.com/[^/]+/([a-f0-9-]{36})", 0.96),

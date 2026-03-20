@@ -528,15 +528,43 @@ class TitleProcessor:
         except (ImportError, AttributeError):
             PAGE_TEXT_STANDARD_SCAN = 5000
 
-        # Trust title year — if title says 2026+, accept immediately
         title_lower = title.lower()
+
+        # Reject Spring explicitly in title — Spring 2026 is not Summer 2026
+        if re.search(r"\bspring\s*20(?:2[5-9]|3\d)\b", title_lower):
+            return False, "Wrong season: Spring (only Summer 2026+ accepted)"
+        if re.search(r"\bspring\b", title_lower) and "summer" not in title_lower:
+            # Spring without summer qualifier — reject
+            return False, "Wrong season: Spring (only Summer 2026+ accepted)"
+
+        # Trust title year — if title says Summer 2026+, accept immediately
+        if re.search(r"\bsummer\s*20(2[6-9]|3\d)\b", title_lower):
+            return True, ""
+        if re.search(r"\bfall\s*20(2[6-9]|3\d)\b", title_lower):
+            return True, ""
+
+        # Plain year check — if title has 2026+ without spring qualifier
         for m in re.finditer(r"\b(202[4-9]|203[0-9])\b", title_lower):
             if int(m.group(1)) >= 2026:
                 return True, ""
-        # Fallback: plain string check for year in title
         if "2026" in title_lower or "2027" in title_lower:
             return True, ""
         limited_text = page_text[:PAGE_TEXT_STANDARD_SCAN] if page_text else ""
+
+        # Check page text for Spring-only start dates like "begins April 2026"
+        if limited_text:
+            spring_page_patterns = [
+                r"(?:start|begin|starting|beginning|commence)s?\s+(?:in\s+)?(?:april|march|february|january)\s+20(?:2[6-9]|3\d)",
+                r"(?:april|march|february|january)\s+20(?:2[6-9]|3\d)\s+(?:start|begin|cohort)",
+                r"spring\s+20(?:2[6-9]|3\d)\s+(?:intern|cohort|class|semester)",
+                r"(?:intern|cohort|class)\s+(?:start|begin)s?\s+(?:april|march|february)",
+            ]
+            for pat in spring_page_patterns:
+                if re.search(pat, limited_text.lower()):
+                    # Only reject if no summer signal anywhere
+                    if not re.search(r"summer", limited_text.lower()):
+                        return False, "Wrong season: Spring start date (April/March)"
+
         combined = (title + " " + limited_text).lower()
 
         years_found = []
@@ -1357,7 +1385,8 @@ class LocationProcessor:
                 INTERNATIONAL_TEXT_INDICATORS,
             )
         except (ImportError, AttributeError):
-            INTERNATIONAL_URL_INDICATORS = [".co.uk", ".ca", "/uk/", "/canada/"]
+            INTERNATIONAL_URL_INDICATORS = [".co.uk", ".ca", "/uk/", "/canada/",
+                                            ".de", ".co.de", "/germany/", "/de/"]
             INTERNATIONAL_TEXT_INDICATORS = []
 
         # Check title for international country names
@@ -1395,6 +1424,13 @@ class LocationProcessor:
                         elif province != "ON":
                             return f"Location: Canada (from title: {province})"
 
+        # Always run page Canada check first — catches cases where location
+        # extraction produced garbage but the page clearly says Canada
+        if soup:
+            _page_canada = LocationProcessor._check_page_for_canada(soup)
+            if _page_canada:
+                return _page_canada
+
         if location and location not in ["Unknown", ""]:
             location_lower = location.lower()
             normalized = normalize_unicode(location_lower)
@@ -1404,6 +1440,15 @@ class LocationProcessor:
 
             if "canada" in location_lower:
                 return "Location: Canada"
+
+            # Germany — including common OCR/parsing typos from Simplify
+            _germany_variants = ["germany", "geany", "germa", "deutschland",
+                                  "munich", "münchen", "berlin", "hamburg",
+                                  "frankfurt", "stuttgart", "cologne", "köln",
+                                  "düsseldorf", "dusseldorf"]
+            for _gv in _germany_variants:
+                if _gv in location_lower:
+                    return f"Location: Germany ({location})"
 
             # FIX 3: catch ATS-style "CAN" suffix e.g. "Peterborough CAN", "Toronto CAN"
             import re as _re_can
@@ -2230,6 +2275,9 @@ class ValidationHelper:
 
             # Patterns that indicate CURRENT undergrad enrollment required
             undergraduate_patterns = [
+                r"active\s+student\s+(?:currently\s+)?obtaining\s+a\s+bachelor",
+                r"currently\s+obtaining\s+(?:a\s+|an\s+)?bachelor",
+                r"student\s+obtaining\s+(?:a\s+)?(?:bs|ba|b\.s\.|b\.a\.)",
                 r"pursuing\s+(?:a\s+)?bachelor'?s?\s+degree",
                 r"currently\s+pursuing\s+(?:a\s+)?bachelor'?s?\s+degree",
                 r"working\s+towards?\s+(?:a\s+)?bachelor'?s?\s+degree",

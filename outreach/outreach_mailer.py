@@ -69,6 +69,36 @@ class Mailer:
         self._drafts_created = set()
         self._bounced_emails: set = set()
         self._load_draft_history()
+        self._ms_access_token = None  # cached for this run
+        self._ms_precheck()  # silently refresh MS token on init
+
+    def _ms_precheck(self):
+        """Silently pre-refresh MS token so it's ready when send() is called."""
+        try:
+            import msal
+            from outreach.outreach_config import (
+                MS_CLIENT_ID, MS_AUTHORITY, MS_SCOPES, MS_TOKEN_FILE
+            )
+            if not os.path.exists(MS_TOKEN_FILE):
+                return  # first run — will authenticate on first send()
+            cache = msal.SerializableTokenCache()
+            cache.deserialize(open(MS_TOKEN_FILE).read())
+            app = msal.PublicClientApplication(
+                MS_CLIENT_ID, authority=MS_AUTHORITY, token_cache=cache
+            )
+            accounts = app.get_accounts()
+            if not accounts:
+                return
+            result = app.acquire_token_silent(MS_SCOPES, account=accounts[0])
+            if result and "access_token" in result:
+                self._ms_access_token = result["access_token"]
+                if cache.has_state_changed:
+                    open(MS_TOKEN_FILE, "w").write(cache.serialize())
+                log.info("MS token pre-checked: valid")
+            else:
+                log.info("MS token needs refresh — will authenticate on first send()")
+        except Exception as e:
+            log.debug(f"MS token precheck failed (non-fatal): {e}")
 
     def set_bounced(self, bounced: set):
         self._bounced_emails = {e.lower().strip() for e in bounced}
@@ -93,6 +123,8 @@ class Mailer:
 
     def _ms_token(self):
         """Get Microsoft Graph access token via MSAL device flow or cached token."""
+        if self._ms_access_token:
+            return self._ms_access_token
         import msal, json as _j
         from outreach.outreach_config import MS_CLIENT_ID, MS_AUTHORITY, MS_SCOPES, MS_TOKEN_FILE, MS_SENDER_EMAIL
         cache = msal.SerializableTokenCache()
