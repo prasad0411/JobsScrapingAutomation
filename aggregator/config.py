@@ -148,8 +148,8 @@ PLATFORM_BLACKLIST = []
 
 PLATFORM_BLACKLIST_REASONS = {}
 
-
-    "Parsons",
+
+COMPANY_BLACKLIST = [
     "RTX",
     "Raytheon",
     "Raytheon Technologies",
@@ -159,10 +159,16 @@ PLATFORM_BLACKLIST_REASONS = {}
     "Leidos Defense Systems",
     "General Dynamics Mission Systems",
     "Kaiser Permanente",
+    "Parsons",
+    "Caci, Inc.-Federal",
+    "Voyager Technologies",
+    "CAE",
+    "Motorola Solutions",
+    "Lawrence Livermore National Laboratory (LLNL)",
+    "Savannah River National Laboratory",
 ]
 
-
-    "Parsons": "Auto-blacklisted: Security clearance required",
+COMPANY_BLACKLIST_REASONS = {
     "RTX": "Company always requires security clearance",
     "Raytheon": "Company always requires security clearance",
     "Raytheon Technologies": "Company always requires security clearance",
@@ -172,6 +178,13 @@ PLATFORM_BLACKLIST_REASONS = {}
     "Leidos Defense Systems": "Company always requires security clearance",
     "General Dynamics Mission Systems": "Company always requires security clearance",
     "Kaiser Permanente": "Does not sponsor H1B visa",
+    "Parsons": "Auto-blacklisted: Security clearance required",
+    "Caci, Inc.-Federal": "Auto-blacklisted: Security clearance required",
+    "Voyager Technologies": "Auto-blacklisted: US Citizenship required",
+    "CAE": "Auto-blacklisted: Security clearance required",
+    "Motorola Solutions": "Auto-blacklisted: Security clearance required",
+    "Lawrence Livermore National Laboratory (LLNL)": "Auto-blacklisted: US Person requirement",
+    "Savannah River National Laboratory": "Auto-blacklisted: US Citizenship required",
 }
 
 VERBOSE_OUTPUT = False
