@@ -141,11 +141,10 @@ class ManualCleanup:
         if not date_str:
             return None
         try:
-            # Format: "17 March, 11:10 AM"
-            return datetime.datetime.strptime(date_str.strip(), "%d %B, %I:%M %p")
+            yr = datetime.datetime.now().year
+            return datetime.datetime.strptime(f"{date_str.strip()} {yr}", "%d %B, %I:%M %p %Y")
         except ValueError:
             try:
-                # Fallback: "17 March, 11:10 AM" with year missing — assume current year
                 dt = datetime.datetime.strptime(date_str.strip(), "%d %B, %I:%M %p")
                 return dt.replace(year=datetime.datetime.now().year)
             except ValueError:
