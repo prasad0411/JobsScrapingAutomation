@@ -354,10 +354,10 @@ class SimplifyRedirectResolver:
         SimplifyRedirectResolver.save_failed_cache(failed_cache)
 
         try:
-            with open(os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), ".local", "simplify_manual_review.txt"), "a") as f:
-                f.write(f"{job_id}\t{simplify_url}\t{today}\n")
-        except Exception:
-            pass
+            from outreach.brain import Brain
+            Brain.get().queue_simplify_retry(job_id, simplify_url, "all_methods_failed")
+        except Exception as _be:
+            logging.debug(f"Brain Simplify queue failed: {_be}")
 
         logging.warning(f"All 5 methods failed: {simplify_url[:60]}")
         return simplify_url, False

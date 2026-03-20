@@ -22,6 +22,7 @@ from outreach.outreach_config import (
     key,
 )
 from outreach.outreach_data import NameParser, PatternCache, Credits
+from outreach.brain import Brain
 from outreach.outreach_provider import ProviderVerifier
 from outreach.outreach_verifier import EmailVerifier, is_suspicious_email as verify_suspicious, CircuitBreaker, DomainHistory, AUTO_SEND_THRESHOLD
 
@@ -359,24 +360,51 @@ class Finder:
     @staticmethod
     @lru_cache(maxsize=500)
     def _mx(domain):
+        b = Brain.get()
+        cached = b.get_mx(domain)
+        if cached is not None:
+            return cached["valid"]
+        _KNOWN_GOOD = {
+            "google.com","meta.com","amazon.com","apple.com","microsoft.com",
+            "netflix.com","stripe.com","openai.com","databricks.com","nvidia.com",
+            "intel.com","salesforce.com","adobe.com","oracle.com","ibm.com",
+        }
+        if domain.lower() in _KNOWN_GOOD:
+            b.set_mx(domain, True, "known_good")
+            return True
         if _DNS:
             try:
                 dns.resolver.resolve(domain, "MX")
+                provider = ""
+                try:
+                    answers = dns.resolver.resolve(domain, "MX")
+                    mx_host = str(answers[0].exchange).lower()
+                    for prov in ["google","microsoft","outlook","mimecast",
+                                 "proofpoint","postini","amazon","sendgrid"]:
+                        if prov in mx_host:
+                            provider = prov
+                            break
+                except Exception:
+                    pass
+                b.set_mx(domain, True, provider)
                 return True
             except Exception as _e:
                 log.debug(f"finder op failed: {_e}")
             try:
                 dns.resolver.resolve(domain, "A")
+                b.set_mx(domain, True, "")
                 return True
             except:
+                b.set_mx(domain, False, "")
                 return False
         else:
             import socket
-
             try:
                 socket.getaddrinfo(domain, None)
+                b.set_mx(domain, True, "")
                 return True
             except:
+                b.set_mx(domain, False, "")
                 return False
 
     def _psearch(self, parsed, domains):
@@ -608,12 +636,21 @@ class Finder:
         return self._reacher
 
     def _apis(self, p, dom, li, r):
-        for fn in [
-            lambda: self._apollo(p, dom, li),
-            lambda: self._hunter(p, dom) if dom else None,
-            lambda: self._snov(p, dom) if dom else None,
-            lambda: self._prospeo(p, dom, li) if dom or li else None,
-        ]:
+        default_order = ["apollo", "hunter", "snov", "prospeo"]
+        try:
+            ranked = Brain.get().best_api_order(default_order)
+        except Exception:
+            ranked = default_order
+        fns = {
+            "apollo":  lambda: self._apollo(p, dom, li),
+            "hunter":  lambda: self._hunter(p, dom) if dom else None,
+            "snov":    lambda: self._snov(p, dom) if dom else None,
+            "prospeo": lambda: self._prospeo(p, dom, li) if dom or li else None,
+        }
+        for name in ranked:
+            fn = fns.get(name)
+            if not fn:
+                continue
             res = fn()
             if res and res["status"] in ("Valid", "Manual Review"):
                 return res
@@ -663,6 +700,8 @@ class Finder:
                         if per.get("email_status") == "verified"
                         else "Manual Review"
                     )
+                    if r["status"] == "Valid":
+                        self.cr.record_email_found("apollo")
                     return r
                 r["error"] = "Apollo: no email"
         except Exception as e:
@@ -696,6 +735,8 @@ class Finder:
                 if email:
                     r["email"] = email
                     r["status"] = "Valid" if conf >= HUNTER_CONF else "Manual Review"
+                    if r["status"] == "Valid":
+                        self.cr.record_email_found("hunter")
                     return r
                 r["error"] = "Hunter: no email"
         except Exception as e:
@@ -732,6 +773,8 @@ class Finder:
                     r["status"] = (
                         "Valid" if best.get("status") == "valid" else "Manual Review"
                     )
+                    if r["status"] == "Valid":
+                        self.cr.record_email_found("snov")
                     return r
                 r["error"] = "Snov: no emails"
         except Exception as e:
@@ -768,6 +811,8 @@ class Finder:
                     conf = data.get("response", {}).get("email", {}).get("email_confidence", 0)
                     r["email"] = email
                     r["status"] = "Valid" if conf and int(conf) >= 70 else "Manual Review"
+                    if r["status"] == "Valid":
+                        self.cr.record_email_found("prospeo")
                     return r
                 r["error"] = "Prospeo: no email"
             elif resp:

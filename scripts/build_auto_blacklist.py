@@ -134,6 +134,25 @@ def main():
         print(f"  + {c}")
     print(f"\nConfig updated: {config_path}")
     print("Run the aggregator on next schedule — new blacklist takes effect immediately.")
+    try:
+        from outreach.brain import Brain
+        b = Brain.get()
+        for company, reason, count in candidates:
+            b.record_company_rejection(company, reason)
+        if new_companies:
+            msg = (
+                f"Auto-blacklist: {len(new_companies)} companies added\n\n"
+                + "\n".join(f"  + {c}: {r} (x{ct})" for c, r, ct in candidates)
+            )
+            b.send_email_alert(
+                f"🚫 Auto-blacklist: {len(new_companies)} new companies blocked",
+                msg
+            )
+        else:
+            import logging as _log
+            _log.getLogger(__name__).info("Auto-blacklist: clean run, no new companies")
+    except Exception as _be:
+        print(f"Brain sync failed (non-fatal): {_be}")
 
 if __name__ == "__main__":
     main()

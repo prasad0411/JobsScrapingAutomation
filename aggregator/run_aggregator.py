@@ -515,17 +515,31 @@ class UnifiedJobAggregator:
             con.commit()
             con.close()
             logging.info(f"Run logged to {db_path}")
+            try:
+                from outreach.brain import Brain
+                b = Brain.get()
+                for source_name, stats in self.source_stats.items():
+                    fetched = stats.get("valid",0)+stats.get("rejected",0)+stats.get("failed",0)
+                    b.record_source_run(source_name, fetched, stats.get("valid", 0))
+                new_bl = b.new_blacklisted_companies()
+                if new_bl:
+                    logging.info(f"Brain: {len(new_bl)} companies ready for config sync")
+            except Exception as _be:
+                logging.debug(f"Brain run update failed: {_be}")
         except Exception as e:
             logging.debug(f"Run log failed (non-fatal): {e}")
 
     def _check_selenium_health(self):
-        """Quick Selenium sanity check. Warns immediately if ChromeDriver is broken."""
+        """Selenium health check with auto-repair and Brain tracking."""
+        from outreach.brain import Brain
+        b = Brain.get()
         try:
             from aggregator.extractors import PageFetcher as _PF
             _pf = _PF()
             resp, _, _ = _pf.fetch_page("https://www.google.com", force_requests=True)
             if resp:
                 logging.info("Selenium health check: OK (requests mode)")
+                b.record_selenium_ok()
                 return
         except Exception:
             pass
@@ -538,18 +552,77 @@ class UnifiedJobAggregator:
             opts.add_argument("--disable-dev-shm-usage")
             driver = webdriver.Chrome(options=opts)
             driver.get("about:blank")
+            try:
+                ver = driver.capabilities.get("chrome", {}).get("chromedriverVersion", "").split(" ")[0]
+                b.record_selenium_ok(ver)
+            except Exception:
+                b.record_selenium_ok()
             driver.quit()
             logging.info("Selenium health check: OK")
+            return
         except Exception as e:
-            msg = (
-                "\n" + "="*60 + "\n"
-                f"  WARNING: Selenium/ChromeDriver may be broken: {e}\n"
-                "  Workday, Ashby, Oracle jobs will fail silently.\n"
-                "  Fix: chromedriver --version  vs  google-chrome --version\n"
-                + "="*60
-            )
-            print(msg)
-            logging.warning(f"Selenium health check FAILED: {e}")
+            fail_count = b.record_selenium_failure(str(e))
+            logging.warning(f"Selenium health check FAILED (attempt {fail_count}): {e}")
+            repaired = False
+            # Method 1: webdriver-manager auto-download
+            try:
+                from selenium.webdriver.chrome.service import Service as _Svc
+                from webdriver_manager.chrome import ChromeDriverManager as _CDM
+                from selenium import webdriver as _wd
+                from selenium.webdriver.chrome.options import Options as _Opts
+                _opts = _Opts()
+                _opts.add_argument("--headless")
+                _opts.add_argument("--no-sandbox")
+                _opts.add_argument("--disable-dev-shm-usage")
+                _driver = _wd.Chrome(service=_Svc(_CDM().install()), options=_opts)
+                _driver.get("about:blank")
+                _driver.quit()
+                b.record_selenium_repair("webdriver_manager", True)
+                b.record_selenium_ok()
+                logging.info("Selenium repaired via webdriver-manager")
+                print("  ✓ Selenium auto-repaired via webdriver-manager")
+                repaired = True
+            except Exception as _wde:
+                b.record_selenium_repair("webdriver_manager", False)
+                logging.debug(f"webdriver-manager repair failed: {_wde}")
+            # Method 2: brew upgrade chromedriver
+            if not repaired:
+                try:
+                    import subprocess, shutil
+                    brew = shutil.which("brew") or "/opt/homebrew/bin/brew"
+                    result = subprocess.run([brew, "upgrade", "chromedriver"],
+                        capture_output=True, text=True, timeout=120)
+                    if result.returncode == 0:
+                        from selenium import webdriver as _wd2
+                        from selenium.webdriver.chrome.options import Options as _O2
+                        _o2 = _O2()
+                        _o2.add_argument("--headless")
+                        _o2.add_argument("--no-sandbox")
+                        _d2 = _wd2.Chrome(options=_o2)
+                        _d2.get("about:blank")
+                        _d2.quit()
+                        b.record_selenium_repair("brew_upgrade", True)
+                        b.record_selenium_ok()
+                        logging.info("Selenium repaired via brew upgrade chromedriver")
+                        print("  ✓ Selenium repaired via brew upgrade chromedriver")
+                        repaired = True
+                    else:
+                        b.record_selenium_repair("brew_upgrade", False)
+                except Exception as _bre:
+                    b.record_selenium_repair("brew_upgrade", False)
+                    logging.debug(f"brew repair failed: {_bre}")
+            if not repaired:
+                if fail_count >= 3:
+                    b.send_email_alert(
+                        "🔧 Selenium broken — Workday/Ashby jobs failing",
+                        f"ChromeDriver failed {fail_count} times.\nError: {e}\n\n"
+                        f"Auto-repair failed. Manual fix:\n"
+                        f"  chromedriver --version\n"
+                        f"  google-chrome --version\n"
+                        f"  brew install --cask chromedriver"
+                    )
+                print(f"\n{'='*60}\n  WARNING: Selenium auto-repair failed (attempt {fail_count})\n"
+                      f"  Error: {e}\n  Workday/Ashby/Oracle jobs will fail.\n{'='*60}")
 
     def _scrape_simplify_github(self):
         simplify_jobs = self._safe_scrape(SIMPLIFY_URL, "SimplifyJobs")
@@ -1818,6 +1891,11 @@ class UnifiedJobAggregator:
             self.existing_jobs.add(URLCleaner.normalize_text(f"{company}_{title}"))
             if job_id and job_id != "N/A" and not job_id.startswith("HASH_"):
                 self.existing_job_ids.add(job_id.lower())
+                try:
+                    from outreach.brain import Brain
+                    Brain.get().register_job_id(job_id, company, title)
+                except Exception:
+                    pass
 
             logging.info(f"ACCEPTED | {company} | {title} | {location} | {source}")
             return job_data
@@ -1832,6 +1910,14 @@ class UnifiedJobAggregator:
         return name.lower().strip() in GARBAGE_COMPANY_NAMES
 
     def _is_duplicate(self, company, title, url, job_id="N/A"):
+        if job_id and job_id not in ("N/A", "") and not job_id.startswith("HASH_"):
+            try:
+                from outreach.brain import Brain
+                if Brain.get().is_duplicate_job_id(job_id, company, title):
+                    self.outcomes["skipped_duplicate_job_id"] += 1
+                    return True
+            except Exception:
+                pass
         clean_url = URLCleaner.clean_url(url)
         if clean_url in self.existing_urls or clean_url in self.processing_lock:
             self.outcomes["skipped_duplicate_url"] += 1

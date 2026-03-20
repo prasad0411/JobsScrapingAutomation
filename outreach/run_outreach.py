@@ -39,6 +39,7 @@ from outreach.outreach_finder import Finder
 from outreach.outreach_mailer import Drafter, Mailer
 from outreach.bounce_scanner import BounceScanner
 from outreach.outreach_verifier import CircuitBreaker, AUTO_SEND_THRESHOLD
+from outreach.brain import Brain
 
 _log_dir = os.path.join(
     os.path.dirname(os.path.dirname(os.path.abspath(__file__))), ".local"
@@ -406,12 +407,34 @@ def main():
 
     # Circuit breaker check
     can_send, cb_reason = CircuitBreaker.can_send()
+    b = Brain.get()
     if not can_send:
         print(f"  Circuit breaker TRIPPED: {cb_reason}")
         print("  No new emails will be drafted. Fix the issue first.")
         print(f"  Status: {CircuitBreaker.status()}")
+        if b.cb_should_alert_trip():
+            b.send_email_alert(
+                "🚨 Circuit breaker TRIPPED — outreach paused",
+                f"Circuit breaker tripped: {cb_reason}\n\nStatus: {CircuitBreaker.status()}\n\n"
+                f"No emails will be sent until you manually reset.\n"
+                f"Check .local/outreach.log for details."
+            )
+            b.cb_record_trip_alert()
     else:
         print(f"  Circuit breaker: {CircuitBreaker.status()}")
+        if b.cb_should_pre_warn():
+            cb_state = b._data["circuit_breaker"]
+            sent = cb_state.get("sent_today", 0)
+            bounced = cb_state.get("bounced_today", 0)
+            rate = bounced / sent if sent else 0
+            b.send_email_alert(
+                f"⚠️ Bounce rate warning: {rate:.0%} ({bounced}/{sent})",
+                f"Bounce rate is {rate:.0%} — circuit breaker trips at 30%.\n\n"
+                f"Sent today: {sent}\nBounced today: {bounced}\n\n"
+                f"Consider pausing outreach or reviewing email patterns."
+            )
+            b.cb_record_pre_warn()
+            log.warning(f"Pre-trip warning sent: bounce rate {rate:.0%}")
 
     print("Scanning for bounced emails...")
     try:

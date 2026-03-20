@@ -125,6 +125,13 @@ class SheetsManager:
 
     def load_existing_jobs(self):
         existing = {"jobs": set(), "urls": set(), "job_ids": set(), "cache": {}}
+        try:
+            from outreach.brain import Brain
+            b = Brain.get()
+            for nid in b._data.get("job_id_registry", {}):
+                existing["job_ids"].add(nid)
+        except Exception:
+            pass
 
         for sheet in [
             self.valid_sheet,
@@ -158,6 +165,13 @@ class SheetsManager:
                     and not job_id.startswith("HASH_")
                 ):
                     existing["job_ids"].add(job_id.lower())
+                    try:
+                        from outreach.brain import Brain
+                        nid = Brain.get().normalize_job_id(job_id)
+                        if nid:
+                            existing["job_ids"].add(nid)
+                    except Exception:
+                        pass
 
         from aggregator.config import SHOW_LOADING_STATS
 

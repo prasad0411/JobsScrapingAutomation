@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """Outreach Pipeline — Data Layer (Sheets, Credits, NameParser, PatternCache)."""
+from outreach.brain import Brain
 
 import os, re, json, time, datetime, logging, unicodedata
 import gspread
@@ -621,19 +622,30 @@ class Sheets:
             except Exception as _e:
                 log.debug(f"sheets op failed: {_e}")
 
-            # Generate alternatives, skipping the failed pattern
-            from outreach.outreach_config import PAT_A, PAT_B
+            from outreach.outreach_config import PAT_A, PAT_B, PAT_C
+            b = Brain.get()
             f = parsed["fa"].lower()
             la = parsed["lc"]
             fi = parsed["fi"]
             li = parsed["li"]
-
+            # Record bounce in Brain
+            for _p in PAT_A + PAT_B + PAT_C:
+                _gen = (_p.replace("{first}", f).replace("{last}", la)
+                          .replace("{f}", fi).replace("{l}", li))
+                if _gen == bounced_local:
+                    b.record_pattern_failure(domain, _p)
+                    break
+            # Rank candidates by Brain Bayesian posterior
+            all_pats = list(dict.fromkeys(PAT_A + PAT_B))
+            ranked_pats = b.rank_patterns_for(domain, all_pats)
             candidates = []
-            for pat in PAT_A + PAT_B:
+            for pat in ranked_pats:
                 local = (pat.replace("{first}", f).replace("{last}", la)
                            .replace("{f}", fi).replace("{l}", li))
-                if local and local != bounced_local and local not in failed.get(domain, []):
-                    candidates.append(f"{local}@{domain}")
+                if (local and local != bounced_local
+                        and local not in failed.get(domain, [])
+                        and not b.is_failed_pattern(domain, pat)):
+                    candidates.append((f"{local}@{domain}", pat))
 
             if not candidates:
                 return None
@@ -642,31 +654,21 @@ class Sheets:
             try:
                 from outreach.outreach_provider import ProviderVerifier
                 pv = ProviderVerifier()
-                for candidate in candidates[:5]:  # Max 5 attempts
+                for candidate, cand_pat in candidates[:5]:
                     result = pv.verify_email(candidate, domain)
                     if result == "exists":
-                        # Store the working pattern
-                        new_local = candidate.split("@")[0]
-                        # FIX 3: avoid variable shadowing with outer `pat` loop var
-                        def _find_pat(nl, f=f, la=la, fi=fi, li=li):
-                            for _p in PAT_A + PAT_B:
-                                if (_p.replace("{first}", f).replace("{last}", la)
-                                      .replace("{f}", fi).replace("{l}", li)) == nl:
-                                    return _p
-                            return None
-                        pat_str = _find_pat(new_local)
-                        if pat_str:
-                            pc.store(domain, pat_str)
+                        pc.store(domain, cand_pat)
+                        b.record_pattern_success(domain, cand_pat, candidate)
                         log.info(f"Bounce retry verified: {candidate}")
                         return candidate
+                    else:
+                        b.record_pattern_failure(domain, cand_pat)
             except Exception as e:
                 log.debug(f"Bounce retry verification failed: {e}")
 
-            # If no verification available, try statistical best guess
-            # Skip the bounced pattern and return the next most common
             if candidates:
-                log.info(f"Bounce retry (unverified): {candidates[0]}")
-                return candidates[0]
+                log.info(f"Bounce retry (unverified): {candidates[0][0]}")
+                return candidates[0][0]
 
         except Exception as e:
             log.debug(f"_retry_bounced_email failed: {e}")
@@ -1086,6 +1088,27 @@ class Credits:
         if e["used"] >= e.get("lim", 0):
             e["ok"] = False
         self._save()
+        try:
+            Brain.get().record_api_result(p, credit_used=True, email_found=False)
+        except Exception:
+            pass
+
+    def record_email_found(self, api_name: str):
+        """Call when an API returns a valid email — tracks ROI per credit."""
+        try:
+            Brain.get().record_api_result(api_name, credit_used=False, email_found=True)
+        except Exception:
+            pass
+
+    def burn_rate_alerts(self) -> list:
+        """Return alert strings for APIs approaching monthly exhaustion."""
+        b = Brain.get()
+        alerts = []
+        for name, cfg in APIS.items():
+            alert = b.api_burn_rate_alert(name, cfg.get("limit", 0))
+            if alert:
+                alerts.append(alert)
+        return alerts
 
     def gmail_left(self):
         return self.avail("gmail")
@@ -1255,13 +1278,31 @@ _SEED = {
 
 
 class PatternCache:
-    def __init__(self):
+    _singleton = None
+
+    def __new__(cls, *args, **kwargs):
+        if cls._singleton is None:
+            inst = object.__new__(cls)
+            inst._init()
+            cls._singleton = inst
+        return cls._singleton
+
+    def _init(self):
         self._d = dict(_SEED)
         if os.path.exists(PATTERNS_FILE):
             try:
                 self._d.update(json.load(open(PATTERNS_FILE)))
             except Exception as _e:
-                log.debug(f"sheets op failed: {_e}")
+                log.debug(f"PatternCache load failed: {_e}")
+        try:
+            b = Brain.get()
+            for domain, entry in b._data.get("domains", {}).items():
+                pat = entry.get("email_pattern")
+                conf = entry.get("pattern_confidence", 0.0)
+                if pat and conf >= 0.5 and domain not in self._d:
+                    self._d[domain] = pat
+        except Exception as _be:
+            log.debug(f"Brain→PatternCache merge failed: {_be}")
 
     def _save(self):
         try:
@@ -1275,6 +1316,10 @@ class PatternCache:
     def store(self, domain, pat):
         self._d[domain.lower()] = pat
         self._save()
+        try:
+            Brain.get().record_pattern_success(domain, pat, "")
+        except Exception:
+            pass
 
     def detect(self, email, parsed):
         if not email or "@" not in email or not parsed:
@@ -1294,7 +1339,13 @@ class PatternCache:
         return None
 
     def gen_single(self, parsed, domain):
-        p = self.get(domain)
+        b = Brain.get()
+        p = b.best_pattern_for(domain) or self.get(domain)
+        if not p:
+            from outreach.outreach_config import PAT_A, PAT_B, PAT_C
+            all_pats = list(dict.fromkeys(PAT_A + PAT_B + PAT_C))
+            ranked = b.rank_patterns_for(domain, all_pats)
+            p = ranked[0] if ranked else None
         if not p or not parsed:
             return None
         f, la, fi, li = parsed["fa"].lower(), parsed["lc"], parsed["fi"], parsed["li"]

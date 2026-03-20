@@ -132,7 +132,7 @@ def _outreach_queue_size():
         return -1
 
 
-def _build_html(stats, sent, bounced, errors, cb, pending):
+def _build_html(stats, sent, bounced, errors, cb, pending, burn_alerts=None):
     now = datetime.datetime.now().strftime("%b %d, %Y %I:%M %p")
     ok_color = "#2d8a4e"
     warn_color = "#b45309"
@@ -176,6 +176,7 @@ def _build_html(stats, sent, bounced, errors, cb, pending):
       {agg_html}
       {errors_html}
 
+      {f'<h3 style="color:#b45309;margin:20px 0 8px;">⚠ API Credit Warnings</h3><ul>' + ''.join(f'<li style="color:#b45309;font-size:12px;">{a}</li>' for a in burn_alerts) + '</ul>' if burn_alerts else ''}
       <p style="color:#999;font-size:11px;margin-top:20px;">
         Sent from your Job Hunt Pipeline · kanade.pra@northeastern.edu
       </p>
@@ -192,14 +193,23 @@ def main():
     errors  = _recent_errors()
     cb      = _circuit_breaker_status()
     pending = _outreach_queue_size()
+    burn_alerts = []
+    try:
+        from outreach.brain import Brain
+        from outreach.outreach_data import Credits
+        burn_alerts = Credits().burn_rate_alerts()
+    except Exception:
+        pass
 
     subject = f"Job Hunt — {datetime.date.today().strftime('%b %d')} | {stats.get('valid',0)} new jobs, {sent} emails sent"
     if errors:
         subject = "⚠ " + subject
     if "TRIPPED" in cb:
         subject = "🚨 Circuit breaker tripped! " + subject
+    if burn_alerts:
+        subject = "💳 " + subject
 
-    html = _build_html(stats, sent, bounced, errors, cb, pending)
+    html = _build_html(stats, sent, bounced, errors, cb, pending, burn_alerts)
 
     try:
         import requests as _req
