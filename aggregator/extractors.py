@@ -390,7 +390,7 @@ class SimplifyRedirectResolver:
                 if SimplifyRedirectResolver._is_valid_job_url(response.url):
                     return response.url
 
-            if response and response.status_code == 200:
+            if response and 200 <= response.status_code < 400:
                 from aggregator.extractors import safe_parse_html
 
                 soup, _ = safe_parse_html(response.text)
@@ -1478,7 +1478,7 @@ class PageFetcher:
                 return response, final_url, page_source
 
         response = retry_request(url)
-        if response and response.status_code == 200:
+        if response and 200 <= response.status_code < 400:
             _HTTP_RESPONSE_CACHE[url] = {
                 "response": response,
                 "final_url": response.url,

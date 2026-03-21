@@ -929,6 +929,7 @@ class UnifiedJobAggregator:
             self.source_stats[source]["valid"] += 1
         else:
             self.source_stats[source]["rejected"] += 1
+            logging.info(f"REJECTED (comprehensive) | {company_from_github} | {title} | url={resolved_url[:60]}")
 
     def _process_emails_grouped(self, emails_data):
         processed_emails = ProcessedEmailTracker.load()
