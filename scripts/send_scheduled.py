@@ -135,6 +135,85 @@ def _send_ms(token, to_email, subject, body_html, resume_type):
         raise Exception(f"Graph {resp.status_code}: {resp.text[:200]}")
     return True
 
+# ── Outlook folder management ────────────────────────────────────────────────
+
+_FOLDER_ID_CACHE = {}  # folder name → folder ID, cached per run
+
+def _get_folder_id(token, folder_name):
+    """Get Outlook folder ID by name. Cached per run."""
+    if folder_name in _FOLDER_ID_CACHE:
+        return _FOLDER_ID_CACHE[folder_name]
+    try:
+        resp = _req.get(
+            f"https://graph.microsoft.com/v1.0/users/{MS_SENDER_EMAIL}/mailFolders",
+            headers={"Authorization": f"Bearer {token}"},
+            params={"$top": 50},
+            timeout=10,
+        )
+        if resp.status_code == 200:
+            for folder in resp.json().get("value", []):
+                _FOLDER_ID_CACHE[folder["displayName"]] = folder["id"]
+                if folder["displayName"] == folder_name:
+                    return folder["id"]
+            # Try child folders if not found at top level
+            for fid in list(_FOLDER_ID_CACHE.values()):
+                child_resp = _req.get(
+                    f"https://graph.microsoft.com/v1.0/users/{MS_SENDER_EMAIL}/mailFolders/{fid}/childFolders",
+                    headers={"Authorization": f"Bearer {token}"},
+                    timeout=10,
+                )
+                if child_resp.status_code == 200:
+                    for child in child_resp.json().get("value", []):
+                        _FOLDER_ID_CACHE[child["displayName"]] = child["id"]
+                        if child["displayName"] == folder_name:
+                            return child["id"]
+    except Exception as e:
+        log.debug(f"Folder ID lookup failed: {e}")
+    return None
+
+
+def _move_sent_to_cold_emailing(token, subject, to_email):
+    """
+    Move the just-sent email from Sent Items to Cold Emailing folder.
+    Searches by subject + recipient in last 2 minutes.
+    """
+    folder_id = _get_folder_id(token, "Cold Emailing")
+    if not folder_id:
+        log.debug("Cold Emailing folder not found — skipping move")
+        return
+    try:
+        import urllib.parse
+        # Search for the message in Sent Items (sent in last 2 minutes)
+        filter_q = f"subject eq '{subject}'"
+        resp = _req.get(
+            f"https://graph.microsoft.com/v1.0/users/{MS_SENDER_EMAIL}/mailFolders/sentitems/messages",
+            headers={"Authorization": f"Bearer {token}"},
+            params={"$filter": filter_q, "$top": 5, "$orderby": "sentDateTime desc"},
+            timeout=10,
+        )
+        if resp.status_code != 200:
+            return
+        messages = resp.json().get("value", [])
+        # Find the one sent to our recipient
+        for msg in messages:
+            recipients = [r.get("emailAddress", {}).get("address", "").lower()
+                         for r in msg.get("toRecipients", [])]
+            if to_email.lower() in recipients:
+                msg_id = msg["id"]
+                # Move to Cold Emailing
+                move_resp = _req.post(
+                    f"https://graph.microsoft.com/v1.0/users/{MS_SENDER_EMAIL}/messages/{msg_id}/move",
+                    headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"},
+                    json={"destinationId": folder_id},
+                    timeout=10,
+                )
+                if move_resp.status_code in (200, 201):
+                    log.info(f"Moved to Cold Emailing: {to_email} | {subject[:40]}")
+                return
+    except Exception as e:
+        log.debug(f"Move to Cold Emailing failed: {e}")
+
+
 def _get_sheets():
     scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
     creds = ServiceAccountCredentials.from_json_keyfile_name(SHEETS_CREDS, scope)
@@ -259,7 +338,7 @@ def main():
         except Exception:
             pass
 
-        print(f"  {co} | {title[:35]}...")
+        print(f"  {co} | {title[:35]} | resume={resume_type}")
         emails_sent_this_row = []
         row_failed = False
 
@@ -285,6 +364,10 @@ def main():
                         Brain.get().cb_record_send()
                     except Exception:
                         pass
+                    try:
+                        _move_sent_to_cold_emailing(token, subj, email)
+                    except Exception as _mfe:
+                        log.debug(f"Move to folder failed: {_mfe}")
                 except Exception as e:
                     print(f"    - {label} failed: {email} ({e})")
                     failed += 1; row_failed = True
