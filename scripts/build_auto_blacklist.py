@@ -150,7 +150,7 @@ def main():
         if auto:
             lines.append("AUTO-APPROVED (structural reasons — safe to approve):")
             for c in auto:
-                lines.append(f"  ✓ {c['name']} — "{c['reason']}" x{c['count']} ({c['distinct_jobs']} jobs)")
+                lines.append(f"  ✓ {c['name']} — '{c['reason']}' x{c['count']} ({c['distinct_jobs']} jobs)")
             lines.append("\nTo apply: python3 -c \"from outreach.brain import Brain; Brain.get().apply_approved_blacklist(" +
                          repr([c['name'] for c in auto]) + ")\"\n")
         else:
@@ -161,7 +161,7 @@ def main():
             for c in pending:
                 mixed = " (has mixed roles — DO NOT blacklist)" if c["has_mixed_roles"] else ""
                 outreached = f" (outreached {c['outreach_count']}x — DO NOT blacklist)" if c["outreach_count"] > 0 else ""
-                lines.append(f"  ? {c['name']} — "{c['reason']}" x{c['count']}{mixed}{outreached}")
+                lines.append(f"  ? {c['name']} — '{c['reason']}' x{c['count']}{mixed}{outreached}")
         else:
             lines.append("PENDING REVIEW: none this week")
 
