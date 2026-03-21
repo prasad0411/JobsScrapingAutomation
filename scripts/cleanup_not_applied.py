@@ -41,6 +41,7 @@ FILES_TO_BACKUP = [
     ".env",
     "Prasad Kanade SWE Resume.pdf",
     "Prasad Kanade ML Resume.pdf",
+    "brain.json",
 ]
 
 
@@ -80,6 +81,29 @@ class ManualCleanup:
         self.spreadsheet = client.open(SHEET_NAME)
         self.sheet = self.spreadsheet.worksheet(WORKSHEET_NAME)
         self._init_reviewed_sheet()
+        # Load Outreach Tracker to check Extract/email status before expiring
+        self._outreach_map = {}
+        try:
+            from outreach.outreach_config import C, OUTREACH_TAB
+            from outreach.outreach_data import _pad
+            ows = self.spreadsheet.worksheet(OUTREACH_TAB)
+            time.sleep(1)
+            odata = ows.get_all_values()
+            for row in odata[1:]:
+                row = _pad(row)
+                co = row[C["company"]].strip().lower()
+                ti = row[C["title"]].strip().lower()
+                extract = row[C["extract"]].strip().lower() if len(row) > C["extract"] else ""
+                hm_email = row[C["hm_email"]].strip() if len(row) > C["hm_email"] else ""
+                rec_email = row[C["rec_email"]].strip() if len(row) > C["rec_email"] else ""
+                if co:
+                    self._outreach_map[(co, ti)] = {
+                        "extract": extract,
+                        "hm_email": hm_email,
+                        "rec_email": rec_email,
+                    }
+        except Exception as _oe:
+            pass  # Non-fatal — cleanup proceeds without protection check
 
     def _init_reviewed_sheet(self):
         try:
@@ -161,6 +185,17 @@ class ManualCleanup:
         # Only move blank or "Not Applied" status rows
         if status not in ("", "Not Applied"):
             return False
+
+        # PROTECTION: if Extract=yes AND both emails empty → outreach pipeline
+        # is still working on finding emails — do NOT expire
+        co = self._get_cell(row, 2).strip().lower()
+        ti = self._get_cell(row, 3).strip().lower()
+        outreach = self._outreach_map.get((co, ti), {})
+        if outreach.get("extract", "").lower() == "yes":
+            hm = outreach.get("hm_email", "").strip()
+            rec = outreach.get("rec_email", "").strip()
+            if not hm and not rec:
+                return False  # Still being worked on
 
         # Check entry date (column index 11 = L = Entry Date)
         entry_date_str = self._get_cell(row, 11)

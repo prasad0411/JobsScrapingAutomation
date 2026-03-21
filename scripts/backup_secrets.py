@@ -17,6 +17,7 @@ FILES_TO_BACKUP = [
     "processed_emails.json",
     "workday_mapping.json",
     ".env",
+    "brain.json",
 ]
 
 

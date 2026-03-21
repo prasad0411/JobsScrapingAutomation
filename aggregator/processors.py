@@ -2055,6 +2055,42 @@ class ValidationHelper:
         return None, None
 
     @staticmethod
+    def check_salary_requirement(soup):
+        """Reject jobs paying under $25/hr. Accept jobs with no salary listed."""
+        if not soup:
+            return None, None
+        try:
+            import re as _re
+            page_text = soup.get_text()[:5000]
+            patterns = [
+                r'\$(\d+(?:\.\d+)?)\s*/\s*hr',
+                r'\$(\d+(?:\.\d+)?)\s*(?:per\s*hour|/hour)',
+                r'pay\s*range[:\s]+\$(\d+(?:\.\d+)?)',
+                r'compensation[:\s]+\$(\d+(?:\.\d+)?)',
+                r'\$(\d+(?:\.\d+)?)\s*(?:USD|usd)?\s*/\s*(?:hr|hour)',
+                r'hourly\s+rate[:\s]+\$(\d+(?:\.\d+)?)',
+                r'\$(\d+(?:\.\d+)?)\s*-\s*\$?\d+(?:\.\d+)?\s*/\s*hr',
+                r'starting\s+(?:at\s+)?\$(\d+(?:\.\d+)?)\s*/\s*hr',
+            ]
+            found = []
+            for p in patterns:
+                for m in _re.finditer(p, page_text, _re.I):
+                    try:
+                        v = float(m.group(1))
+                        if 1 < v < 200:
+                            found.append(v)
+                    except Exception:
+                        pass
+            if not found:
+                return None, None
+            low = min(found)
+            if low < 25.0:
+                return "REJECT", f"Low salary: ${low:.0f}/hr (minimum $25/hr)"
+        except Exception as e:
+            logging.debug(f"Salary check failed: {e}")
+        return None, None
+
+    @staticmethod
     def check_page_restrictions(soup):
         if not soup:
             return None, None, []
@@ -2998,8 +3034,17 @@ class ValidationHelper:
         return "Unknown"
 
     @staticmethod
-    def check_sponsorship_status(soup):
-        """ORIGINAL"""
+    def check_sponsorship_status(soup, company=""):
+        """ORIGINAL + Brain caching"""
+        if company:
+            try:
+                from outreach.brain import Brain
+                cached = Brain.get().get_sponsorship(company)
+                if cached in ("Yes", "No"):
+                    logging.debug(f"Sponsorship from Brain: {company} -> {cached}")
+                    return cached
+            except Exception:
+                pass
         if not soup:
             return "Unknown"
 

@@ -9,6 +9,7 @@ from outreach.outreach_config import (
     HM_SUBJ, HM_BODY, REC_SUBJ, REC_BODY, RESUME_SDE, RESUME_ML, RESUME_DA,
 )
 from outreach.outreach_data import _pad, _cl, NameParser
+from outreach.brain import Brain
 import gspread, requests as _req
 from oauth2client.service_account import ServiceAccountCredentials
 
@@ -179,7 +180,35 @@ def main():
         print("No data."); return
 
     sent = skipped = failed = dedup = dead = 0
-    MAX_PER_RUN = 15  # cap per run to protect edu account reputation
+    # Brain-adaptive send limit based on 7-day rolling bounce rate
+    def _adaptive_limit():
+        try:
+            b = Brain.get()
+            cb = b._data.get("circuit_breaker", {})
+            sent_today = cb.get("sent_today", 0)
+            bounced_today = cb.get("bounced_today", 0)
+            rate = bounced_today / sent_today if sent_today >= 5 else 0.0
+            # Check 7-day history from Brain
+            from outreach.outreach_data import Credits
+            cr = Credits()
+            if rate == 0.0 and sent_today < 5:
+                # Use historical bounce rate from sent_log
+                try:
+                    sl_data = _load(SENT_LOG_FILE)
+                    total_sent = len(sl_data)
+                    # Conservative: stay at 20 until we have solid history
+                    if total_sent < 50:
+                        return 20
+                except Exception:
+                    pass
+            if rate <= 0.02:   return 30  # <2% bounce → 30/run
+            elif rate <= 0.05: return 25  # <5% bounce → 25/run
+            elif rate <= 0.10: return 20  # <10% bounce → 20/run
+            else:              return 15  # >10% bounce → back to 15
+        except Exception:
+            return 15  # safe fallback
+    MAX_PER_RUN = _adaptive_limit()
+    log.info(f"Adaptive send limit: {MAX_PER_RUN}/run")
 
     for i, row in enumerate(data[1:], start=2):
         row = _pad(row)
@@ -252,12 +281,25 @@ def main():
                     sent += 1
                     _rec(sl, email, subj)
                     fc.pop(rk, None)
+                    try:
+                        Brain.get().cb_record_send()
+                    except Exception:
+                        pass
                 except Exception as e:
                     print(f"    - {label} failed: {email} ({e})")
                     failed += 1; row_failed = True
                     fc[rk] = fc.get(rk, 0) + 1
 
-                time.sleep(45)  # 45s between emails — safe for new MS account
+                # Brain-adaptive delay: faster if clean, slower if bounces elevated
+                try:
+                    _cb = Brain.get()._data.get("circuit_breaker", {})
+                    _s = _cb.get("sent_today", 0)
+                    _b = _cb.get("bounced_today", 0)
+                    _r = _b / _s if _s >= 5 else 0.0
+                    _delay = 60 if _r > 0.05 else (30 if _r == 0.0 and _s > 10 else 45)
+                except Exception:
+                    _delay = 45
+                time.sleep(_delay)
 
         if emails_sent_this_row:
             try:

@@ -389,6 +389,36 @@ class Sheets:
                 except:
                     pass
 
+            # Re-apply hyperlinks for LinkedIn URL columns (batch write destroys them)
+            li_requests = []
+            for row_idx, nr in enumerate(result_rows, start=2):
+                for li_col in [C["hm_li"], C["rec_li"]]:
+                    url_val = nr[li_col].strip() if len(nr) > li_col else ""
+                    if url_val and url_val.startswith("http"):
+                        li_requests.append({
+                            "updateCells": {
+                                "range": {
+                                    "sheetId": self.ws.id,
+                                    "startRowIndex": row_idx - 1,
+                                    "endRowIndex": row_idx,
+                                    "startColumnIndex": li_col,
+                                    "endColumnIndex": li_col + 1,
+                                },
+                                "rows": [{"values": [{
+                                    "userEnteredValue": {"stringValue": url_val},
+                                    "textFormatRuns": [{"startIndex": 0, "format": {"link": {"uri": url_val}}}],
+                                }]}],
+                                "fields": "userEnteredValue,textFormatRuns",
+                            }
+                        })
+            if li_requests:
+                try:
+                    for chunk_i in range(0, len(li_requests), 100):
+                        self.ss.batch_update({"requests": li_requests[chunk_i:chunk_i+100]})
+                        self._p()
+                except Exception as _le:
+                    log.debug(f"LinkedIn hyperlink restore failed: {_le}")
+
             removed = max(0, old_count - new_count)
             if added > 0:
                 print(f"  Sync: {added} new rows added from Valid Entries")
@@ -1136,6 +1166,14 @@ class NameParser:
         if not name or not name.strip():
             return None
         n = name.strip()
+        # Strip academic/professional credentials that leak into names
+        # e.g. "Kelsey Anderson, M.S." → "Kelsey Anderson"
+        # e.g. "John Smith, Ph.D., MBA" → "John Smith"
+        import re as _re
+        _CRED_PATTERN = r',?\s*(?:M\.?S\.?|Ph\.?D\.?|M\.?B\.?A\.?|M\.?D\.?|J\.?D\.?|D\.?O\.?|R\.?N\.?|C\.?P\.?A\.?|P\.?E\.?|D\.?V\.?M\.?|Pharm\.?D\.?|Ed\.?D\.?|Psy\.?D\.?|Sc\.?D\.?|LL\.?M\.?|LL\.?B\.?|B\.?S\.?|B\.?A\.?|B\.?E\.?)\.?'
+        n = _re.sub(_CRED_PATTERN, '', n, flags=_re.I).strip().strip(',').strip()
+        # Also strip trailing degree words
+        n = _re.sub(r',?\s+(?:Masters?|Bachelor|Bachelors?|Doctor|Doctorate|Engineer|Prof(?:essor)?)\s*\.?\s*$', '', n, flags=_re.I).strip()
         if "," in n:
             parts = [p.strip() for p in n.split(",", 1)]
             if len(parts) == 2 and parts[0] and parts[1]:

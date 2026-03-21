@@ -1767,6 +1767,20 @@ class UnifiedJobAggregator:
                 and location_hint != "Unknown"
             ):
                 location = location_hint
+            # Normalize city-only locations to "City, ST" format
+            if location and location != "Unknown":
+                import re as _reloc
+                if not _reloc.search(r',\s*[A-Z]{2}', location):
+                    try:
+                        from aggregator.config import CITY_TO_STATE_EXTRA
+                        _llow = location.lower().strip()
+                        _llow = _reloc.sub(r',?\s*(?:usa|united states)$', '', _llow).strip()
+                        for _city, _st in CITY_TO_STATE_EXTRA.items():
+                            if _city in _llow:
+                                location = f"{_city.title()}, {_st}"
+                                break
+                    except Exception:
+                        pass
             # Clean location: strip job type and remote words that leak into location
             if location and location != "Unknown":
                 import re as _re
@@ -1854,6 +1868,16 @@ class UnifiedJobAggregator:
                 )
                 self._print_rejected(company, f"Posted {page_age}d ago")
                 logging.info(f"REJECTED | {company} | {title} | Posted {page_age}d ago")
+                return None
+
+            # Salary check — reject if listed and under $25/hr
+            sal_dec, sal_reason = ValidationHelper.check_salary_requirement(soup)
+            if sal_dec == "REJECT":
+                self.outcomes["skipped_low_salary"] = self.outcomes.get("skipped_low_salary", 0) + 1
+                self._add_discarded(company, title, location, "Unknown",
+                    final_url or url, "N/A", "Internship", source, sal_reason)
+                self._print_rejected(company, sal_reason)
+                logging.info(f"REJECTED | {company} | {title} | {sal_reason}")
                 return None
 
             remote = LocationProcessor.extract_remote_status_enhanced(
@@ -2033,6 +2057,7 @@ class UnifiedJobAggregator:
             ("✗ Parse failed", self.outcomes["failed_parse"]),
             ("✗ Jobright unresolved", self.outcomes["failed_jobright_resolution"]),
             ("✗ ZipRecruiter unresolved", self.outcomes.get("failed_ziprecruiter_resolution", 0)),
+            ("⊘ Low salary", self.outcomes.get("skipped_low_salary", 0)),
         ]
         for label, count in summary_items:
             if count > 0:

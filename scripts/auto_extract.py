@@ -125,10 +125,26 @@ def main():
     print(f"AUTO EXTRACT  setting Extract=yes based on smart signals")
     print("-" * 50)
 
-    pattern_domains = _load_pattern_cache()
     signals, ss = _get_valid_entries_signals()
     if ss is None:
         print("  ERROR: Could not connect to sheets")
+        return
+
+    # Build status lookup from Valid Entries: (company.lower(), title.lower()) -> status
+    try:
+        valid_ws = ss.worksheet("Valid Entries")
+        valid_rows = valid_ws.get_all_values()[1:]
+        time.sleep(1)
+        status_map = {}
+        for row in valid_rows:
+            if len(row) < 4:
+                continue
+            co    = row[2].strip().lower()
+            title = row[3].strip().lower()
+            status = row[1].strip() if len(row) > 1 else ""
+            status_map[(co, title)] = status
+    except Exception as e:
+        print(f"  ERROR reading Valid Entries status: {e}")
         return
 
     try:
@@ -156,8 +172,8 @@ def main():
         title = row[C["title"]].strip()
         key   = (co.lower(), title.lower())
         sig   = signals.get(key, {})
-        loc   = sig.get("location", "")
         spon  = sig.get("sponsorship", "")
+        status = status_map.get(key, "")
 
         new_val = None
 
@@ -165,25 +181,14 @@ def main():
         if spon.lower() == "no":
             new_val = "Skip"
             skip_count += 1
-
-        # Strong yes signals
-        elif spon.lower() == "yes":
+        # Only set Extract=yes if status is Applied
+        elif status.strip().lower() == "applied":
             new_val = "yes"
             yes_count += 1
-
-        elif _is_tech_hub(loc):
-            new_val = "yes"
-            yes_count += 1
-
+        # Not Applied or unknown — set Skip
         else:
-            # Check pattern cache
-            co_lower = co.lower()
-            for domain in pattern_domains:
-                domain_co = domain.split(".")[0].lower()
-                if domain_co and len(domain_co) > 3 and domain_co in co_lower:
-                    new_val = "yes"
-                    yes_count += 1
-                    break
+            new_val = "Skip"
+            skip_count += 1
 
         if new_val:
             col = _cl(C["extract"])
@@ -196,7 +201,7 @@ def main():
                 time.sleep(1)
             except Exception as e:
                 log.error(f"Batch update failed: {e}")
-        print(f"  Set Extract=yes: {yes_count} rows")
+        print(f"  Set Extract=yes: {yes_count} rows (Applied status)")
         print(f"  Set Extract=Skip: {skip_count} rows")
     else:
         print("  No rows to update")

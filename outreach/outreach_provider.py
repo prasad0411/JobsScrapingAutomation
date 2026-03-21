@@ -1,3 +1,4 @@
+from outreach.brain import Brain
 #!/usr/bin/env python3
 """
 Provider-Aware Email Verification
@@ -74,6 +75,11 @@ class ProviderVerifier:
         provider = self._mx_lookup(domain)
         self._mx_cache[domain] = provider
         self._save(MX_CACHE_FILE, self._mx_cache)
+        # Sync to Brain
+        try:
+            Brain.get().set_mx(domain, provider != "other", provider if provider != "other" else "")
+        except Exception:
+            pass
         if provider != "other":
             log.info(f"MX detected: {domain} -> {provider}")
         return provider
@@ -146,6 +152,25 @@ class ProviderVerifier:
         if result in ("exists", "not_exists"):
             self._email_cache[email_lower] = result
             self._save(EMAIL_VERIFY_CACHE_FILE, self._email_cache)
+            # Sync to Brain — "exists" means pattern works for this domain
+            if result == "exists":
+                try:
+                    dom = email_lower.split("@")[1]
+                    local = email_lower.split("@")[0]
+                    # Detect pattern from local part
+                    _pat = None
+                    if "." in local:
+                        _p = local.split(".")
+                        if len(_p) == 2 and len(_p[0]) > 1:
+                            _pat = "{first}.{last}"
+                        elif len(_p) == 2 and len(_p[0]) == 1:
+                            _pat = "{f}.{last}"
+                    elif "_" in local:
+                        _pat = "{first}_{last}"
+                    if _pat:
+                        Brain.get().record_pattern_success(dom, _pat, email_lower)
+                except Exception:
+                    pass
 
         return result
 
@@ -321,6 +346,12 @@ class ProviderVerifier:
         # Cache result (even None, to avoid re-scraping)
         self._mx_cache[cache_key] = pattern
         self._save(MX_CACHE_FILE, self._mx_cache)
+        # Sync mined pattern to Brain
+        if pattern:
+            try:
+                Brain.get().record_pattern_success(domain, pattern, f"mined:{domain}")
+            except Exception:
+                pass
         return pattern
 
     def discover_pattern(self, parsed, domain):
