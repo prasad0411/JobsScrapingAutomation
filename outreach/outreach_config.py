@@ -337,8 +337,8 @@ def warmup_limit():
         for th, lim in WARMUP:
             if d < th:
                 return lim
-    except:
-        pass
+    except Exception as _e:
+        pass  # suppressed: use log.debug(_e) to investigate
     return MAX_DAILY
 
 HM_LI_MSG_TEMPLATE = (

@@ -638,8 +638,8 @@ class Finder:
                         stop = True
                     elif v == "risky":
                         risky.append(e)
-                except:
-                    pass
+                except Exception as _e:
+                    pass  # suppressed: use log.debug(_e) to investigate
             for f in futs:
                 f.cancel()
         if len(valid) == 1:
@@ -790,8 +790,8 @@ class Finder:
                 try:
                     dc = subprocess.run(["docker", "info"], capture_output=True, text=True, timeout=5)
                     daemon_running = dc.returncode == 0
-                except:
-                    pass
+                except Exception as _e:
+                    pass  # suppressed: use log.debug(_e) to investigate
 
                 # Step 2: If daemon not running, launch Docker Desktop (macOS)
                 if not daemon_running and platform.system() == "Darwin":
@@ -808,8 +808,8 @@ class Finder:
                                 print(f"  Docker Desktop ready ({(attempt+1)*2}s)")
                                 daemon_running = True
                                 break
-                        except:
-                            pass
+                        except Exception as _e:
+                            pass  # suppressed: use log.debug(_e) to investigate
                     if not daemon_running:
                         log.warning("Docker Desktop did not start within 60s")
                         print("  Docker Desktop did not start within 60s")
@@ -831,8 +831,8 @@ class Finder:
                                 log.info("Reacher is now running")
                                 print("  Reacher email verifier ready")
                                 return self._reacher
-                        except:
-                            pass
+                        except Exception as _e:
+                            pass  # suppressed: use log.debug(_e) to investigate
                     else:
                         log.warning(f"Docker compose failed: {result.stderr[:500]}")
 

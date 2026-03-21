@@ -396,7 +396,7 @@ def main():
             except Exception:
                 pass
             try: brain.cb_record_send()
-            except Exception: pass
+            except Exception as _cb_e: log.debug(f'cb_record_send failed: {_cb_e}')
 
             # Move sent copy from Sent Items → Cold Emailing
             time.sleep(3)

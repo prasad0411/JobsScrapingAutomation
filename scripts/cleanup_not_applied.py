@@ -157,8 +157,8 @@ class ManualCleanup:
                     "backgroundColor": {"red": 0.7, "green": 0.9, "blue": 0.7},
                 },
             )
-        except:
-            pass
+        except Exception as _e:
+            pass  # suppressed: use log.debug(_e) to investigate
 
     def _parse_entry_date(self, date_str):
         """Parse Entry Date format: '17 March, 11:10 AM' → datetime object."""
@@ -538,8 +538,8 @@ class ManualCleanup:
                 self.spreadsheet.batch_update({"requests": batch})
                 time.sleep(1)
 
-        except:
-            pass
+        except Exception as _e:
+            pass  # suppressed: use log.debug(_e) to investigate
 
     def _get_cell(self, row, index, default=""):
         try:

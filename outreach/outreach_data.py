@@ -363,8 +363,8 @@ class Sheets:
                         self.ws.batch_clear, [clear_range]
                     )
                     self._p()
-                except:
-                    pass
+                except Exception as _e:
+                    pass  # suppressed: use log.debug(_e) to investigate
 
             # Write all data
             self._retry(
@@ -386,8 +386,8 @@ class Sheets:
                             "textFormat": {"fontFamily": "Times New Roman", "fontSize": 13},
                         },
                     )
-                except:
-                    pass
+                except Exception as _e:
+                    pass  # suppressed: use log.debug(_e) to investigate
 
             # Re-apply hyperlinks for LinkedIn URL columns (batch write destroys them)
             li_requests = []
@@ -975,8 +975,8 @@ class Sheets:
                                        "indeed.com", "ziprecruiter.com", "glassdoor.com", "jobright.ai"}
                             if not any(g in domain for g in generic):
                                 Sheets._url_domain_cache[key] = domain
-                        except:
-                            pass
+                        except Exception as _e:
+                            pass  # suppressed: use log.debug(_e) to investigate
             except:
                 Sheets._url_domain_cache = {}
         return Sheets._url_domain_cache.get(
@@ -1010,8 +1010,8 @@ class Sheets:
                             if name in location.lower():
                                 state_code = code
                                 break
-                    except:
-                        pass
+                    except Exception as _e:
+                        pass  # suppressed: use log.debug(_e) to investigate
                 if state_code and state_code in STATE_TO_TIMEZONE:
                     tz_name = STATE_TO_TIMEZONE[state_code]
 
@@ -1117,8 +1117,8 @@ class Credits:
                             "ok": True,
                         }
                         ch = True
-                except:
-                    pass
+                except Exception as _e:
+                    pass  # suppressed: use log.debug(_e) to investigate
             if n not in self._d:
                 self._d[n] = {
                     "lim": APIS[n]["limit"],
