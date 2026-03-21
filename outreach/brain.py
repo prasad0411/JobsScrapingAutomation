@@ -153,6 +153,8 @@ class Brain:
             },
             "simplify_retry_queue": {},
             "mx_cache": {},
+            "linkedin_names": {},
+            "domain_corrections": {},
         }
 
     # ── Domain / Pattern API ─────────────────────────────────────────────────
@@ -714,6 +716,32 @@ class Brain:
                 curr.append(min(prev[j + 1] + 1, curr[j] + 1, prev[j] + (c1 != c2)))
             prev = curr
         return prev[-1]
+
+
+    # ── Domain Corrections (learned wrong→right mappings) ────────────────────
+
+    def learn_domain_correction(self, wrong_domain: str, correct_domain: str, company: str = ""):
+        """Record that wrong_domain should be corrected to correct_domain."""
+        if "domain_corrections" not in self._data:
+            self._data["domain_corrections"] = {}
+        wrong_base = wrong_domain.split(".")[0].lower()
+        self._data["domain_corrections"][wrong_base] = {
+            "correct": correct_domain,
+            "wrong": wrong_domain,
+            "company": company,
+            "learned_at": time.time(),
+        }
+        log.info(f"Brain: domain correction learned: {wrong_domain} → {correct_domain}")
+        self.save()
+
+    def get_domain_correction(self, domain: str) -> str | None:
+        """Return corrected domain if known, else None."""
+        base = domain.split(".")[0].lower()
+        corrections = self._data.get("domain_corrections", {})
+        entry = corrections.get(base)
+        if entry:
+            return entry.get("correct")
+        return None
 
     # ── Notifications ─────────────────────────────────────────────────────────
 

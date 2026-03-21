@@ -55,74 +55,124 @@ MAX_DAILY_SENDS = 30
 # ============================================================================
 # Gate 1: Suspicious Email Check
 # ============================================================================
+# Country TLDs that are never US company email domains
+_NON_US_TLDS = {
+    ".cn", ".de", ".uk", ".co.uk", ".fr", ".jp", ".in", ".br", ".ru",
+    ".au", ".ca", ".mx", ".es", ".it", ".nl", ".se", ".no", ".dk",
+    ".fi", ".pl", ".cz", ".hu", ".ro", ".il", ".sg", ".hk", ".tw",
+    ".kr", ".co.il", ".co.in", ".co.jp", ".co.kr", ".co.nz", ".co.za",
+    ".com.au", ".com.br", ".com.cn", ".com.mx", ".com.sg", ".com.tw",
+    ".org.uk", ".net.au", ".co.kr", ".co.nz",
+}
+
+# Known wrong-domain patterns: company slug → real domain
+_COMPANY_DOMAIN_CORRECTIONS = {
+    "centerfieldmedia": "centerfieldmedia.com",
+    "centerfieldhits": "centerfieldmedia.com",  # Wrong domain returned by Clearbit
+    "onsemi": "onsemi.com",
+    "onseminar": "onsemi.com",  # Clearbit error
+    "ivo": "ivo.ai",
+    "ivory": "ivo.ai",  # Wrong domain
+    "gen": "gen.com",
+    "gendigital": "gen.com",
+    "solidigm": "solidigm.com",
+    "solidigmtech": "solidigm.com",
+    "guidewire-consulting": "guidewire.com",
+    "vantagewest": None,  # Credit union — different company
+}
+
+
 def is_suspicious_email(email):
-    """Check if email domain is ATS/internal — not a real person's inbox."""
+    """
+    Comprehensive email quality gate.
+    Blocks: ATS domains, role-based, too-short, non-US TLDs,
+            known wrong domains, concatenated names, single-letter locals.
+    """
     if not email or "@" not in email:
         return True
     try:
         from outreach.outreach_config import SUSPICIOUS_EMAIL_DOMAINS
     except ImportError:
-        return False
+        SUSPICIOUS_EMAIL_DOMAINS = []
+
     domain = email.split("@")[1].lower().strip()
     local = email.split("@")[0].lower().strip()
 
     # Check against known ATS domains
     for sus in SUSPICIOUS_EMAIL_DOMAINS:
         if domain.endswith(sus):
-            log.info(f"Suspicious domain blocked: {email} (matches {sus})")
+            log.info(f"ATS domain blocked: {email}")
             return True
 
-    # 3+ subdomains = likely internal routing
-    if domain.count(".") >= 3:
-        log.info(f"Suspicious domain blocked: {email} (too many subdomains)")
+    # 3+ subdomains = likely internal routing (except co.uk etc)
+    parts = domain.split(".")
+    if len(parts) >= 4:
+        log.info(f"Too many subdomains blocked: {email}")
         return True
+
+    # Non-US country TLD check
+    for tld in _NON_US_TLDS:
+        if domain.endswith(tld):
+            log.info(f"Non-US TLD blocked: {email} (ends with {tld})")
+            return True
+
+    # Known wrong domain check
+    base = domain.split(".")[0].lower()
+    if base in _COMPANY_DOMAIN_CORRECTIONS:
+        correct = _COMPANY_DOMAIN_CORRECTIONS[base]
+        if correct is None or correct != domain:
+            log.info(f"Known wrong domain blocked: {email} (base={base})")
+            return True
 
     # Local part sanity checks
     if len(local) < 3 or len(local) > 64:
         return True
-    # Reject very short local parts (initials only like sr@ or s.n@)
+
+    # Clean local: remove separators
     clean_local = local.replace(".", "").replace("_", "").replace("-", "")
+
+    # Too short after cleaning (initials like pt@, sr@, s.n@)
     if len(clean_local) < 3:
-        log.info(f"Too-short local part blocked: {email}")
-        return True
-    if local.replace(".", "").replace("_", "").replace("-", "").isdigit():
+        log.info(f"Too-short local blocked: {email}")
         return True
 
-    # Reject role-based emails (these are shared inboxes, not personal)
+    # All digits
+    if clean_local.isdigit():
+        return True
+
+    # Detect concatenated multi-person emails (donnell.taylormelissapearson@hp.com)
+    # Heuristic: local part > 30 chars with no plausible single-person pattern
+    if len(clean_local) > 30:
+        log.info(f"Likely concatenated name blocked: {email} (local={local})")
+        return True
+
+    # Single-letter last name patterns: pt@, s.t@, j.s@
+    # After removing separators, if length <= 3 it's initials
+    if len(clean_local) <= 3 and not clean_local.isalnum():
+        log.info(f"Initials-only blocked: {email}")
+        return True
+
+    # Check for pattern like "pt" (first initial + last initial) — too ambiguous
+    # Only block if BOTH parts after split are 1-2 chars
+    local_parts = local.replace("_", ".").replace("-", ".").split(".")
+    if len(local_parts) >= 2:
+        if all(len(p) <= 1 for p in local_parts):
+            log.info(f"All-initials email blocked: {email}")
+            return True
+        # Single-char last part (e.g. muskaan.b@)
+        if len(local_parts[-1]) == 1:
+            log.info(f"Single-char last part blocked: {email}")
+            return True
+
+    # Role-based emails
     role_prefixes = {
-        "info",
-        "hello",
-        "press",
-        "sales",
-        "support",
-        "contact",
-        "admin",
-        "help",
-        "team",
-        "hr",
-        "jobs",
-        "careers",
-        "office",
-        "marketing",
-        "media",
-        "security",
-        "privacy",
-        "legal",
-        "feedback",
-        "billing",
-        "noreply",
-        "no-reply",
-        "webmaster",
-        "postmaster",
-        "abuse",
-        "hostmaster",
-        "recruiting",
-        "talent",
-        "apply",
-        "hire",
-        "hiring",
-        "resume",
-        "resumes",
+        "info", "hello", "press", "sales", "support", "contact",
+        "admin", "help", "team", "hr", "jobs", "careers", "office",
+        "marketing", "media", "security", "privacy", "legal",
+        "feedback", "billing", "noreply", "no-reply", "webmaster",
+        "postmaster", "abuse", "hostmaster", "recruiting", "talent",
+        "apply", "hire", "hiring", "resume", "resumes",
+        "careers", "jobs", "internships", "university",
     }
     if local in role_prefixes:
         log.info(f"Role-based email blocked: {email}")

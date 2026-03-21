@@ -463,9 +463,31 @@ class Sheets:
             if extract_val != "yes":
                 continue
 
+            # Auto-resolve: if name field contains LinkedIn URL, use it as the URL
+            # and extract name from it during find()
+            import re as _re_li
+            def _resolve_li_name(name_val, li_val):
+                """If name looks like a LinkedIn URL, swap into li field."""
+                if not name_val:
+                    return name_val, li_val
+                parts = [p.strip() for p in name_val.split(",") if p.strip()]
+                resolved_names = []
+                for part in parts:
+                    if _re_li.search(r"linkedin\.com/in/", part):
+                        # Name field has a LinkedIn URL — use it as li if li is empty
+                        if not li_val:
+                            li_val = part
+                        # Return empty name — finder will extract from URL
+                        resolved_names.append(part)  # keep URL as name; finder handles it
+                    else:
+                        resolved_names.append(part)
+                return ", ".join(resolved_names), li_val
+
+            hn, hli = _resolve_li_name(hn, r[C["hm_li"]].strip())
+            rn, rli = _resolve_li_name(rn, r[C["rec_li"]].strip())
+
             hn_list = [n.strip() for n in hn.split(",") if n.strip()] if hn else []
             rn_list = [n.strip() for n in rn.split(",") if n.strip()] if rn else []
-            # FIX 6: Pass ALL names so phase_extract_and_draft gets full list
             hn = ", ".join(hn_list)
             rn = ", ".join(rn_list)
 
@@ -1166,6 +1188,17 @@ class NameParser:
         if not name or not name.strip():
             return None
         n = name.strip()
+        # If comma-separated multi-name like "John Smith, Jane Doe" — take first
+        # (multi-name handling is done at caller level by splitting on comma)
+        if "," in n:
+            # Check if it looks like "Last, First" (single person) or "Name1, Name2" (multi)
+            parts = [p.strip() for p in n.split(",")]
+            if len(parts) >= 2:
+                # Heuristic: if second part has a space, it's multi-person
+                if " " in parts[1] or len(parts) > 2:
+                    # Multi-person: take only first
+                    n = parts[0]
+                # else it's "Last, First" format — handled below
         # Strip academic/professional credentials that leak into names
         # e.g. "Kelsey Anderson, M.S." → "Kelsey Anderson"
         # e.g. "John Smith, Ph.D., MBA" → "John Smith"

@@ -75,24 +75,158 @@ class Finder:
 
     @staticmethod
     def _extract_name_from_linkedin_url(linkedin_url):
-        """Extract full name from LinkedIn URL slug. e.g. /in/chira-kingpin/ → Chira Kingpin"""
+        """
+        Extract full name from LinkedIn URL.
+        Priority:
+          1. Brain cache (permanent, never re-fetched)
+          2. Slug decomposition (works for hyphenated slugs)
+          3. LinkedIn public page <title> tag (free, no auth)
+          4. Google/Bing search fallback (uses Selenium)
+        Caches all results in Brain permanently.
+        """
         if not linkedin_url:
             return None
-        import re
-        m = re.search(r"linkedin\.com/in/([a-zA-Z0-9-]+)", linkedin_url)
+        import re as _re
+
+        # Normalize URL
+        m = _re.search(r"linkedin\.com/in/([a-zA-Z0-9_-]+)", linkedin_url)
         if not m:
             return None
-        slug = m.group(1)
-        # Remove trailing numbers (LinkedIn IDs like madeline-batista-72930372)
-        slug = re.sub(r"-[a-f0-9]{6,}$", "", slug)  # hex IDs like 967b29105
-        slug = re.sub(r"-\d{5,}$", "", slug)  # numeric IDs like 72930372
-        # Convert slug to name
-        parts = [p.capitalize() for p in slug.split("-") if p and len(p) > 1]
-        # Reject if any part looks like hex/numeric (not a real name)
-        clean = [p for p in parts if not re.match(r"^[0-9a-f]+$", p.lower()) and not p.isdigit()]
-        if len(clean) >= 2:
-            return " ".join(clean)
+        slug = m.group(1).lower().strip("/")
+
+        # 1. Check Brain cache first
+        try:
+            from outreach.brain import Brain
+            b = Brain.get()
+            cached = b._data.get("linkedin_names", {}).get(slug)
+            if cached and cached.get("name"):
+                log.debug(f"LinkedIn name from Brain cache: {slug} → {cached['name']}")
+                return cached["name"]
+        except Exception:
+            pass
+
+        # 2. Slug decomposition
+        clean_slug = slug
+        # Remove trailing hex/numeric IDs: madeline-batista-72930372, 967b29105
+        clean_slug = _re.sub(r"-[0-9a-f]{6,}$", "", clean_slug)
+        clean_slug = _re.sub(r"-\d{4,}$", "", clean_slug)
+        # Remove single-char trailing segments (initials appended to slug)
+        clean_slug = _re.sub(r"-[a-z]$", "", clean_slug)
+
+        parts = [p.capitalize() for p in clean_slug.split("-") if p and len(p) > 1]
+        # Filter out hex/numeric segments
+        clean_parts = [p for p in parts
+                      if not _re.match(r"^[0-9a-f]+$", p.lower())
+                      and not p.isdigit()
+                      and len(p) > 1]
+
+        slug_name = None
+        if len(clean_parts) >= 2:
+            slug_name = " ".join(clean_parts)
+
+        # If slug has no hyphens, it's a concatenated name like "camaraqueder"
+        # Try LinkedIn page title for ALL slugs (slug decomp might be wrong)
+        # Only skip page fetch if slug clearly has 2+ hyphen-separated real words
+        needs_page_fetch = not slug_name or "-" not in slug
+
+        if needs_page_fetch:
+            name = Finder._fetch_linkedin_name(linkedin_url, slug)
+            if name:
+                Finder._cache_linkedin_name(slug, name, "page_title")
+                return name
+
+        if slug_name:
+            Finder._cache_linkedin_name(slug, slug_name, "slug")
+            return slug_name
+
         return None
+
+    @staticmethod
+    def _fetch_linkedin_name(linkedin_url, slug):
+        """Fetch LinkedIn public page to extract name from <title> tag."""
+        import re as _re, time as _t
+        try:
+            import requests as _req
+            _agents = [
+                "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 Chrome/121.0.0.0 Safari/537.36",
+                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/121.0.0.0 Safari/537.36",
+            ]
+            import random as _rand
+            headers = {
+                "User-Agent": _rand.choice(_agents),
+                "Accept-Language": "en-US,en;q=0.9",
+                "Accept": "text/html,application/xhtml+xml",
+            }
+            resp = _req.get(linkedin_url, headers=headers, timeout=8, allow_redirects=True)
+            if resp.status_code == 200:
+                # Title format: "First Last | LinkedIn" or "First Last - Title | LinkedIn"
+                title_m = _re.search(r"<title[^>]*>([^<]+)</title>", resp.text, _re.I)
+                if title_m:
+                    title = title_m.group(1).strip()
+                    # Strip everything after | or - (job title, company)
+                    name = _re.split(r"\s*[|\-]\s*", title)[0].strip()
+                    # Validate: should be 2+ words, no digits, reasonable length
+                    words = name.split()
+                    if (2 <= len(words) <= 4
+                            and all(w[0].isupper() for w in words if w)
+                            and not any(c.isdigit() for c in name)
+                            and len(name) < 50):
+                        log.info(f"LinkedIn page title: {slug} → {name}")
+                        return name
+                # Try og:title meta tag
+                og_m = _re.search(r'property="og:title"[^>]*content="([^"]+)"', resp.text)
+                if not og_m:
+                    og_m = _re.search(r'content="([^"]+)"[^>]*property="og:title"', resp.text)
+                if og_m:
+                    title = og_m.group(1).strip()
+                    name = _re.split(r"\s*[|\-]\s*", title)[0].strip()
+                    words = name.split()
+                    if 2 <= len(words) <= 4 and len(name) < 50:
+                        log.info(f"LinkedIn og:title: {slug} → {name}")
+                        return name
+        except Exception as e:
+            log.debug(f"LinkedIn page fetch failed for {slug}: {e}")
+
+        # Google search fallback: "linkedin.com/in/<slug>"
+        try:
+            import requests as _req
+            import re as _re
+            search_url = f"https://www.google.com/search?q=linkedin.com%2Fin%2F{slug}"
+            headers = {"User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36"}
+            resp = _req.get(search_url, headers=headers, timeout=8)
+            if resp.status_code == 200:
+                # Google result format: "Name - Title - LinkedIn"
+                hits = _re.findall(r"<h3[^>]*>([^<]+)</h3>", resp.text)
+                for hit in hits[:5]:
+                    hit = _re.sub(r"<[^>]+>", "", hit).strip()
+                    if "linkedin" in hit.lower():
+                        name = _re.split(r"\s*[-|·]\s*", hit)[0].strip()
+                        words = name.split()
+                        if 2 <= len(words) <= 4 and not any(c.isdigit() for c in name):
+                            log.info(f"Google LinkedIn search: {slug} → {name}")
+                            return name
+        except Exception as e:
+            log.debug(f"Google LinkedIn search failed: {e}")
+
+        return None
+
+    @staticmethod
+    def _cache_linkedin_name(slug, name, method):
+        """Permanently cache LinkedIn slug → name in Brain."""
+        try:
+            from outreach.brain import Brain
+            import time as _t
+            b = Brain.get()
+            if "linkedin_names" not in b._data:
+                b._data["linkedin_names"] = {}
+            b._data["linkedin_names"][slug] = {
+                "name": name,
+                "method": method,
+                "cached_at": _t.time(),
+            }
+            b.save()
+        except Exception:
+            pass
 
 
     def _verify_and_score(self, email, domain, source_hint=""):
@@ -112,6 +246,17 @@ class Finder:
         r = {"email": "", "source": "", "status": "Failed", "error": "", "confidence": 0}
 
         # If name is incomplete (single name or initial), try LinkedIn URL
+        # If "name" field looks like a LinkedIn URL, extract name from it
+        import re as _re_li
+        if name and _re_li.search(r"linkedin\.com/in/", name):
+            li_name = self._extract_name_from_linkedin_url(name)
+            if li_name:
+                log.info(f"Name field was LinkedIn URL — extracted: '{li_name}'")
+                linkedin = name if not linkedin else linkedin
+                name = li_name
+            else:
+                log.info(f"Name field was LinkedIn URL but extraction failed: {name}")
+
         parsed = NameParser.parse(name)
         if parsed and (parsed["single"] or (parsed["last"] and len(parsed["last"]) <= 2)):
             li_name = self._extract_name_from_linkedin_url(linkedin)
@@ -332,6 +477,21 @@ class Finder:
                 d = f"{clean.replace(' ','')}.com"
                 if self._mx(d):
                     doms = [d]
+        # Filter: check Brain for known corrections
+        filtered = []
+        for d in doms:
+            try:
+                from outreach.brain import Brain
+                correction = Brain.get().get_domain_correction(d)
+                if correction:
+                    log.info(f"Brain domain correction: {d} → {correction}")
+                    filtered.append(correction)
+                    continue
+            except Exception:
+                pass
+            filtered.append(d)
+        doms = filtered
+
         unique = list(dict.fromkeys(d.lower() for d in doms))
         self._dom[k] = {"domains": unique, "ts": __import__('time').time()}
         _save_domain_cache(self._dom)
