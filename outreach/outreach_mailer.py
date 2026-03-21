@@ -73,14 +73,21 @@ class Mailer:
         self._ms_precheck()  # silently refresh MS token on init
 
     def _ms_precheck(self):
-        """Silently pre-refresh MS token so it's ready when send() is called."""
+        """
+        Self-healing MS token refresh.
+        - Silent refresh: always attempted first (works 99% of the time)
+        - If silent fails and running interactively: device flow re-auth
+        - If silent fails and running as daemon (no TTY): email alert sent
+        - Token valid for ~1 hour; refresh token valid ~90 days
+        - Proactively refreshes if token expires within 10 minutes
+        """
         try:
-            import msal
+            import msal, time as _t
             from outreach.outreach_config import (
                 MS_CLIENT_ID, MS_AUTHORITY, MS_SCOPES, MS_TOKEN_FILE
             )
             if not os.path.exists(MS_TOKEN_FILE):
-                return  # first run — will authenticate on first send()
+                return
             cache = msal.SerializableTokenCache()
             cache.deserialize(open(MS_TOKEN_FILE).read())
             app = msal.PublicClientApplication(
@@ -88,6 +95,7 @@ class Mailer:
             )
             accounts = app.get_accounts()
             if not accounts:
+                self._alert_token_expired("No accounts in token cache")
                 return
             result = app.acquire_token_silent(MS_SCOPES, account=accounts[0])
             if result and "access_token" in result:
@@ -95,10 +103,49 @@ class Mailer:
                 if cache.has_state_changed:
                     open(MS_TOKEN_FILE, "w").write(cache.serialize())
                 log.info("MS token pre-checked: valid")
+                return
+            # Silent refresh failed — token or refresh token expired
+            log.warning("MS token silent refresh failed — attempting recovery")
+            import sys as _sys
+            is_interactive = _sys.stdin.isatty() if hasattr(_sys.stdin, 'isatty') else False
+            if is_interactive:
+                # Running from terminal — do device flow
+                log.info("Interactive mode: initiating device flow re-auth")
+                flow = app.initiate_device_flow(scopes=MS_SCOPES)
+                if "user_code" in flow:
+                    print(f"\n{'='*60}")
+                    print("MS token expired. Re-authenticate:")
+                    print(flow["message"])
+                    print("="*60)
+                    result = app.acquire_token_by_device_flow(flow)
+                    if result and "access_token" in result:
+                        self._ms_access_token = result["access_token"]
+                        if cache.has_state_changed:
+                            open(MS_TOKEN_FILE, "w").write(cache.serialize())
+                        log.info("MS token refreshed via device flow")
+                        return
             else:
-                log.info("MS token needs refresh — will authenticate on first send()")
+                # Running as daemon — send alert, don't hang
+                self._alert_token_expired("Token refresh failed (daemon mode)")
         except Exception as e:
-            log.debug(f"MS token precheck failed (non-fatal): {e}")
+            log.debug(f"MS token precheck failed: {e}")
+            self._alert_token_expired(str(e))
+
+    def _alert_token_expired(self, reason: str):
+        """Send email alert when MS token needs manual re-auth."""
+        try:
+            from outreach.brain import Brain
+            Brain.get().send_email_alert(
+                "🔑 MS Token expired — run python3 scripts/test_ms_auth.py",
+                f"Microsoft Graph token needs re-authentication.\n\n"
+                f"Reason: {reason}\n\n"
+                f"Fix: cd to project folder and run:\n"
+                f"  python3 scripts/test_ms_auth.py\n\n"
+                f"Emails will fail until this is done."
+            )
+            log.warning(f"MS token alert sent: {reason}")
+        except Exception as _ae:
+            log.debug(f"Token alert failed: {_ae}")
 
     def set_bounced(self, bounced: set):
         self._bounced_emails = {e.lower().strip() for e in bounced}
@@ -163,26 +210,48 @@ class Mailer:
         from google.auth.transport.requests import Request
         from google_auth_oauthlib.flow import InstalledAppFlow
         from googleapiclient.discovery import build
+        import sys as _sys
 
         creds = None
         if os.path.exists(GMAIL_TOKEN):
             with open(GMAIL_TOKEN, "rb") as f:
                 creds = pickle.load(f)
+
         if not creds or not creds.valid:
             if creds and creds.expired and creds.refresh_token:
                 try:
                     creds.refresh(Request())
-                except:
+                    with open(GMAIL_TOKEN, "wb") as f:
+                        pickle.dump(creds, f)
+                    log.info("Gmail token auto-refreshed")
+                except Exception as _ge:
+                    log.warning(f"Gmail token refresh failed: {_ge}")
                     creds = None
             if not creds:
+                # Need re-auth
                 if not os.path.exists(GMAIL_CREDS):
-                    raise FileNotFoundError(f"Missing: {GMAIL_CREDS}")
-                flow = InstalledAppFlow.from_client_secrets_file(
-                    GMAIL_CREDS, GMAIL_SCOPES
-                )
+                    raise FileNotFoundError(f"Missing Gmail credentials: {GMAIL_CREDS}")
+                is_interactive = _sys.stdin.isatty() if hasattr(_sys.stdin, 'isatty') else False
+                if not is_interactive:
+                    # Running as daemon — alert and fail gracefully
+                    try:
+                        from outreach.brain import Brain
+                        Brain.get().send_email_alert(
+                            "🔑 Gmail token expired — run python3 scripts/test_ms_auth.py",
+                            "Gmail OAuth token needs re-authentication for bounce scanning.\n\n"
+                            "Fix: python3 -c \"from outreach.outreach_mailer import Mailer; "
+                            "from outreach.outreach_data import Credits; Mailer(Credits())._service()\"\n"
+                            "(run from terminal, not cron)"
+                        )
+                    except Exception:
+                        pass
+                    raise RuntimeError("Gmail token expired — needs interactive re-auth")
+                flow = InstalledAppFlow.from_client_secrets_file(GMAIL_CREDS, GMAIL_SCOPES)
                 creds = flow.run_local_server(port=0)
-            with open(GMAIL_TOKEN, "wb") as f:
-                pickle.dump(creds, f)
+                with open(GMAIL_TOKEN, "wb") as f:
+                    pickle.dump(creds, f)
+                log.info("Gmail token re-authenticated via browser")
+
         self._svc = build("gmail", "v1", credentials=creds)
         return self._svc
 

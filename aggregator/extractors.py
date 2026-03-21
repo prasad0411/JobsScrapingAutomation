@@ -1061,6 +1061,21 @@ class JobrightAuthenticator:
             except Exception as e:
                 logging.error(f"Failed to load Jobright cookies: {e}")
 
+    def _cookies_are_fresh(self) -> bool:
+        """Check if Jobright cookies are still valid (< 6 hours old)."""
+        import time as _t, os as _os
+        cookie_file = _os.path.join(
+            _os.path.dirname(_os.path.dirname(_os.path.abspath(__file__))),
+            ".local", "jobright_cookies.json"
+        )
+        if not _os.path.exists(cookie_file):
+            return False
+        try:
+            age = _t.time() - _os.path.getmtime(cookie_file)
+            return age < 6 * 3600  # fresh if < 6 hours
+        except Exception:
+            return False
+
     def login_interactive(self):
         if not SELENIUM_AVAILABLE:
             logging.warning("Selenium not available")

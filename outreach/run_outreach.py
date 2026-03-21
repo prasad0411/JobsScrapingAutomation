@@ -400,6 +400,15 @@ def main():
     sh = Sheets()
     fi = Finder(cr)
     ma = Mailer(cr)
+    # Self-heal: verify MS token is valid before doing any work
+    # _ms_precheck() already called in Mailer.__init__ but verify result
+    if not ma._ms_access_token:
+        import sys as _sys
+        if _sys.stdin.isatty():
+            print("  MS token needs re-auth. Follow the prompt below:")
+        else:
+            print("  WARNING: MS token unavailable — emails will fail. Check your email for alert.")
+            log.warning("Outreach run started with no MS token")
 
     if cmd == "status":
         status(sh, cr, ma)

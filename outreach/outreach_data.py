@@ -1199,14 +1199,23 @@ class NameParser:
                     # Multi-person: take only first
                     n = parts[0]
                 # else it's "Last, First" format — handled below
-        # Strip academic/professional credentials that leak into names
-        # e.g. "Kelsey Anderson, M.S." → "Kelsey Anderson"
-        # e.g. "John Smith, Ph.D., MBA" → "John Smith"
+        # Step 1: Strip parentheticals FIRST e.g. "Joanna (Maskas) Clark" → "Joanna Clark"
         import re as _re
-        _CRED_PATTERN = r',?\s*(?:M\.?S\.?|Ph\.?D\.?|M\.?B\.?A\.?|M\.?D\.?|J\.?D\.?|D\.?O\.?|R\.?N\.?|C\.?P\.?A\.?|P\.?E\.?|D\.?V\.?M\.?|Pharm\.?D\.?|Ed\.?D\.?|Psy\.?D\.?|Sc\.?D\.?|LL\.?M\.?|LL\.?B\.?|B\.?S\.?|B\.?A\.?|B\.?E\.?)\.?'
-        n = _re.sub(_CRED_PATTERN, '', n, flags=_re.I).strip().strip(',').strip()
-        # Also strip trailing degree words
-        n = _re.sub(r',?\s+(?:Masters?|Bachelor|Bachelors?|Doctor|Doctorate|Engineer|Prof(?:essor)?)\s*\.?\s*$', '', n, flags=_re.I).strip()
+        n = _re.sub(r"\([^)]*\)\s*", "", n).strip()
+        # Step 2: Strip academic credentials e.g. "Kelsey Anderson, M.S." → "Kelsey Anderson"
+        # Runs BEFORE comma-split so credentials after comma don't confuse Last/First detection
+        _creds_pat = (
+            r"(?:,\s*|\s+)"
+            r"\b(?:M\.?S|Ph\.?D|M\.?B\.?A|M\.?D|J\.?D|D\.?O|R\.?N|"
+            r"C\.?P\.?A|P\.?E|D\.?V\.?M|Pharm\.?D|Ed\.?D|Psy\.?D|"
+            r"Sc\.?D|LL\.?[MB]|B\.?[SAE])\.?\b"
+        )
+        n = _re.sub(_creds_pat, "", n, flags=_re.I).strip().rstrip(",").strip()
+        # Step 3: Strip trailing degree words
+        n = _re.sub(
+            r",?\s+(?:Masters?|Bachelors?|Doctor(?:ate)?|Engineer|Prof(?:essor)?)\s*\.?\s*$",
+            "", n, flags=_re.I
+        ).strip()
         if "," in n:
             parts = [p.strip() for p in n.split(",", 1)]
             if len(parts) == 2 and parts[0] and parts[1]:
