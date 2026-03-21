@@ -184,7 +184,9 @@ def _move_sent_to_cold_emailing(token, subject, to_email):
     try:
         import urllib.parse
         # Search for the message in Sent Items (sent in last 2 minutes)
-        filter_q = f"subject eq '{subject}'"
+        # Escape single quotes in subject for OData filter
+        safe_subj = subject.replace("'", "''")
+        filter_q = f"subject eq '{safe_subj}'"  
         resp = _req.get(
             f"https://graph.microsoft.com/v1.0/users/{MS_SENDER_EMAIL}/mailFolders/sentitems/messages",
             headers={"Authorization": f"Bearer {token}"},

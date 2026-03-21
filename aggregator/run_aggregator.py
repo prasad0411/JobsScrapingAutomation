@@ -2016,6 +2016,20 @@ class UnifiedJobAggregator:
             }
         )
         self.outcomes["discarded"] += 1
+        # Register discarded job_id in Brain to prevent re-processing
+        if job_id and job_id not in ("N/A", "") and not job_id.startswith("HASH_"):
+            try:
+                from outreach.brain import Brain
+                Brain.get().register_job_id(job_id, company, title)
+            except Exception:
+                pass
+        # Soft-track company rejection in Brain (for weekly review — NOT auto-blacklist)
+        if company and company not in ("Unknown", "N/A", ""):
+            try:
+                from outreach.brain import Brain
+                Brain.get().record_company_rejection(company, reason)
+            except Exception:
+                pass
 
     def _print_rejected(self, company, reason):
         if getattr(self, "_github_mode", False):

@@ -859,6 +859,82 @@ class Brain:
         self._data["_legacy_migrated_files"] = migrated
         self.save()
 
+
+    def get_blacklist_review(self) -> dict:
+        """
+        Generate weekly blacklist review.
+        Returns:
+          auto_approved: companies with structural reasons, 2+ rejections, no outreach
+          pending_review: companies with 3+ same reason, may have mixed roles
+          clean: nothing to report
+        """
+        auto_approved = []
+        pending_review = []
+
+        _STRUCTURAL = {"security clearance", "clearance required", "us person",
+                       "citizenship required", "skillbridge", "military only"}
+
+        for k, e in self._data["companies"].items():
+            if e.get("blacklist"):
+                continue  # Already blacklisted
+            if e.get("outreach_count", 0) > 0:
+                continue  # We've outreached here — never propose blacklist
+
+            reasons = e.get("rejection_reasons", {})
+            if not reasons:
+                continue
+
+            total = e.get("rejection_count", 0)
+            if total < 2:
+                continue
+
+            top_reason = max(reasons, key=reasons.get) if reasons else ""
+            top_count = reasons.get(top_reason, 0)
+            name = e.get("name", k)
+
+            # Check if structural
+            is_structural = any(s in top_reason.lower() for s in _STRUCTURAL)
+
+            # Count distinct job postings (velocity list has timestamps)
+            vel = e.get("rejection_velocity", [])
+            distinct_recent = len([t for t in vel if time.time() - t < 30 * 86400])
+
+            if is_structural and top_count >= 2:
+                auto_approved.append({
+                    "name": name,
+                    "reason": top_reason,
+                    "count": top_count,
+                    "distinct_jobs": distinct_recent,
+                })
+            elif top_count >= 3 and not is_structural:
+                # Check if company also has valid CS roles (mixed company)
+                has_mixed = top_count < total  # other rejection reasons exist too
+                pending_review.append({
+                    "name": name,
+                    "reason": top_reason,
+                    "count": top_count,
+                    "total_rejections": total,
+                    "has_mixed_roles": has_mixed,
+                    "distinct_jobs": distinct_recent,
+                    "outreach_count": e.get("outreach_count", 0),
+                })
+
+        return {
+            "auto_approved": sorted(auto_approved, key=lambda x: -x["count"]),
+            "pending_review": sorted(pending_review, key=lambda x: -x["count"]),
+        }
+
+    def apply_approved_blacklist(self, approved_names: list):
+        """Apply auto-approved blacklist entries. Called after user confirms."""
+        for name in approved_names:
+            k = re.sub(r"[^a-z0-9]", "", name.lower().strip())
+            e = self._data["companies"].get(k, {})
+            if e:
+                e["blacklist"] = True
+                e["blacklist_reason"] = f"Approved: {e.get('_proposed_reason', 'structural')}"
+                log.info(f"Brain: applied approved blacklist for {name}")
+        self.save()
+
     def send_email_alert(self, subject: str, body: str):
         """Send alert email from kanade.pra@northeastern.edu to prasadckanade@gmail.com."""
         try:

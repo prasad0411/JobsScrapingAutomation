@@ -139,18 +139,45 @@ def main():
         b = Brain.get()
         for company, reason, count in candidates:
             b.record_company_rejection(company, reason)
-        if new_companies:
-            msg = (
-                f"Auto-blacklist: {len(new_companies)} companies added\n\n"
-                + "\n".join(f"  + {c}: {r} (x{ct})" for c, r, ct in candidates)
-            )
-            b.send_email_alert(
-                f"🚫 Auto-blacklist: {len(new_companies)} new companies blocked",
-                msg
-            )
+
+        # Generate weekly review from Brain data
+        review = b.get_blacklist_review()
+        auto = review.get("auto_approved", [])
+        pending = review.get("pending_review", [])
+
+        lines = [f"BLACKLIST REVIEW — Week of {__import__('datetime').date.today().strftime('%b %d')}\n"]
+
+        if auto:
+            lines.append("AUTO-APPROVED (structural reasons — safe to approve):")
+            for c in auto:
+                lines.append(f"  ✓ {c['name']} — "{c['reason']}" x{c['count']} ({c['distinct_jobs']} jobs)")
+            lines.append("\nTo apply: python3 -c \"from outreach.brain import Brain; Brain.get().apply_approved_blacklist(" +
+                         repr([c['name'] for c in auto]) + ")\"\n")
         else:
-            import logging as _log
-            _log.getLogger(__name__).info("Auto-blacklist: clean run, no new companies")
+            lines.append("AUTO-APPROVED: none this week\n")
+
+        if pending:
+            lines.append("PENDING YOUR REVIEW:")
+            for c in pending:
+                mixed = " (has mixed roles — DO NOT blacklist)" if c["has_mixed_roles"] else ""
+                outreached = f" (outreached {c['outreach_count']}x — DO NOT blacklist)" if c["outreach_count"] > 0 else ""
+                lines.append(f"  ? {c['name']} — "{c['reason']}" x{c['count']}{mixed}{outreached}")
+        else:
+            lines.append("PENDING REVIEW: none this week")
+
+        if new_companies:
+            lines.append(f"\nCONFIG UPDATED: {len(new_companies)} companies added to COMPANY_BLACKLIST")
+            for c in new_companies:
+                lines.append(f"  + {c}")
+
+        report = "\n".join(lines)
+        print("\n" + report)
+
+        subject = f"🔍 Blacklist Review — {len(auto)} auto-approved, {len(pending)} pending"
+        if auto or pending or new_companies:
+            b.send_email_alert(subject, report)
+            print(f"\nReview email sent to prasadckanade@gmail.com")
+
     except Exception as _be:
         print(f"Brain sync failed (non-fatal): {_be}")
 
