@@ -181,14 +181,32 @@ def main():
         if spon.lower() == "no":
             new_val = "Skip"
             skip_count += 1
-        # Only set Extract=yes if status is Applied
+        # Set Extract=yes if status is Applied
         elif status.strip().lower() == "applied":
             new_val = "yes"
             yes_count += 1
-        # Not Applied or unknown — set Skip
+        # ALSO set Extract=yes if LinkedIn URL exists in HM or Rec column
+        # (user manually researched a real person — honor that signal)
         else:
-            new_val = "Skip"
-            skip_count += 1
+            hm_li = row[C["hm_li"]].strip() if len(row) > C["hm_li"] else ""
+            rec_li = row[C["rec_li"]].strip() if len(row) > C["rec_li"] else ""
+            hm_name = row[C["hm_name"]].strip() if len(row) > C["hm_name"] else ""
+            rec_name = row[C["rec_name"]].strip() if len(row) > C["rec_name"] else ""
+            import re as _re
+            _li_pat = r"linkedin\.com/in/"
+            # LinkedIn URL in li column OR in name column (user pasted URL there)
+            has_li = (
+                (hm_li and _re.search(_li_pat, hm_li)) or
+                (rec_li and _re.search(_li_pat, rec_li)) or
+                (hm_name and _re.search(_li_pat, hm_name)) or
+                (rec_name and _re.search(_li_pat, rec_name))
+            )
+            if has_li and spon.lower() != "no":
+                new_val = "yes"
+                yes_count += 1
+            else:
+                new_val = "Skip"
+                skip_count += 1
 
         if new_val:
             col = _cl(C["extract"])
