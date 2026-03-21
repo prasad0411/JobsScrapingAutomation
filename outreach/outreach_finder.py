@@ -412,7 +412,18 @@ class Finder:
         if parsed["single"]:
             r["error"] = "Single name"
             return r
-        pa, pb, pc = NameParser.gen_phased(parsed, domains)
+        # Use Brain-ranked patterns if enough data, else default order
+        try:
+            from outreach.outreach_config import get_ranked_patterns
+            _ra, _rb, _rc = get_ranked_patterns()
+            # Temporarily override for gen_phased
+            import outreach.outreach_config as _oc
+            _orig_a, _orig_b, _orig_c = _oc.PAT_A, _oc.PAT_B, _oc.PAT_C
+            _oc.PAT_A, _oc.PAT_B, _oc.PAT_C = _ra, _rb, _rc
+            pa, pb, pc = NameParser.gen_phased(parsed, domains)
+            _oc.PAT_A, _oc.PAT_B, _oc.PAT_C = _orig_a, _orig_b, _orig_c
+        except Exception:
+            pa, pb, pc = NameParser.gen_phased(parsed, domains)
         for e in pa:
             if self._verify(e) == "safe":
                 r.update(email=e, status="Valid")

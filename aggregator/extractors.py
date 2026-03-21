@@ -260,8 +260,9 @@ class SimplifyRedirectResolver:
         except:
             pass
 
+    _success_cache = {}  # Only cache successful resolutions
+
     @staticmethod
-    @lru_cache(maxsize=500)
     def resolve(simplify_url):
         if "simplify.jobs/p/" not in simplify_url.lower():
             return simplify_url, False
@@ -269,6 +270,11 @@ class SimplifyRedirectResolver:
         if not job_id_match:
             return simplify_url, False
         job_id = job_id_match.group(1)
+        # Check success cache first (only successes are cached — never failures)
+        if job_id in SimplifyRedirectResolver._success_cache:
+            cached_url = SimplifyRedirectResolver._success_cache[job_id]
+            logging.debug(f"Simplify success cache hit: {job_id}")
+            return cached_url, True
         failed_cache = SimplifyRedirectResolver.load_failed_cache()
         import time as _time
         now_ts = _time.time()
@@ -308,39 +314,46 @@ class SimplifyRedirectResolver:
             actual_url = _try(1, lambda: SimplifyRedirectResolver._method_1_http_redirect(click_url))
             if actual_url:
                 logging.info(f"Simplify HTTP (preferred): {actual_url[:70]}")
+                SimplifyRedirectResolver._success_cache[job_id] = actual_url
                 return actual_url, True
         elif _preferred == 2:
             actual_url = _try(2, lambda: SimplifyRedirectResolver._method_2_selenium_click(click_url))
             if actual_url:
                 logging.info(f"Simplify Selenium (preferred): {actual_url[:70]}")
+                SimplifyRedirectResolver._success_cache[job_id] = actual_url
                 return actual_url, True
         elif _preferred == 3:
             actual_url = _try(3, lambda: SimplifyRedirectResolver._method_3_api_fetch(job_id))
             if actual_url:
                 logging.info(f"Simplify API (preferred): {actual_url[:70]}")
+                SimplifyRedirectResolver._success_cache[job_id] = actual_url
                 return actual_url, True
 
         if 1 not in _tried:
             actual_url = _try(1, lambda: SimplifyRedirectResolver._method_1_http_redirect(click_url))
             if actual_url:
                 logging.info(f"Simplify HTTP: {actual_url[:70]}")
+                SimplifyRedirectResolver._success_cache[job_id] = actual_url
                 return actual_url, True
 
         if 2 not in _tried:
             actual_url = _try(2, lambda: SimplifyRedirectResolver._method_2_selenium_click(click_url))
             if actual_url:
                 logging.info(f"Simplify Selenium: {actual_url[:70]}")
+                SimplifyRedirectResolver._success_cache[job_id] = actual_url
                 return actual_url, True
 
         if 3 not in _tried:
             actual_url = _try(3, lambda: SimplifyRedirectResolver._method_3_api_fetch(job_id))
             if actual_url:
                 logging.info(f"Simplify API: {actual_url[:70]}")
+                SimplifyRedirectResolver._success_cache[job_id] = actual_url
                 return actual_url, True
 
         actual_url = SimplifyRedirectResolver._method_4_github_lookup(job_id)
         if actual_url:
             logging.info(f"Simplify GitHub: {actual_url[:70]}")
+            SimplifyRedirectResolver._success_cache[job_id] = actual_url
             return actual_url, True
 
         actual_url = SimplifyRedirectResolver._method_5_page_apply_button(simplify_url)
@@ -349,6 +362,7 @@ class SimplifyRedirectResolver:
             return "__INACTIVE__", False
         if actual_url:
             logging.info(f"Simplify Page: {actual_url[:70]}")
+            SimplifyRedirectResolver._success_cache[job_id] = actual_url
             return actual_url, True
         failed_cache[job_id] = time.time()
         SimplifyRedirectResolver.save_failed_cache(failed_cache)
@@ -481,35 +495,109 @@ class SimplifyRedirectResolver:
             if not soup:
                 return None
 
-            # Extract metadata from Simplify page text
+            # Extract rich metadata from Simplify page
             try:
-                page_text = soup.get_text(separator=" ")[:5000]
+                page_text = soup.get_text(separator=" ")[:8000]
                 import re as _sre
                 meta = {}
-                loc_match = _sre.search(r"(?:In Person|Hybrid|Remote)\s+([\w\s]+,\s*(?:[A-Z]{2}|[A-Za-z]+),\s*USA)", page_text)
-                if not loc_match:
-                    loc_match = _sre.search(r"(?:Internship|Company)\s+([\w\s]+,\s*(?:[A-Z]{2}|[A-Za-z]+),\s*USA)", page_text)
-                if not loc_match:
-                    loc_match = _sre.search(r"employees\s+([\w\s]+,\s*[A-Z]{2},\s*USA)", page_text)
-                if not loc_match:
-                    loc_match = _sre.search(r"([A-Z][a-z]+(?:\s+[A-Z][a-z]+)*,\s*[A-Z]{2},\s*USA)", page_text)
-                if not loc_match:
-                    loc_match = _sre.search(r"([A-Z][a-z]+(?:\s+[A-Z][a-z]+)*,\s*[A-Z]{2})\s+(?:Hybrid|Remote|In Person|On Site)", page_text)
-                if loc_match:
-                    loc_raw = loc_match.group(1).strip()
-                    loc_raw = _sre.sub(r",?\s*USA\s*$", "", loc_raw).strip()
-                    meta["location"] = loc_raw
-                if "In Person" in page_text[:3000]:
-                    meta["remote"] = "On Site"
-                elif "Hybrid" in page_text[:3000]:
-                    meta["remote"] = "Hybrid"
-                elif "Remote" in page_text[:3000]:
-                    meta["remote"] = "Remote"
-                if "No H1B Sponsorship" in page_text[:3000]:
-                    meta["no_h1b"] = True
+
+                # Try __NEXT_DATA__ first for structured metadata
+                _nd = soup.find("script", {"id": "__NEXT_DATA__"})
+                if _nd and _nd.string:
+                    try:
+                        import json as _mj
+                        _nd_data = _mj.loads(_nd.string)
+                        _props = _nd_data.get("props", {}).get("pageProps", {})
+                        _job = _props.get("job", _props.get("jobPosting", {}))
+                        if _job:
+                            # Location from structured data
+                            _loc = (_job.get("location") or _job.get("city", "") or
+                                    _job.get("jobLocation", {}).get("address", {}).get("addressLocality", ""))
+                            _state = (_job.get("state") or
+                                      _job.get("jobLocation", {}).get("address", {}).get("addressRegion", ""))
+                            if _loc and _state:
+                                meta["location"] = f"{_loc}, {_state}"
+                            elif _loc:
+                                meta["location"] = _loc
+                            # Salary from structured data
+                            _sal = (_job.get("salary") or _job.get("baseSalary", {}) or
+                                    _job.get("compensation", ""))
+                            if isinstance(_sal, dict):
+                                _min = _sal.get("minValue") or _sal.get("min", "")
+                                if _min:
+                                    meta["salary_min"] = float(str(_min).replace("$","").replace(",","").strip())
+                            elif isinstance(_sal, str) and "$" in _sal:
+                                _sm = _sre.search(r'\$(\d+(?:\.\d+)?)', _sal)
+                                if _sm:
+                                    meta["salary_min"] = float(_sm.group(1))
+                            # Sponsorship signal
+                            _tags = _job.get("tags", []) or _job.get("recommendationTags", [])
+                            if any("no h1b" in str(t).lower() or "no_h1b" in str(t).lower() for t in _tags):
+                                meta["no_h1b"] = True
+                            # Work type
+                            _wt = (_job.get("workModel") or _job.get("workplaceType", "")).lower()
+                            if "remote" in _wt:
+                                meta["remote"] = "Remote"
+                            elif "hybrid" in _wt:
+                                meta["remote"] = "Hybrid"
+                            elif "onsite" in _wt or "on_site" in _wt or "in_person" in _wt:
+                                meta["remote"] = "On Site"
+                    except Exception:
+                        pass
+
+                # Fallback: regex from page text
+                if not meta.get("location"):
+                    for _lp in [
+                        r"(?:In Person|Hybrid|Remote)\s+([\w\s]+,\s*[A-Z]{2}),?\s*USA",
+                        r"([A-Z][a-z]+(?:\s+[A-Z][a-z]+)*,\s*[A-Z]{2},\s*USA)",
+                        r"([A-Z][a-z]+(?:\s+[A-Z][a-z]+)*,\s*[A-Z]{2})\s+(?:Hybrid|Remote|In Person|On Site)",
+                        r"employees\s+([\w\s]+,\s*[A-Z]{2},\s*USA)",
+                        r"([A-Z][a-z]+(?:\s+[A-Z][a-z]+)*),\s+([A-Z]{2})\s+(?:USA)?",
+                    ]:
+                        _lm = _sre.search(_lp, page_text)
+                        if _lm:
+                            _lr = _lm.group(1).strip()
+                            _lr = _sre.sub(r",?\s*USA\s*$", "", _lr).strip()
+                            if _lr and len(_lr) > 3:
+                                meta["location"] = _lr
+                                break
+
+                # Remote fallback from page text
+                if not meta.get("remote"):
+                    _pt3 = page_text[:3000]
+                    if "In Person" in _pt3:
+                        meta["remote"] = "On Site"
+                    elif "Hybrid" in _pt3:
+                        meta["remote"] = "Hybrid"
+                    elif "Remote" in _pt3:
+                        meta["remote"] = "Remote"
+
+                # Salary fallback from page text
+                if not meta.get("salary_min"):
+                    for _sp in [
+                        r'\$(\d+(?:\.\d+)?)\s*/\s*hr',
+                        r'Compensation Overview\s+\$(\d+(?:\.\d+)?)',
+                        r'Pay Range[:\s]+\$(\d+(?:\.\d+)?)',
+                        r'\$(\d+(?:\.\d+)?)\s*(?:USD)?\s*/\s*hour',
+                    ]:
+                        _sm = _sre.search(_sp, page_text, _sre.I)
+                        if _sm:
+                            try:
+                                _sv = float(_sm.group(1))
+                                if 1 < _sv < 200:
+                                    meta["salary_min"] = _sv
+                                    break
+                            except Exception:
+                                pass
+
+                # No H1B fallback
+                if not meta.get("no_h1b"):
+                    if "No H1B" in page_text[:3000] or "no h1b" in page_text[:3000].lower():
+                        meta["no_h1b"] = True
+
                 SimplifyRedirectResolver._last_metadata = meta
                 if meta.get("location"):
-                    logging.info(f"Simplify metadata: location={meta['location']}, remote={meta.get('remote','?')}")
+                    logging.info(f"Simplify metadata: location={meta['location']}, remote={meta.get('remote','?')}, salary_min={meta.get('salary_min','?')}")
             except Exception as e:
                 logging.debug(f"Simplify metadata extraction failed: {e}")
 

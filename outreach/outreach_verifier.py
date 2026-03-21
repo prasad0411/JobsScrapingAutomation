@@ -29,6 +29,10 @@ Never send: < 50
 """
 
 import os, json, time, logging, datetime
+try:
+    from outreach.brain import Brain as _Brain
+except Exception:
+    _Brain = None
 
 log = logging.getLogger(__name__)
 
@@ -169,9 +173,18 @@ class CircuitBreaker:
         try:
             if os.path.exists(CIRCUIT_BREAKER_FILE):
                 data = json.load(open(CIRCUIT_BREAKER_FILE))
-                # Reset if it's a new day
                 if data.get("date") != _today():
-                    return CircuitBreaker._fresh()
+                    data = CircuitBreaker._fresh()
+                    CircuitBreaker.save(data)
+                # Sync Brain circuit_breaker counts from file (file is source of truth for daily)
+                try:
+                    if _Brain:
+                        b = _Brain.get()
+                        b._data["circuit_breaker"]["sent_today"] = data.get("sent", 0)
+                        b._data["circuit_breaker"]["bounced_today"] = data.get("bounced", 0)
+                        b._data["circuit_breaker"]["tripped"] = data.get("tripped", False)
+                except Exception:
+                    pass
                 return data
         except Exception:
             pass
@@ -307,9 +320,12 @@ class DomainHistory:
         if pattern in data[domain].get("failed_patterns", []):
             data[domain]["failed_patterns"].remove(pattern)
         DomainHistory.save(data)
-        log.info(
-            f"Domain history: {domain} confirmed pattern '{pattern}' (from {email})"
-        )
+        log.info(f"Domain history: {domain} confirmed pattern '{pattern}' (from {email})")
+        try:
+            if _Brain:
+                _Brain.get().record_pattern_success(domain, pattern, email)
+        except Exception:
+            pass
 
     @staticmethod
     def record_failure(domain, pattern, email):
@@ -332,23 +348,35 @@ class DomainHistory:
                 f"Domain history: {domain} invalidated pattern '{pattern}' (bounce)"
             )
         DomainHistory.save(data)
+        try:
+            if _Brain:
+                _Brain.get().record_pattern_failure(domain, pattern)
+        except Exception:
+            pass
 
     @staticmethod
     def get_confirmed_pattern(domain):
-        """Get the confirmed working pattern for a domain, or None."""
+        """Get the confirmed working pattern for a domain. Brain is source of truth."""
+        domain = domain.lower().strip()
+        # Check Brain first — it has higher confidence and more data
+        try:
+            if _Brain:
+                brain_pat = _Brain.get().best_pattern_for(domain)
+                if brain_pat:
+                    return brain_pat
+        except Exception:
+            pass
+        # Fall back to local file cache
         data = DomainHistory.load()
-        entry = data.get(domain.lower().strip(), {})
+        entry = data.get(domain, {})
         pattern = entry.get("confirmed_pattern")
         confirmed_at = entry.get("confirmed_at")
         if pattern and confirmed_at:
-            # Check staleness — invalidate if older than 90 days
             try:
                 confirmed_date = datetime.datetime.strptime(confirmed_at, "%Y-%m-%d")
                 age_days = (datetime.datetime.now() - confirmed_date).days
                 if age_days > 90:
-                    log.info(
-                        f"Domain history: {domain} pattern '{pattern}' is stale ({age_days}d)"
-                    )
+                    log.info(f"Domain history: {domain} pattern stale ({age_days}d)")
                     return None
             except Exception:
                 pass
@@ -357,8 +385,16 @@ class DomainHistory:
     @staticmethod
     def is_failed_pattern(domain, pattern):
         """Check if this pattern has previously bounced for this domain."""
+        domain = domain.lower().strip()
+        # Check Brain first
+        try:
+            if _Brain:
+                if _Brain.get().is_failed_pattern(domain, pattern):
+                    return True
+        except Exception:
+            pass
         data = DomainHistory.load()
-        entry = data.get(domain.lower().strip(), {})
+        entry = data.get(domain, {})
         return pattern in entry.get("failed_patterns", [])
 
 

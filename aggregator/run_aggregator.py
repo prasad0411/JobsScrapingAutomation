@@ -745,7 +745,17 @@ class UnifiedJobAggregator:
                 logging.info(f"REJECTED | {company_from_github} | {title} | Simplify INACTIVE")
                 return
             if not resolved:
-                resolved_url = url
+                # Don't write Simplify wrapper URL — queue for retry and skip
+                try:
+                    from outreach.brain import Brain
+                    _jid_m = __import__('re').search(r'/p/([a-f0-9-]+)', url)
+                    if _jid_m:
+                        Brain.get().queue_simplify_retry(_jid_m.group(1), url, "github_unresolved")
+                except Exception:
+                    pass
+                self.outcomes["failed_simplify_resolution"] = self.outcomes.get("failed_simplify_resolution", 0) + 1
+                logging.info(f"Simplify unresolved — queued for retry: {url[:60]}")
+                return
                 # Fallback: extract title from URL slug if current title is Unknown/generic
                 import re as _url_re
                 slug_match = _url_re.search(r'/p/[a-f0-9-]+/([A-Za-z0-9-]+)', url)
@@ -1021,7 +1031,17 @@ class UnifiedJobAggregator:
                 logging.info(f"REJECTED | Simplify INACTIVE | {url[:60]}")
                 return "skipped"
             if not resolved:
-                resolved_url = url
+                # Don't write Simplify wrapper URL — queue for retry and skip
+                try:
+                    from outreach.brain import Brain
+                    _jid_m = __import__('re').search(r'/p/([a-f0-9-]+)', url)
+                    if _jid_m:
+                        Brain.get().queue_simplify_retry(_jid_m.group(1), url, "github_unresolved")
+                except Exception:
+                    pass
+                self.outcomes["failed_simplify_resolution"] = self.outcomes.get("failed_simplify_resolution", 0) + 1
+                logging.info(f"Simplify unresolved — queued for retry: {url[:60]}")
+                return
                 # Use metadata from Simplify page if available
                 try:
                     from aggregator.extractors import SimplifyRedirectResolver as _SRR

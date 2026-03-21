@@ -27,7 +27,12 @@ def main():
         category = entry.get("category", "unknown")
         log.info(f"  Retrying {jid} (attempt {attempts}, category={category}): {url[:60]}")
         try:
-            SimplifyRedirectResolver.resolve.cache_clear()
+            # Clear both lru_cache (if any) and success cache
+            try:
+                SimplifyRedirectResolver.resolve.cache_clear()
+            except AttributeError:
+                pass  # No lru_cache anymore
+            SimplifyRedirectResolver._success_cache.pop(jid, None)
             result_url, success = SimplifyRedirectResolver.resolve(url)
             if success and result_url and result_url != url:
                 log.info(f"  ✓ Resolved: {result_url[:70]}")

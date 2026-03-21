@@ -87,6 +87,11 @@ class Brain:
         self._path = _BRAIN_FILE
         os.makedirs(os.path.dirname(self._path), exist_ok=True)
         self._data = self._load()
+        # One-time migration from legacy .local/ files
+        try:
+            self.migrate_legacy_files()
+        except Exception as _me:
+            log.debug(f"Brain migration failed (non-fatal): {_me}")
 
     # ── Persistence ──────────────────────────────────────────────────────────
 
@@ -711,6 +716,120 @@ class Brain:
         return prev[-1]
 
     # ── Notifications ─────────────────────────────────────────────────────────
+
+
+    def migrate_legacy_files(self):
+        """
+        One-time migration: read legacy .local/ JSON files into Brain.
+        Runs at startup, idempotent — safe to call multiple times.
+        Records completion so it never re-runs.
+        """
+        if self._data.get("_legacy_migration_done"):
+            return
+        import os as _os, json as _json, time as _t
+        _local = _os.path.join(_os.path.dirname(_os.path.dirname(
+            _os.path.abspath(__file__))), ".local")
+
+        migrated = []
+
+        # 1. domain_pattern_history.json → Brain domains
+        _dph = _os.path.join(_local, "domain_pattern_history.json")
+        if _os.path.exists(_dph):
+            try:
+                _d = _json.load(open(_dph))
+                for domain, entry in _d.items():
+                    pat = entry.get("confirmed_pattern")
+                    fails = entry.get("failed_patterns", [])
+                    if pat:
+                        self.record_pattern_success(domain, pat, "migrated")
+                    for fp in fails:
+                        self.record_pattern_failure(domain, fp)
+                migrated.append("domain_pattern_history.json")
+            except Exception as e:
+                log.debug(f"Migration domain_pattern_history failed: {e}")
+
+        # 2. outreach_patterns.json → Brain domains (PatternCache file)
+        _op = _os.path.join(_local, "outreach_patterns.json")
+        if _os.path.exists(_op):
+            try:
+                _d = _json.load(open(_op))
+                for domain, pat in _d.items():
+                    if domain != "_global_best" and pat and not self.best_pattern_for(domain):
+                        self.record_pattern_success(domain, pat, "migrated_patterns")
+                migrated.append("outreach_patterns.json")
+            except Exception as e:
+                log.debug(f"Migration outreach_patterns failed: {e}")
+
+        # 3. failed_patterns.json → Brain domain failures
+        _fp = _os.path.join(_local, "failed_patterns.json")
+        if _os.path.exists(_fp):
+            try:
+                _d = _json.load(open(_fp))
+                for domain, fails in _d.items():
+                    for f in fails:
+                        if f and not f.startswith("{"):
+                            # It's a local part, not a pattern template — skip
+                            pass
+                        elif f:
+                            self.record_pattern_failure(domain, f)
+                migrated.append("failed_patterns.json")
+            except Exception as e:
+                log.debug(f"Migration failed_patterns failed: {e}")
+
+        # 4. mx_cache.json → Brain MX cache
+        _mx = _os.path.join(_local, "mx_cache.json")
+        if _os.path.exists(_mx):
+            try:
+                _d = _json.load(open(_mx))
+                for domain, provider in _d.items():
+                    if domain.startswith("mined_"):
+                        # Website mining result
+                        real_domain = domain[6:]
+                        if provider:
+                            self.record_pattern_success(real_domain, provider, "mined_migrated")
+                    elif isinstance(provider, str) and provider:
+                        if domain not in self._data["mx_cache"]:
+                            self.set_mx(domain, provider != "other", provider if provider != "other" else "")
+                migrated.append("mx_cache.json")
+            except Exception as e:
+                log.debug(f"Migration mx_cache failed: {e}")
+
+        # 5. circuit_breaker.json → Brain circuit_breaker
+        _cb = _os.path.join(_local, "circuit_breaker.json")
+        if _os.path.exists(_cb):
+            try:
+                _d = _json.load(open(_cb))
+                if _d.get("date") == _t.strftime("%Y-%m-%d"):
+                    self._data["circuit_breaker"]["sent_today"] = _d.get("sent", 0)
+                    self._data["circuit_breaker"]["bounced_today"] = _d.get("bounced", 0)
+                    self._data["circuit_breaker"]["tripped"] = _d.get("tripped", False)
+                migrated.append("circuit_breaker.json")
+            except Exception as e:
+                log.debug(f"Migration circuit_breaker failed: {e}")
+
+        # 6. domain_cache.json → Brain company domains
+        _dc = _os.path.join(_local, "domain_cache.json")
+        if _os.path.exists(_dc):
+            try:
+                _d = _json.load(open(_dc))
+                for company_key, entry in _d.items():
+                    domains = entry.get("domains", []) if isinstance(entry, dict) else entry
+                    if domains and isinstance(domains, list):
+                        e = self._company_entry(company_key)
+                        if not e.get("domain") and domains:
+                            e["domain"] = domains[0]
+                            e["domain_confidence"] = 0.7
+                migrated.append("domain_cache.json")
+            except Exception as e:
+                log.debug(f"Migration domain_cache failed: {e}")
+
+        if migrated:
+            log.info(f"Brain: migrated legacy files: {migrated}")
+
+        self._data["_legacy_migration_done"] = True
+        self._data["_legacy_migration_ts"] = _t.time()
+        self._data["_legacy_migrated_files"] = migrated
+        self.save()
 
     def send_email_alert(self, subject: str, body: str):
         """Send alert email from kanade.pra@northeastern.edu to prasadckanade@gmail.com."""

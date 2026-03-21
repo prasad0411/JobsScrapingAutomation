@@ -341,3 +341,33 @@ REC_LI_MSG_TEMPLATE = (
     "Would love to connect and discuss how I can contribute and what the next steps look like."
 )
 LI_MSG_MAX = 300
+
+
+def get_ranked_patterns():
+    """
+    Return PAT_A, PAT_B reordered by Brain's global success rates.
+    Falls back to hardcoded order if Brain has < 10 data points.
+    Cached per-process so Brain is only read once per run.
+    """
+    if hasattr(get_ranked_patterns, "_cache"):
+        return get_ranked_patterns._cache
+    try:
+        from outreach.brain import Brain
+        b = Brain.get()
+        total = b._data.get("patterns", {}).get("total_attempts", 0)
+        if total < 10:
+            get_ranked_patterns._cache = (PAT_A, PAT_B, PAT_C)
+            return get_ranked_patterns._cache
+        all_pats = list(dict.fromkeys(PAT_A + PAT_B + PAT_C))
+        ranked = b.rank_patterns_for("_global_", all_pats)
+        # Split back into A/B/C tiers preserving coverage
+        # A tier: top 3 patterns
+        # B tier: next patterns
+        # C tier: remainder
+        new_a = ranked[:3] if len(ranked) >= 3 else PAT_A
+        new_b = [p for p in ranked[3:] if p in PAT_B + PAT_C] or PAT_B
+        new_c = [p for p in PAT_C if p not in new_b]
+        get_ranked_patterns._cache = (new_a, new_b, new_c)
+        return get_ranked_patterns._cache
+    except Exception:
+        return PAT_A, PAT_B, PAT_C
