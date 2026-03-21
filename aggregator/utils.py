@@ -353,7 +353,7 @@ class URLCleaner:
                 if match:
                     return match.group(1).lower()
 
-            return cls._CLEAN_PATTERN.sub("", url).lower().rstrip("/")
+            return re.sub(r"://www\.", "://", cls._CLEAN_PATTERN.sub("", url).lower().rstrip("/"))
         except Exception as e:
             logging.debug(f"URL cleaning failed for '{url}': {e}")
             return url.lower()

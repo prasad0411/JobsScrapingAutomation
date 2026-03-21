@@ -72,7 +72,7 @@ class Drafter:
     @staticmethod
     def draft(name, contact_type, company, title, job_id=""):
         parsed = NameParser.parse(name)
-        first = parsed["first"] if parsed else name.split()[0]
+        first = parsed["first"] if parsed else (name.split()[0] if name.strip() else company)
         st, bt = (HM_SUBJ, HM_BODY) if contact_type == "hm" else (REC_SUBJ, REC_BODY)
         jid = job_id if job_id and job_id not in ("N/A", "") else ""
         subj, body = st, bt

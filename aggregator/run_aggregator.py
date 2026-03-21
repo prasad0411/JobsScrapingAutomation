@@ -876,19 +876,8 @@ class UnifiedJobAggregator:
             )
             return
 
-        # Claude sponsorship check for GitHub jobs (no full page fetch available)
-        # Only runs when ANTHROPIC_API_KEY is set — skips silently if not configured
-        sponsorship_github = _claude_sponsorship_check(company_from_github, title)
-        if sponsorship_github == "no":
-            self.outcomes["skipped_page_restriction"] = self.outcomes.get("skipped_page_restriction", 0) + 1
-            self._add_discarded(
-                company_from_github, title, location_from_github, "Unknown",
-                resolved_url, "N/A", "Internship", source,
-                "No sponsorship (Claude classification)"
-            )
-            self._print_rejected(company_from_github, "No sponsorship (AI check)")
-            logging.info(f"REJECTED | {company_from_github} | {title} | No sponsorship (Claude)")
-            return
+        # Sponsorship check disabled — unreliable and slow, handled by page fetch
+        # sponsorship_github = _claude_sponsorship_check(company_from_github, title)
 
         # HQ fallback: if location still Unknown, try known company HQ
         if not location_from_github or location_from_github == "Unknown":

@@ -227,7 +227,16 @@ class BounceScanner:
                 # Check if sent 24h+ ago
                 try:
                     from dateutil import parser as _dp
-                    sent_dt = _dp.parse(sent_date)
+                    import warnings as _w
+                    from dateutil.parser import UnknownTimezoneWarning as _UTW
+                    with _w.catch_warnings():
+                        _w.filterwarnings("ignore", category=_UTW)
+                        sent_dt = _dp.parse(sent_date, tzinfos={
+                            "ET": -18000, "EST": -18000, "EDT": -14400,
+                            "PT": -28800, "PST": -28800, "PDT": -25200,
+                            "CT": -21600, "CST": -21600, "CDT": -18000,
+                            "MT": -25200, "MST": -25200, "MDT": -21600,
+                        })
                     age_hours = (now - sent_dt).total_seconds() / 3600
                     if age_hours < 24:
                         continue
