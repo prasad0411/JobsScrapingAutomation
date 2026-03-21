@@ -491,8 +491,11 @@ class Sheets:
             hn = ", ".join(hn_list)
             rn = ", ".join(rn_list)
 
-            need_h = bool(hn) and not he and "HM:" not in err
-            need_r = bool(rn) and not re_ and "REC:" not in err
+            # Also queue if LinkedIn URL exists but name is empty — finder extracts name from URL
+            hli_val = r[C["hm_li"]].strip()
+            rli_val = r[C["rec_li"]].strip()
+            need_h = (bool(hn) or bool(hli_val)) and not he and "HM:" not in err
+            need_r = (bool(rn) or bool(rli_val)) and not re_ and "REC:" not in err
 
             if need_h:
                 dup = ecache.get((hn.lower(), co.lower()))

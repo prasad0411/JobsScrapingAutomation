@@ -36,6 +36,38 @@ from outreach.outreach_data import Credits, NameParser
 log = logging.getLogger(__name__)
 
 
+
+_MAILER_FOLDER_CACHE: dict = {}
+
+
+def _get_or_create_folder(token: str, name: str) -> str:
+    """Get or create an Outlook mail folder by display name. Cached per process."""
+    import requests as _r
+    from outreach.outreach_config import MS_SENDER_EMAIL
+    if name in _MAILER_FOLDER_CACHE:
+        return _MAILER_FOLDER_CACHE[name]
+    resp = _r.get(
+        f"https://graph.microsoft.com/v1.0/users/{MS_SENDER_EMAIL}/mailFolders",
+        headers={"Authorization": f"Bearer {token}"},
+        params={"$top": 50}, timeout=10,
+    )
+    if resp.status_code == 200:
+        for f in resp.json().get("value", []):
+            _MAILER_FOLDER_CACHE[f["displayName"]] = f["id"]
+        if name in _MAILER_FOLDER_CACHE:
+            return _MAILER_FOLDER_CACHE[name]
+    cr = _r.post(
+        f"https://graph.microsoft.com/v1.0/users/{MS_SENDER_EMAIL}/mailFolders",
+        headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"},
+        json={"displayName": name}, timeout=10,
+    )
+    if cr.status_code in (200, 201):
+        fid = cr.json()["id"]
+        _MAILER_FOLDER_CACHE[name] = fid
+        return fid
+    raise Exception(f"Could not find or create folder '{name}'")
+
+
 class Drafter:
     @staticmethod
     def draft(name, contact_type, company, title, job_id=""):
@@ -255,7 +287,7 @@ class Mailer:
         self._svc = build("gmail", "v1", credentials=creds)
         return self._svc
 
-    def send(self, to_email, subject, body, resume_type="SDE"):
+    def send(self, to_email, subject, body, resume_type="SDE", company="", title="", location="", send_at_iso=""):
         result = {"success": False, "error": "", "timestamp": ""}
         if resume_type == "ML":
             resume_path = RESUME_ML
@@ -370,18 +402,44 @@ class Mailer:
             else:
                 log.warning(f"Resume not found: {resume_path}")
 
-            resp = _req.post(
-                f"https://graph.microsoft.com/v1.0/users/{MS_SENDER_EMAIL}/sendMail",
+            # ── Create draft with scheduling metadata ──────────────────────
+            draft_payload = msg_payload["message"].copy()
+            draft_payload["internetMessageHeaders"] = [
+                {"name": "X-Send-At",   "value": send_at_iso or ""},
+                {"name": "X-Company",   "value": company or ""},
+                {"name": "X-Job-Title", "value": title or ""},
+                {"name": "X-Location",  "value": location or ""},
+            ]
+            create_resp = _req.post(
+                f"https://graph.microsoft.com/v1.0/users/{MS_SENDER_EMAIL}/messages",
                 headers={
                     "Authorization": f"Bearer {token}",
                     "Content-Type": "application/json",
                 },
-                data=_j.dumps(msg_payload),
+                data=_j.dumps(draft_payload),
                 timeout=30,
             )
+            if create_resp.status_code not in (200, 201):
+                raise Exception(
+                    f"Draft create failed {create_resp.status_code}: {create_resp.text[:200]}"
+                )
+            draft_id = create_resp.json()["id"]
 
-            if resp.status_code not in (200, 202):
-                raise Exception(f"Graph API error {resp.status_code}: {resp.text[:200]}")
+            # ── Move draft to 'Scheduled Outreach' folder ─────────────────
+            folder_id = _get_or_create_folder(token, "Scheduled Outreach")
+            move_resp = _req.post(
+                f"https://graph.microsoft.com/v1.0/users/{MS_SENDER_EMAIL}/messages/{draft_id}/move",
+                headers={
+                    "Authorization": f"Bearer {token}",
+                    "Content-Type": "application/json",
+                },
+                json={"destinationId": folder_id},
+                timeout=10,
+            )
+            if move_resp.status_code not in (200, 201):
+                log.warning(f"Draft created but folder move failed: {move_resp.status_code}")
+            else:
+                log.info(f"Draft queued in 'Scheduled Outreach' → {to_email} | send_at={send_at_iso}")
 
             self._hourly += 1
             self.cr.use_gmail()

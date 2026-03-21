@@ -117,8 +117,11 @@ def phase_draft_existing(sheets, mailer):
                 if not email:
                     continue
                 draft = Drafter.draft(name, "hm", co, title, jid)
+                location = sheets.get_location(co, title)
+                sa, _ = sheets.compute_send_at(location)
                 result = mailer.send(
-                    email, draft["subject"], draft["body"], resume_type
+                    email, draft["subject"], draft["body"], resume_type,
+                    company=co, title=title, location=location, send_at_iso=sa,
                 )
                 if result["success"]:
                     parts.append(f"HM draft created ({name.split()[0]})")
@@ -141,8 +144,11 @@ def phase_draft_existing(sheets, mailer):
                 if not email:
                     continue
                 draft = Drafter.draft(name, "rec", co, title, jid)
+                location = sheets.get_location(co, title)
+                sa, _ = sheets.compute_send_at(location)
                 result = mailer.send(
-                    email, draft["subject"], draft["body"], resume_type
+                    email, draft["subject"], draft["body"], resume_type,
+                    company=co, title=title, location=location, send_at_iso=sa,
                 )
                 if result["success"]:
                     parts.append(f"Rec draft created ({name.split()[0]})")
@@ -283,7 +289,8 @@ def phase_extract_and_draft(sheets, finder, mailer):
 
         if row["need_r"]:
             # Support multiple comma-separated Rec names
-            rec_names = [n.strip() for n in row["rn"].split(",") if n.strip()]
+            _rn_raw = row["rn"] or row.get("rli", "")
+            rec_names = [n.strip() for n in _rn_raw.split(",") if n.strip()]
             rec_emails = []
             rec_failed = False
             for rec_name in rec_names:
@@ -335,8 +342,11 @@ def phase_extract_and_draft(sheets, finder, mailer):
             hm_draft = Drafter.draft(
                 row["hn"] or row["rn"], "hm", row["co"], row["title"], jid
             )
+            _loc = sheets.get_location(row["co"], row["title"])
+            _sa, _ = sheets.compute_send_at(_loc)
             result = mailer.send(
-                hm_e, hm_draft["subject"], hm_draft["body"], resume_type
+                hm_e, hm_draft["subject"], hm_draft["body"], resume_type,
+                company=row["co"], title=row["title"], location=_loc, send_at_iso=_sa,
             )
             if result["success"]:
                 draft_parts.append("HM draft created")
@@ -352,8 +362,11 @@ def phase_extract_and_draft(sheets, finder, mailer):
             rec_draft = Drafter.draft(
                 row["rn"] or row["hn"], "rec", row["co"], row["title"], jid
             )
+            _loc = sheets.get_location(row["co"], row["title"])
+            _sa, _ = sheets.compute_send_at(_loc)
             result = mailer.send(
-                rec_e, rec_draft["subject"], rec_draft["body"], resume_type
+                rec_e, rec_draft["subject"], rec_draft["body"], resume_type,
+                company=row["co"], title=row["title"], location=_loc, send_at_iso=_sa,
             )
             if result["success"]:
                 draft_parts.append("Recruiter draft created")

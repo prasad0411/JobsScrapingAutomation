@@ -335,9 +335,19 @@ _SPONSORSHIP_CACHE = {}
 def _claude_sponsorship_check(company, title):
     """
     Ask Claude whether this company sponsors F-1/H-1B visas.
-    Returns 'no' only when highly confident. Returns 'unknown' on any doubt.
+    Returns 'no' ONLY when highly confident. Returns 'unknown' on any doubt.
+    Self-learning: results cached in Brain permanently — same company never re-queried.
     Skips if ANTHROPIC_API_KEY not set — zero impact on existing behaviour.
     """
+    # Check Brain cache first — permanent, cross-run memory
+    try:
+        from outreach.brain import Brain
+        _brain = Brain.get()
+        _bspons = _brain._data.get("sponsorship", {}).get(company.lower().strip())
+        if _bspons is not None:
+            return _bspons
+    except Exception:
+        pass
     import os as _os
     _root = _os.path.dirname(_os.path.abspath(__file__))
     _env = _os.path.join(_root, ".env")
@@ -362,8 +372,9 @@ def _claude_sponsorship_check(company, title):
             f"Company: {company}\nJob title: {title}\n\n"
             "Does this company sponsor F-1 OPT or H-1B visas for internships? "
             "Answer ONLY with one word: 'yes', 'no', or 'unknown'. "
-            "Answer 'no' only if you are highly confident this company never sponsors. "
-            "Answer 'unknown' if unsure."
+            "IMPORTANT: Answer 'no' ONLY if you are 95%+ certain this company NEVER "
+            "sponsors international students. Answer 'unknown' for any uncertainty. "
+            "When in doubt, always answer 'unknown'. Never guess 'no'."
         )
         body = _j.dumps({
             "model": "claude-haiku-4-5-20251001",
@@ -384,7 +395,17 @@ def _claude_sponsorship_check(company, title):
         answer = data["content"][0]["text"].strip().lower().rstrip(".")
         result = "no" if answer == "no" else "unknown"
         _SPONSORSHIP_CACHE[cache_key] = result
-        logging.info(f"Claude sponsorship: {company} → {result}")
+        # Save to Brain permanently — never re-query same company again
+        try:
+            from outreach.brain import Brain
+            b = Brain.get()
+            if "sponsorship" not in b._data:
+                b._data["sponsorship"] = {}
+            b._data["sponsorship"][cache_key] = result
+            b.save()
+        except Exception:
+            pass
+        logging.info(f"Claude sponsorship: {company} → {result} (saved to Brain)")
         return result
     except Exception as e:
         logging.debug(f"Claude sponsorship check failed for {company}: {e}")
