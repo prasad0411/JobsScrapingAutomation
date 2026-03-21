@@ -2155,9 +2155,13 @@ class UnifiedJobAggregator:
     def _parse_github_age(age_str):
         if not age_str:
             return None
-        age_str = age_str.strip()
+        age_str = age_str.strip().lower()
+        # Format: "1mo", "2mo" → months
+        mo_match = re.match(r"^(\d+)mo$", age_str)
+        if mo_match:
+            return int(mo_match.group(1)) * 30
         # Format: "5d" → 5 days
-        match = re.match(r"^(\d+)d$", age_str.lower())
+        match = re.match(r"^(\d+)d$", age_str)
         if match:
             return int(match.group(1))
         # Format: "2mo" → 60 days

@@ -641,6 +641,15 @@ class Brain:
                     f"Brain: source quality decay detected for {source}: "
                     f"recent={recent_avg:.2%} vs lifetime={lifetime_avg:.2%}"
                 )
+                try:
+                    self.send_email_alert(
+                        f"⚠️ Source quality decay: {source}",
+                        f"Valid rate for {source} dropped to {recent_avg:.0%} "
+                        f"(lifetime avg: {lifetime_avg:.0%}).\n\n"
+                        f"Check if the source changed format or went stale."
+                    )
+                except Exception:
+                    pass
         self.save()
 
     # ── Job ID Dedup Registry ─────────────────────────────────────────────────

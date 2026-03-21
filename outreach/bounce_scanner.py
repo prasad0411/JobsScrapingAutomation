@@ -127,6 +127,21 @@ class BounceScanner:
                                 log.debug(f"verify cache invalidation failed: {_eve}")
                             newly_found.add(email_lower)
                             log.info(f"Bounce detected: {email_lower} | {subject[:60]}")
+                            # Auto-raise confidence threshold for this domain in Brain
+                            try:
+                                from outreach.brain import Brain
+                                _dom = email_lower.split("@")[1] if "@" in email_lower else ""
+                                if _dom:
+                                    _b = Brain.get()
+                                    _t = _b._data.setdefault("domain_thresholds", {})
+                                    _cur = _t.get(_dom, 75)
+                                    _new = min(_cur + 10, 95)
+                                    if _new > _cur:
+                                        _t[_dom] = _new
+                                        _b.save()
+                                        log.info(f"Brain: raised threshold {_dom}: {_cur} → {_new}")
+                            except Exception:
+                                pass
                             
                             # Learn from bounce: record failed pattern in DomainHistory
                             try:

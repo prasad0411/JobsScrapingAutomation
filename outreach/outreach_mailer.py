@@ -132,6 +132,7 @@ class Mailer:
             result = app.acquire_token_silent(MS_SCOPES, account=accounts[0])
             if result and "access_token" in result:
                 self._ms_access_token = result["access_token"]
+                self._ms_token_acquired_at = __import__("time").time()
                 if cache.has_state_changed:
                     open(MS_TOKEN_FILE, "w").write(cache.serialize())
                 log.info("MS token pre-checked: valid")
@@ -185,25 +186,48 @@ class Mailer:
             log.info(f"Mailer: {len(self._bounced_emails)} bounced email(s) loaded")
 
     def _load_draft_history(self):
+        """Load draft history — Brain is source of truth, file is fallback."""
         try:
+            from outreach.brain import Brain
+            brain_drafts = Brain.get()._data.get("draft_history", [])
+            file_drafts = []
             if os.path.exists(DRAFT_HISTORY_FILE):
-                self._drafts_created = set(json.load(open(DRAFT_HISTORY_FILE)))
-        except:
-            self._drafts_created = set()
+                file_drafts = json.load(open(DRAFT_HISTORY_FILE))
+            self._drafts_created = set(brain_drafts) | set(file_drafts)
+        except Exception:
+            try:
+                if os.path.exists(DRAFT_HISTORY_FILE):
+                    self._drafts_created = set(json.load(open(DRAFT_HISTORY_FILE)))
+            except Exception:
+                self._drafts_created = set()
 
     def _save_draft_history(self):
+        """Save draft history to both file and Brain."""
         try:
             json.dump(list(self._drafts_created), open(DRAFT_HISTORY_FILE, "w"))
-        except:
+        except Exception:
+            pass
+        try:
+            from outreach.brain import Brain
+            b = Brain.get()
+            b._data["draft_history"] = list(self._drafts_created)
+            b.save()
+        except Exception:
             pass
 
     def _draft_key(self, to_email, subject):
         return f"{to_email.lower().strip()}||{subject.strip()}"
 
     def _ms_token(self):
-        """Get Microsoft Graph access token via MSAL device flow or cached token."""
+        """Get Microsoft Graph access token. Proactively refreshes if >45 min old."""
+        import time as _t
+        # Proactive refresh: if token is older than 45 min, re-acquire silently
         if self._ms_access_token:
-            return self._ms_access_token
+            age = _t.time() - getattr(self, "_ms_token_acquired_at", 0)
+            if age < 45 * 60:  # still fresh
+                return self._ms_access_token
+            log.info("MS token >45min old — proactively refreshing")
+            self._ms_access_token = None  # force re-acquire below
         import msal, json as _j
         from outreach.outreach_config import MS_CLIENT_ID, MS_AUTHORITY, MS_SCOPES, MS_TOKEN_FILE, MS_SENDER_EMAIL
         cache = msal.SerializableTokenCache()
@@ -234,7 +258,9 @@ class Mailer:
                 log.debug(f"MS token cache save failed: {e}")
         if "access_token" not in result:
             raise Exception(f"MS token error: {result.get('error_description', result)}")
-        return result["access_token"]
+        self._ms_access_token = result["access_token"]
+        self._ms_token_acquired_at = __import__("time").time()
+        return self._ms_access_token
 
     def _service(self):
         if self._svc:

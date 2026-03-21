@@ -19,6 +19,107 @@ from oauth2client.service_account import ServiceAccountCredentials
 log = logging.getLogger(__name__)
 logging.basicConfig(level=logging.INFO, format="%(message)s")
 
+# ── smart bounce-retry ────────────────────────────────────────────────────────
+
+def _email_to_pattern(email: str) -> str:
+    """Reverse-engineer the pattern used to generate this email."""
+    local = email.split("@")[0].lower()
+    if "." in local:
+        parts = local.split(".")
+        if len(parts[0]) == 1:
+            return "{f}.{last}"
+        return "{first}.{last}"
+    if "_" in local:
+        return "{first}_{last}"
+    if "-" in local:
+        return "{first}-{last}"
+    return "{first}"
+
+
+def _next_best_email(original_email: str, name: str, brain) -> str | None:
+    """
+    Given a bounced email, ask Brain for the next best pattern for that domain.
+    Returns a new candidate email or None if no alternatives exist.
+    """
+    if not original_email or "@" not in original_email:
+        return None
+    domain = original_email.split("@")[1].lower()
+    bad_pattern = _email_to_pattern(original_email)
+
+    # Record this pattern as failed in Brain
+    brain.record_pattern_failure(domain, bad_pattern)
+
+    # Parse name
+    try:
+        from outreach.outreach_data import NameParser
+        parsed = NameParser.parse(name)
+        if not parsed:
+            return None
+        first = parsed.get("first", "").lower()
+        last = parsed.get("last", "").lower()
+        f = first[0] if first else ""
+        if not first or not last:
+            return None
+    except Exception:
+        return None
+
+    # All possible patterns
+    all_patterns = [
+        "{first}.{last}", "{f}.{last}", "{first}{last}",
+        "{first}_{last}", "{first}-{last}", "{first}",
+        "{last}.{first}", "{last}{first}",
+    ]
+
+    # Rank by Brain posterior, excluding already-failed patterns
+    ranked = brain.rank_patterns_for(domain, all_patterns)
+
+    # Generate email from top-ranked pattern
+    for pattern in ranked:
+        candidate = (
+            pattern
+            .replace("{first}", first)
+            .replace("{last}", last)
+            .replace("{f}", f)
+        )
+        if candidate != original_email.split("@")[0]:
+            return f"{candidate}@{domain}"
+    return None
+
+
+def _load_fail_counts():
+    """Load send fail counts — Brain is source of truth, file is fallback."""
+    fc_file = os.path.join(_LOCAL, "send_fail_counts.json")
+    try:
+        file_fc = json.load(open(fc_file)) if os.path.exists(fc_file) else {}
+    except Exception:
+        file_fc = {}
+    try:
+        from outreach.brain import Brain
+        brain_fc = Brain.get()._data.get("send_fail_counts", {})
+        # Merge — take max of file and Brain
+        for k, v in brain_fc.items():
+            file_fc[k] = max(file_fc.get(k, 0), v)
+    except Exception:
+        pass
+    return file_fc
+
+
+def _save_fail_counts(fc):
+    """Save fail counts to both file and Brain."""
+    try:
+        json.dump(fc, open(os.path.join(_LOCAL, "send_fail_counts.json"), "w"), indent=2)
+    except Exception as e:
+        log.error(f"fail count file save: {e}")
+    try:
+        from outreach.brain import Brain
+        b = Brain.get()
+        b._data["send_fail_counts"] = fc
+        b.save()
+    except Exception as e:
+        log.error(f"fail count Brain save: {e}")
+
+
+
 _LOCAL = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), ".local")
 SENT_LOG_FILE = os.path.join(_LOCAL, "sent_log.json")
 
@@ -287,6 +388,13 @@ def main():
             print(f"    ✓ Sent")
             sent_n += 1
             _rec_sent(sl, to_email, subject)
+            # Record pattern success in Brain — self-learning
+            try:
+                domain = to_email.split("@")[1]
+                pattern = _email_to_pattern(to_email)
+                brain.record_pattern_success(domain, pattern, to_email)
+            except Exception:
+                pass
             try: brain.cb_record_send()
             except Exception: pass
 
@@ -323,7 +431,57 @@ def main():
                     log.debug(f"Sheet update: {se}")
 
         except Exception as e:
-            print(f"    ✗ {e}"); failed += 1
+            print(f"    ✗ {e}")
+            failed += 1
+            # Smart bounce-retry: find next best pattern and queue new draft
+            try:
+                next_email = _next_best_email(to_email, company, brain)
+                if next_email:
+                    print(f"    ↻ Retrying with next pattern: {next_email}")
+                    # Get the full draft message to clone it
+                    clone_resp = _req.get(
+                        f"https://graph.microsoft.com/v1.0/users/{MS_SENDER_EMAIL}/messages/{msg_id}",
+                        headers={"Authorization": f"Bearer {token}"},
+                        params={"$select": "subject,body,attachments,internetMessageHeaders"},
+                        timeout=10,
+                    )
+                    if clone_resp.status_code == 200:
+                        orig = clone_resp.json()
+                        # Build new draft with corrected email
+                        new_payload = {
+                            "subject": orig.get("subject", subject),
+                            "body": orig.get("body", {"contentType": "HTML", "content": ""}),
+                            "toRecipients": [{"emailAddress": {"address": next_email}}],
+                            "internetMessageHeaders": orig.get("internetMessageHeaders", []),
+                            "isDraft": True,
+                        }
+                        # Update X-Send-At to now + 1 hour
+                        import datetime as _dt
+                        new_send_at = (_dt.datetime.now(_dt.timezone.utc) +
+                                       _dt.timedelta(hours=1)).isoformat()
+                        new_payload["internetMessageHeaders"] = [
+                            h for h in new_payload["internetMessageHeaders"]
+                            if h.get("name") != "X-Send-At"
+                        ] + [{"name": "X-Send-At", "value": new_send_at}]
+                        cr = _req.post(
+                            f"https://graph.microsoft.com/v1.0/users/{MS_SENDER_EMAIL}/messages",
+                            headers={"Authorization": f"Bearer {token}",
+                                     "Content-Type": "application/json"},
+                            json=new_payload, timeout=30,
+                        )
+                        if cr.status_code in (200, 201):
+                            new_id = cr.json()["id"]
+                            _req.post(
+                                f"https://graph.microsoft.com/v1.0/users/{MS_SENDER_EMAIL}/messages/{new_id}/move",
+                                headers={"Authorization": f"Bearer {token}",
+                                         "Content-Type": "application/json"},
+                                json={"destinationId": scheduled_fid}, timeout=10,
+                            )
+                            print(f"    ✓ Retry draft queued: {next_email}")
+                        else:
+                            print(f"    ✗ Retry draft failed: {cr.status_code}")
+            except Exception as re_err:
+                log.debug(f"Bounce retry failed: {re_err}")
 
         # Adaptive delay
         try:

@@ -245,6 +245,14 @@ class Finder:
     def find(self, name, company, linkedin="", job_url_domain=""):
         r = {"email": "", "source": "", "status": "Failed", "error": "", "confidence": 0}
 
+        # If name is empty but LinkedIn URL exists, extract name from URL first
+        if not name and linkedin:
+            li_name = self._extract_name_from_linkedin_url(linkedin)
+            if li_name:
+                log.info(f"Empty name — extracted from LinkedIn URL: '{li_name}'")
+                name = li_name
+            else:
+                log.info(f"Empty name and LinkedIn extraction failed: {linkedin}")
         # If name is incomplete (single name or initial), try LinkedIn URL
         # If "name" field looks like a LinkedIn URL, extract name from it
         import re as _re_li
@@ -444,7 +452,18 @@ class Finder:
                     d_base = d.split(".")[0].lower()
                     if clean_co and len(clean_co) >= 3:
                         if d_base not in clean_co and clean_co not in d_base:
-                            log.warning(f"Clearbit suspect domain BLOCKED: {company} → {d} (no name overlap). Add to .local/domain_overrides.json if correct.")
+                            # Check if MX already confirmed this domain — if so, trust it over Clearbit
+                            try:
+                                from outreach.brain import Brain
+                                _mx = Brain.get().get_mx(d)
+                                _mx_confirmed = _mx and _mx.get("provider") in ("google", "microsoft", "office365")
+                            except Exception:
+                                _mx_confirmed = False
+                            if _mx_confirmed:
+                                log.info(f"Clearbit name-overlap skipped: {d} is MX-verified ({_mx.get('provider')})")
+                            else:
+                                log.warning(f"Clearbit suspect domain BLOCKED: {company} → {d} (no name overlap). Add to .local/domain_overrides.json if correct.")
+                                continue  # skip this domain
                             continue  # BLOCK suspect domains instead of using them
                     doms.append(d)
         except Exception as _e:
@@ -661,12 +680,33 @@ class Finder:
 
     @staticmethod
     def _get_override(company):
-        """Check domain_overrides.json for manual domain corrections."""
+        """Check Brain + domain_overrides.json for domain corrections."""
+        # Check Brain first (permanent cross-run memory)
+        try:
+            from outreach.brain import Brain
+            b = Brain.get()
+            brain_override = b._data.get("domain_overrides", {}).get(company.strip().lower())
+            if brain_override:
+                log.debug(f"Domain override from Brain: {company} → {brain_override}")
+                return brain_override
+        except Exception:
+            pass
         try:
             if os.path.exists(OVERRIDES_FILE):
                 overrides = json.load(open(OVERRIDES_FILE))
+                # Sync file → Brain permanently
+                try:
+                    from outreach.brain import Brain
+                    b = Brain.get()
+                    bd = b._data.setdefault("domain_overrides", {})
+                    changed = any(bd.get(k.lower()) != v for k, v in overrides.items())
+                    if changed:
+                        for k, v in overrides.items():
+                            bd[k.lower()] = v
+                        b.save()
+                except Exception:
+                    pass
                 key = company.strip()
-                # Try exact match first, then case-insensitive
                 if key in overrides:
                     return overrides[key]
                 for k, v in overrides.items():

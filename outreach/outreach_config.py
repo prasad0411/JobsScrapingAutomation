@@ -164,6 +164,17 @@ RESUME_DA = os.path.join(_ROOT, ".local", "Prasad Kanade Data Resume.pdf")
 # ATS/internal domains that should never receive outreach emails
 SUSPICIOUS_EMAIL_DOMAINS = [
     "oraclecloud.com",
+    "onseminar.com",        # Clearbit error for onsemi.com
+    "kariera-onsemi.cz",    # Czech ATS routing domain
+    "myworkdayjobs.com",    # ATS platform not real email domain
+    "greenhouse.io",        # ATS platform
+    "lever.co",             # ATS platform
+    "jobvite.com",          # ATS platform
+    "taleo.net",            # ATS platform
+    "icims.com",            # ATS platform
+    "avfirewalls.co.il",    # Clearbit error for fortinet.com
+    "i-voce.jp",            # Clearbit error for ivo.com
+    "edel.fa.us2.oraclecloud.com",  # Oracle ATS subdomain
     "myworkdaysite.com",
     "myworkdayjobs.com",
     "successfactors.com",
