@@ -1597,6 +1597,7 @@ JOB_ID_PATTERNS = [
     (r"(?:jobs\.)?ashbyhq\.com/[^/]+/([a-f0-9-]{36})", 0.96),
     (r"smartrecruiters\.com/[^/]+/(\d{15})", 0.96),
     (r"/jobs/(\d+)/job", 0.94),
+    (r"icims\.com/jobs/(\d+)/", 0.94),  # iCIMS job ID
     (r"REQ[_-]?(\d{6,})", 0.92),
     (r"job[/_]([A-Z0-9_-]{6,15})(?:\?|$|/)", 0.86),
     (r"[?&]reqId=([A-Z0-9_-]{4,15})(?:&|$)", 0.88),
