@@ -170,7 +170,7 @@ _EMOJI_PATTERN = re.compile(
     re.UNICODE,
 )
 _HEADER_PATTERN = re.compile(
-    r"Company.*Role.*Location.*(?:Application|Link).*Date", re.I
+    r"Company.*(?:Role|Position).*Location.*(?:Application|Link|Posting|Date|Age)", re.I
 )
 _HTML_LINK_PATTERN = re.compile(r'<a\s+href="(https?://[^"]+)"')
 _MD_LINK_PATTERN = re.compile(r"\[.*?\]\((https?://[^\)]+)\)")
@@ -2369,7 +2369,9 @@ class SimplifyGitHubScraper:
             parts = [p.strip() for p in line.split(delimiter) if p.strip()]
             if len(parts) < 5:
                 continue
-            raw_company = _EMOJI_PATTERN.sub("", parts[0]).strip()
+            # Strip HTML tags from company cell (SpeedyApply wraps in <a><strong>)
+            _co_cell = re.sub(r"<[^>]+>", "", parts[0])
+            raw_company = _EMOJI_PATTERN.sub("", _co_cell).strip()
             if raw_company and "↳" not in raw_company:
                 company = raw_company
                 last_company = company
@@ -2379,8 +2381,15 @@ class SimplifyGitHubScraper:
                     continue  # FIX 6: skip continuation rows with no known parent company
             title = _EMOJI_PATTERN.sub("", parts[1]).strip()
             location = _EMOJI_PATTERN.sub("", parts[2]).strip()
-            link_cell = parts[3]
-            age = parts[4]
+            # Handle optional Salary column (SpeedyApply has 6 cols, others have 5)
+            # Detect by checking if parts[3] looks like a salary ($xx/hr) or a link
+            has_salary = parts[3].strip().startswith("$") or "/hr" in parts[3]
+            if has_salary and len(parts) >= 6:
+                link_cell = parts[4]
+                age = parts[5] if len(parts) > 5 else ""
+            else:
+                link_cell = parts[3]
+                age = parts[4] if len(parts) > 4 else ""
             match = _HTML_LINK_PATTERN.search(link_cell) or _MD_LINK_PATTERN.search(
                 link_cell
             )

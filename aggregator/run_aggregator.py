@@ -14,6 +14,7 @@ from bs4 import BeautifulSoup
 from aggregator.config import (
     SIMPLIFY_URL,
     VANSHB03_URL,
+    SPEEDYAPPLY_SWE_URL,
     MAX_JOB_AGE_DAYS,
     PAGE_AGE_THRESHOLD_DAYS,
     MIN_QUALITY_SCORE,
@@ -648,6 +649,7 @@ class UnifiedJobAggregator:
     def _scrape_simplify_github(self):
         simplify_jobs = self._safe_scrape(SIMPLIFY_URL, "SimplifyJobs")
         vanshb03_jobs = self._safe_scrape(VANSHB03_URL, "vanshb03")
+        speedyapply_jobs = self._safe_scrape(SPEEDYAPPLY_SWE_URL, "speedyapply_swe")
         self._github_mode = True
 
         logging.info(
@@ -694,11 +696,25 @@ class UnifiedJobAggregator:
             except Exception as e:
                 logging.error(f"Failed to process vanshb03 job: {e}", exc_info=True)
                 continue
+        print(f"\n  Processing SpeedyApply SWE repository...")
+        consecutive_old = 0
+        for i, job in enumerate(speedyapply_jobs):
+            try:
+                age_days = self._parse_github_age(job["age"])
+                if age_days is not None and age_days > MAX_JOB_AGE_DAYS:
+                    consecutive_old += 1
+                    continue
+                else:
+                    consecutive_old = 0
+                self._process_single_github_job(job)
+            except Exception as e:
+                logging.error(f"Failed to process speedyapply job: {e}", exc_info=True)
+                continue
 
         self._github_mode = False
 
         github_valid = sum(
-            1 for j in self.valid_jobs if j["source"] in ["SimplifyJobs", "vanshb03"]
+            1 for j in self.valid_jobs if j["source"] in ["SimplifyJobs", "vanshb03", "speedyapply_swe"]
         )
         print(f"\n  GitHub: {github_valid} valid jobs total")
         logging.info(f"GitHub summary: {github_valid} valid jobs")

@@ -127,6 +127,10 @@ SIMPLIFY_URL = "https://raw.githubusercontent.com/SimplifyJobs/Summer2026-Intern
 VANSHB03_URL = (
     "https://raw.githubusercontent.com/vanshb03/Summer2026-Internships/main/README.md"
 )
+SPEEDYAPPLY_SWE_URL = (
+    "https://raw.githubusercontent.com/speedyapply/2026-SWE-College-Jobs/main/README.md"
+)
+
 
 MAX_JOB_AGE_DAYS = 3
 MAX_REASONABLE_AGE_DAYS = 365
