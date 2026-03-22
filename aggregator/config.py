@@ -580,7 +580,7 @@ INTERNATIONAL_TEXT_INDICATORS = [
     (r"\bleeds\b", "UK"),
     (r"\bbristol\b", "UK"),
     (r"\bcambridge,\s*uk", "UK"),
-    (r"canada", "Canada"),
+    (r"(?:location|office|based|remote)\s*:?\s*canada|canada\s*(?:only|remote|office)", "Canada"),
     (r"ontario,\s*can", "Canada"),
     (r"toronto,\s*on\b", "Canada"),
     (r"montreal,\s*qc", "Canada"),

@@ -70,12 +70,15 @@ _ROLE_REJECTION_REASONS = {
 
 class Brain:
     _instance = None
+    _lock = __import__('threading').Lock()
 
     @classmethod
     def get(cls) -> "Brain":
         """Always returns the same instance. Thread-safe singleton."""
         if cls._instance is None:
-            cls._instance = cls()
+            with cls._lock:
+                if cls._instance is None:
+                    cls._instance = cls()
         return cls._instance
 
     @classmethod

@@ -1484,15 +1484,8 @@ class PageFetcher:
             logging.debug(f"Skipping previously failed URL: {url[:60]}")
             return None, None, None
 
-        is_healthy, status = self.check_url_health(url)
-        if not is_healthy and status in [404, 403, 405]:
-            logging.info(f"Skipping unhealthy URL: {url} (status {status})")
-            _HTTP_RESPONSE_CACHE[url] = {
-                "response": None,
-                "final_url": None,
-                "page_source": None,
-            }
-            return None, None, None
+        # HEAD health check disabled — slow and redundant, failed fetches handled downstream
+        # is_healthy, status = self.check_url_health(url)
 
         if self._is_js_heavy_platform(url):
             html, final_url, page_source = self._try_selenium(url)

@@ -71,17 +71,16 @@ from aggregator.utils import (
 
 logging.basicConfig(
     filename=os.path.join(".local", "skipped_jobs.log"),
+    filemode="a",
     level=logging.INFO,
+    force=True,
     format="%(asctime)s | %(message)s",
     datefmt="%Y-%m-%d %H:%M:%S",
 )
 
-with open(os.path.join(".local", "skipped_jobs.log"), "w") as f:
-    f.write("=" * 100 + "\n")
-    f.write(
-        f"JOB PROCESSING LOG - {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n"
-    )
-    f.write("=" * 100 + "\n\n")
+# Log header written via logging
+logging.info("=" * 80)
+logging.info(f"JOB PROCESSING LOG - {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
 
 # Greenhouse company slug extraction
 GREENHOUSE_COMPANY_MAP = {
@@ -332,15 +331,22 @@ class ProcessedEmailTracker:
 # Returns "no" if company is known to not sponsor, "unknown" otherwise.
 # Uses a simple cache to avoid repeat API calls for same company.
 _SPONSORSHIP_CACHE = {}
+import threading as _threading
+class _NOOP_LOCK:
+    def __enter__(self): return self
+    def __exit__(self, *a): pass
+_NOOP_LOCK = _NOOP_LOCK()
 
-def _load_sponsorship_from_brain()
+def _load_sponsorship_from_brain(): pass
 
 # Auto-prune stale failed URL cache on startup
 try:
     from aggregator.extractors import PageFetcher as _PF
     _PF._prune_failed_urls()
 except Exception:
-    pass:
+    pass
+
+def _load_sponsorship_from_brain():
     """Load Brain sponsorship cache into memory at startup."""
     try:
         from outreach.brain import Brain
@@ -458,6 +464,7 @@ class UnifiedJobAggregator:
 
         self.outcomes = defaultdict(int)
         self.source_stats = defaultdict(lambda: defaultdict(int))
+        import threading as _t; self._github_lock = _t.Lock()  # thread safety for parallel processing
 
         print(
             # (loaded silently)
@@ -496,6 +503,13 @@ class UnifiedJobAggregator:
             logging.error(f"Email processing error: {e}", exc_info=True)
 
         self._ensure_mutual_exclusion()
+
+        # Save Brain once after all job_id registrations
+        try:
+            from outreach.brain import Brain
+            Brain.get().save()
+        except Exception:
+            pass
 
         rows = self.sheets.get_next_row_numbers()
         added_valid = self.sheets.add_valid_jobs(
@@ -671,69 +685,49 @@ class UnifiedJobAggregator:
                       f"  Error: {e}\n  Workday/Ashby/Oracle jobs will fail.\n{'='*60}")
 
     def _scrape_simplify_github(self):
-        simplify_jobs = self._safe_scrape(SIMPLIFY_URL, "SimplifyJobs")
-        vanshb03_jobs = self._safe_scrape(VANSHB03_URL, "vanshb03")
-        speedyapply_jobs = self._safe_scrape(SPEEDYAPPLY_SWE_URL, "speedyapply_swe")
+        import concurrent.futures
+        with concurrent.futures.ThreadPoolExecutor(max_workers=3) as ex:
+            f1 = ex.submit(self._safe_scrape, SIMPLIFY_URL, "SimplifyJobs")
+            f2 = ex.submit(self._safe_scrape, VANSHB03_URL, "vanshb03")
+            f3 = ex.submit(self._safe_scrape, SPEEDYAPPLY_SWE_URL, "speedyapply_swe")
+            simplify_jobs = f1.result()
+            vanshb03_jobs = f2.result()
+            speedyapply_jobs = f3.result()
         self._github_mode = True
 
         logging.info(
             f"GitHub: {len(simplify_jobs)} SimplifyJobs + {len(vanshb03_jobs)} vanshb03"
         )
 
-        print(f"\n  Processing Simplify repository...")
-        consecutive_old = 0
-        simplify_valid = 0
-        simplify_rejected = 0
-        skipped_old = 0
-        skipped_err = 0
-        processed = 0
-        for i, job in enumerate(simplify_jobs):
-            try:
+        import concurrent.futures
+
+        def _process_github_batch(jobs, source_name):
+            fresh, skipped_old = [], 0
+            for job in jobs:
                 age_days = self._parse_github_age(job["age"])
                 if age_days is not None and age_days > MAX_JOB_AGE_DAYS:
                     skipped_old += 1
-                    consecutive_old += 1
-                    continue
                 else:
-                    consecutive_old = 0
-                processed += 1
-                self._process_single_github_job(job)
-            except Exception as e:
-                skipped_err += 1
-                logging.error(f"Failed to process SimplifyJobs job: {e}", exc_info=True)
-                if skipped_err <= 3:
-                    print(f"  ✗ Error: {job.get('company','?')}: {e}")
-                continue
-        print(f"  Simplify stats: {processed} processed, {skipped_old} too old, {skipped_err} errors")
+                    fresh.append(job)
+            print(f"  {source_name}: {len(fresh)} fresh, {skipped_old} too old")
+            errors = 0
+            with concurrent.futures.ThreadPoolExecutor(max_workers=10) as pool:
+                futures = {pool.submit(self._process_single_github_job, job): job for job in fresh}
+                for fut in concurrent.futures.as_completed(futures):
+                    try:
+                        fut.result()
+                    except Exception as e:
+                        errors += 1
+                        job = futures[fut]
+                        logging.error(f"Failed {job.get('company','?')}: {e}", exc_info=True)
+            print(f"  {source_name}: done ({errors} errors)")
 
+        print(f"\n  Processing Simplify repository...")
+        _process_github_batch(simplify_jobs, "SimplifyJobs")
         print(f"\n  Processing Vanshb repository...")
-        consecutive_old = 0
-        for i, job in enumerate(vanshb03_jobs):
-            try:
-                age_days = self._parse_github_age(job["age"])
-                if age_days is not None and age_days > MAX_JOB_AGE_DAYS:
-                    consecutive_old += 1
-                    continue
-                else:
-                    consecutive_old = 0
-                self._process_single_github_job(job)
-            except Exception as e:
-                logging.error(f"Failed to process vanshb03 job: {e}", exc_info=True)
-                continue
+        _process_github_batch(vanshb03_jobs, "vanshb03")
         print(f"\n  Processing SpeedyApply SWE repository...")
-        consecutive_old = 0
-        for i, job in enumerate(speedyapply_jobs):
-            try:
-                age_days = self._parse_github_age(job["age"])
-                if age_days is not None and age_days > MAX_JOB_AGE_DAYS:
-                    consecutive_old += 1
-                    continue
-                else:
-                    consecutive_old = 0
-                self._process_single_github_job(job)
-            except Exception as e:
-                logging.error(f"Failed to process speedyapply job: {e}", exc_info=True)
-                continue
+        _process_github_batch(speedyapply_jobs, "speedyapply_swe")
 
         self._github_mode = False
 
@@ -857,6 +851,7 @@ class UnifiedJobAggregator:
 
         if self._is_duplicate(company_from_github, title, resolved_url):
             return
+        # Thread safety ensured via _github_lock for all shared state below
 
         is_internship, intern_reason = TitleProcessor.is_internship_role(title, github_category="Software Engineering Internship")
         if not is_internship:
@@ -966,9 +961,11 @@ class UnifiedJobAggregator:
             alert = RoleCategorizer.get_terminal_alert(result["title"])
             company_display = result["company"][:TERMINAL_COMPANY_WIDTH]
             print(f"  {company_display}: ✓ Valid {alert}")
-            self.source_stats[source]["valid"] += 1
+            with self._github_lock:
+                self.source_stats[source]["valid"] += 1
         else:
-            self.source_stats[source]["rejected"] += 1
+            with self._github_lock:
+                self.source_stats[source]["rejected"] += 1
             logging.info(f"REJECTED (comprehensive) | {company_from_github} | {title} | url={resolved_url[:60]}")
 
     def _process_emails_grouped(self, emails_data):
@@ -1667,8 +1664,11 @@ class UnifiedJobAggregator:
 
             if not response:
                 self.outcomes["failed_http"] += 1
-                self._print_rejected(company_hint or "Unknown", "HTTP fetch failed")
-                logging.info(f"HTTP FAIL | {company_hint} | {url[:80]}")
+                co = company_hint or "Unknown"
+                ti = title_hint or "Unknown"
+                self._print_rejected(co, "HTTP fetch failed")
+                logging.info(f"REJECTED | {co} | {ti} | HTTP fetch failed | {url[:80]}")
+                self._add_discarded(co, ti, location_hint or "Unknown", "Unknown", url, "N/A", "Internship", source, "HTTP fetch failed")
                 return None
 
             # ── Post-fetch dead URL check ─────────────────────────
@@ -1686,7 +1686,10 @@ class UnifiedJobAggregator:
             )
             if not soup:
                 self.outcomes["failed_parse"] += 1
-                logging.info(f"PARSE FAIL | {url[:80]}")
+                co = company_hint or "Unknown"
+                ti = title_hint or "Unknown"
+                logging.info(f"REJECTED | {co} | {ti} | HTML parse failed | {url[:80]}")
+                self._add_discarded(co, ti, location_hint or "Unknown", "Unknown", url, "N/A", "Internship", source, "HTML parse failed")
                 return None
 
             # ── Post-parse dead page title check ──────────────────
@@ -1731,8 +1734,32 @@ class UnifiedJobAggregator:
             if not title or title == "Unknown":
                 title = title_hint if title_hint else "Unknown"
             title = TitleProcessor.clean_title_aggressive(title)
+            # If extracted title looks like a page/company headline, trust hint
+            if title_hint:
+                _hint_clean = TitleProcessor.clean_title_aggressive(title_hint)
+                _hint_intern, _ = TitleProcessor.is_internship_role(_hint_clean, github_category="Software Engineering Internship")
+                _hint_valid, _ = TitleProcessor.is_valid_job_title(_hint_clean)
+                _is_headline = "|" in title or len(title.split()) > 10 or any(
+                    kw in title.lower() for kw in ["positions at", "careers at", "jobs at", "opportunities at", "join our", "work with us", "open roles"]
+                )
+                _is_intern, _ = TitleProcessor.is_internship_role(title, github_category="Software Engineering Internship")
+                _is_valid, _ = TitleProcessor.is_valid_job_title(title)
+                if (_is_headline or not _is_intern or not _is_valid) and _hint_intern and _hint_valid:
+                    logging.info(f"Title override: page={title!r} hint={title_hint!r}")
+                    title = _hint_clean
 
-            if self._is_duplicate(company, title, final_url or url):
+            # Duplicate check: only check existing_urls/jobs, NOT processing_lock
+            # (processing_lock was already set by the caller for this URL)
+            _clean = URLCleaner.clean_url(final_url or url)
+            _norm = URLCleaner.normalize_text(f"{company}_{title}")
+            with getattr(self, "_github_lock", _NOOP_LOCK):
+                _url_dup = _clean in self.existing_urls
+                _job_dup = _norm in self.existing_jobs
+            if _url_dup:
+                logging.info(f"DUPLICATE (url, post-fetch) | {company} | {title} | {_clean[:60]}")
+                return None
+            if _job_dup:
+                logging.info(f"DUPLICATE (company+title, post-fetch) | {company} | {title}")
                 return None
 
             is_valid_title, reason = TitleProcessor.is_valid_job_title(title)
@@ -1980,10 +2007,11 @@ class UnifiedJobAggregator:
                 logging.info(f"REJECTED | {company} | {title} | Low quality: {quality}")
                 return None
 
-            self.valid_jobs.append(job_data)
-            self.outcomes["valid"] += 1
-            self.existing_urls.add(URLCleaner.clean_url(final_url or url))
-            self.existing_jobs.add(URLCleaner.normalize_text(f"{company}_{title}"))
+            with getattr(self, "_github_lock", _NOOP_LOCK):
+                self.valid_jobs.append(job_data)
+                self.outcomes["valid"] += 1
+                self.existing_urls.add(URLCleaner.clean_url(final_url or url))
+                self.existing_jobs.add(URLCleaner.normalize_text(f"{company}_{title}"))
             if job_id and job_id != "N/A" and not job_id.startswith("HASH_"):
                 self.existing_job_ids.add(job_id.lower())
                 try:
@@ -2005,35 +2033,37 @@ class UnifiedJobAggregator:
         return name.lower().strip() in GARBAGE_COMPANY_NAMES
 
     def _is_duplicate(self, company, title, url, job_id="N/A"):
-        if job_id and job_id not in ("N/A", "") and not job_id.startswith("HASH_"):
-            try:
-                from outreach.brain import Brain
-                if Brain.get().is_duplicate_job_id(job_id, company, title):
-                    self.outcomes["skipped_duplicate_job_id"] += 1
-                    return True
-            except Exception:
-                pass
-        clean_url = URLCleaner.clean_url(url)
-        if clean_url in self.existing_urls or clean_url in self.processing_lock:
-            self.outcomes["skipped_duplicate_url"] += 1
-            return True
-
-        norm_key = URLCleaner.normalize_text(f"{company}_{title}")
-        if norm_key in self.existing_jobs:
-            self.outcomes["skipped_duplicate_company_title"] += 1
-            return True
-
-        if (
-            job_id
-            and job_id != "N/A"
-            and not job_id.startswith("HASH_")
-            and job_id.lower() in self.existing_job_ids
-        ):
-            self.outcomes["skipped_duplicate_job_id"] += 1
-            return True
-
-        self.processing_lock.add(clean_url)
-        return False
+        with getattr(self, "_github_lock", _NOOP_LOCK):
+            if job_id and job_id not in ("N/A", "") and not job_id.startswith("HASH_"):
+                try:
+                    from outreach.brain import Brain
+                    if Brain.get().is_duplicate_job_id(job_id, company, title):
+                        self.outcomes["skipped_duplicate_job_id"] += 1
+                        logging.info(f"DUPLICATE (job_id) | {company} | {title}")
+                        return True
+                except Exception:
+                    pass
+            clean_url = URLCleaner.clean_url(url)
+            if clean_url in self.existing_urls or clean_url in self.processing_lock:
+                self.outcomes["skipped_duplicate_url"] += 1
+                logging.info(f"DUPLICATE (url) | {company} | {title} | {url[:60]}")
+                return True
+            norm_key = URLCleaner.normalize_text(f"{company}_{title}")
+            if norm_key in self.existing_jobs:
+                self.outcomes["skipped_duplicate_company_title"] += 1
+                logging.info(f"DUPLICATE (company+title) | {company} | {title}")
+                return True
+            if (
+                job_id
+                and job_id != "N/A"
+                and not job_id.startswith("HASH_")
+                and job_id.lower() in self.existing_job_ids
+            ):
+                self.outcomes["skipped_duplicate_job_id"] += 1
+                logging.info(f"DUPLICATE (job_id2) | {company} | {title}")
+                return True
+            self.processing_lock.add(clean_url)
+            return False
 
     def _is_duplicate_url(self, url):
         clean_url = URLCleaner.clean_url(url)
@@ -2051,22 +2081,23 @@ class UnifiedJobAggregator:
         source,
         reason,
     ):
-        self.discarded_jobs.append(
-            {
-                "company": company,
-                "title": title,
-                "location": location,
-                "remote": remote,
-                "url": url,
-                "job_id": job_id,
-                "job_type": job_type,
-                "source": source,
-                "reason": reason,
-                "entry_date": self._format_date(),
-                "sponsorship": "Unknown",
-            }
-        )
-        self.outcomes["discarded"] += 1
+        with getattr(self, "_github_lock", _NOOP_LOCK):
+            self.discarded_jobs.append(
+                {
+                    "company": company,
+                    "title": title,
+                    "location": location,
+                    "remote": remote,
+                    "url": url,
+                    "job_id": job_id,
+                    "job_type": job_type,
+                    "source": source,
+                    "reason": reason,
+                    "entry_date": self._format_date(),
+                    "sponsorship": "Unknown",
+                }
+            )
+            self.outcomes["discarded"] += 1
         # Register discarded job_id in Brain to prevent re-processing
         if job_id and job_id not in ("N/A", "") and not job_id.startswith("HASH_"):
             try:
@@ -2083,10 +2114,10 @@ class UnifiedJobAggregator:
                 pass
 
     def _print_rejected(self, company, reason):
-        if getattr(self, "_github_mode", False):
-            return
         display = (company or "Unknown")
-        print(f"    {display}: ✗ {reason}")
+        logging.info(f"REJECTED | {display} | {reason}")
+        if not getattr(self, "_github_mode", False):
+            print(f"    {display}: ✗ {reason}")
 
     def _ensure_mutual_exclusion(self):
         if not self.valid_jobs or not self.discarded_jobs:

@@ -1666,7 +1666,10 @@ class LocationProcessor:
                 if content == "canada" or "canada only" in content:
                     return "Location: Canada (from meta tag)"
 
-            page_text = soup.get_text()[:10000]
+            _raw = soup.get_text()[:10000]
+            page_text = _raw
+            for _lp in [" du Canada", " du canada", "du Canada\n", "du canada\n", "du Canada ", "du canada "]:
+                page_text = page_text.replace(_lp, " ")
             for pattern, city_name in [
                 (r"Ottawa\s*,?\s*Ontario", "Ottawa, ON"),
                 (r"Toronto\s*,?\s*Ontario", "Toronto, ON"),
@@ -2084,6 +2087,10 @@ class ValidationHelper:
             if not found:
                 return None, None
             low = min(found)
+            high = max(found)
+            # Accept if max salary >= $25/hr (pay range like $20-$35 should pass)
+            if high >= 25.0:
+                return None, None
             if low < 25.0:
                 return "REJECT", f"Low salary: ${low:.0f}/hr (minimum $25/hr)"
         except Exception as e:
@@ -2396,14 +2403,19 @@ class ValidationHelper:
                         bool(re.search(rf"\b{kw}\b", context))
                         for kw in [
                             "master",
+                            "masters",
                             "graduate",
                             "ms/phd",
                             "or graduate",
                             "and graduate",
-                            "or master's",
+                            "or master",
                             "master's degree",
+                            "masters degree",
                             "ms degree",
                             "or ms",
+                            "m\.s\.",
+                            "grad student",
+                            "graduate student",
                         ]
                     ):
                         logging.debug(
