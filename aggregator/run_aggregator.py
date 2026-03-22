@@ -849,6 +849,31 @@ class UnifiedJobAggregator:
                 except Exception:
                     pass
 
+        # Detect Simplify URL-company mismatches (e.g. Ingram Micro URL for Bose job)
+        # If the URL domain clearly belongs to a different known company, reject
+        try:
+            from urllib.parse import urlparse as _urlp
+            _url_domain = _urlp(resolved_url).netloc.lower().replace("www.", "")
+            _company_norm = re.sub(r"[^a-z0-9]", "", company_from_github.lower())
+            # Extract company slug from domain (e.g. "ingrammicro" from "ingrammicro.wd5.myworkdayjobs.com")
+            _domain_slug = _url_domain.split(".")[0].lower()
+            _domain_slug = re.sub(r"[^a-z0-9]", "", _domain_slug)
+            # Only flag mismatch if domain slug is a known company AND clearly != hint company
+            _known_workday_companies = {
+                "ingrammicro": "ingram micro", "synnex": "td synnex", "vishay": "vishay",
+                "cooperstandard": "cooper standard", "edwards": "edwards lifesciences",
+                "biorad": "bio-rad", "careers-biorad": "bio-rad",
+                "arlo": "arlo", "revvity": "revvity",
+            }
+            if _domain_slug in _known_workday_companies:
+                _expected = re.sub(r"[^a-z0-9]", "", _known_workday_companies[_domain_slug])
+                if _expected not in _company_norm and _company_norm not in _expected:
+                    logging.info(f"URL-COMPANY MISMATCH | {company_from_github} | URL domain: {_domain_slug} | Skipping")
+                    self.outcomes["skipped_url_mismatch"] = self.outcomes.get("skipped_url_mismatch", 0) + 1
+                    return
+        except Exception:
+            pass
+
         if self._is_duplicate(company_from_github, title, resolved_url):
             return
         # Thread safety ensured via _github_lock for all shared state below

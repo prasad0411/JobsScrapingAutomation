@@ -2191,6 +2191,10 @@ GARBAGE_COMPANY_NAMES = {
     "ats",
     "retail markets",
     "y99000 general electric",
+    "myworkdaysite",
+    "information",
+    "bank usa",
+    "4001us00 dual north america",
 }
 
 
@@ -2237,6 +2241,24 @@ COMPANY_NAME_FIXES = {
     "beone medicines usa": "BeiGene",
     "calix north america": "Calix",
     "(marvell semiconductor inc.) us": "Marvell",
+    "aofl": "Age of Learning",
+    "pge": "PG&E",
+    "001_bcbsa blue cross and blue shield association": "Blue Cross Blue Shield Association",
+    "001_bcbsa": "Blue Cross Blue Shield Association",
+    "bcbsa": "Blue Cross Blue Shield Association",
+    "bank usa": "CIBC",
+    "cibc us": "CIBC",
+    "myworkdaysite": "Unknown",
+    "information": "Unknown",
+    "general dynamics information technology": "GDIT",
+    "logistics management institute": "LMI",
+    "lmi": "LMI",
+    "4001us00 dual north america": "DUAL North America",
+    "simmons bank": "Unknown",
+    "bloomberg philanthropies": "Unknown",
+    "ensemble rcm": "Ensemble Health Partners",
+    "nordson efd": "Nordson",
+    "eversource energy service": "Eversource Energy",
 }
 
 # City to state mapping for location normalization

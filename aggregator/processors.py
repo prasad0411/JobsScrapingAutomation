@@ -2359,6 +2359,8 @@ class ValidationHelper:
                 r"undergraduate\s+enrollment\s+required",
                 r"must\s+be\s+enrolled\s+in\s+bachelor",
                 r"bachelor'?s?\s+program\s+enrollment",
+                r"currently\s+enrolled\s+in\s+a\s+bachelor'?s?\s+degree\s+program",
+                r"enrolled\s+in\s+(?:a\s+)?bachelor'?s?\s+degree\s+program",
                 r"(?:junior|senior)\s+year\s+standing",
                 r"class\s+standing:\s*(?:junior|senior)",
                 r"enrolled\s+(?:as\s+a\s+)?(?:full.?time\s+)?student\s+at\s+(?:an?\s+)?accredited\s+(?:four.year|4.year)",
