@@ -1914,7 +1914,6 @@ NON_TECHNICAL_PURE = {
     "optical engineer",
     "laser engineer",
     "opto-mechanical",
-    "firmware engineer",
     "hardware engineer",
     "electrical engineer",
     "noise control",

@@ -2198,6 +2198,7 @@ class ValidationHelper:
         if not soup:
             return None
 
+
         try:
             from aggregator.utils import DateParser
             from aggregator.config import PAGE_TEXT_STANDARD_SCAN
