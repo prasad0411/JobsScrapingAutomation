@@ -761,8 +761,9 @@ class Brain:
         Runs at startup, idempotent — safe to call multiple times.
         Records completion so it never re-runs.
         """
-        if self._data.get("_legacy_migration_done"):
-            return
+        # Always re-sync pattern files — they update each run
+        # Only skip full migration if already done AND pattern files haven't changed
+        _already_done = self._data.get("_legacy_migration_done", False)
         import os as _os, json as _json, time as _t
         _local = _os.path.join(_os.path.dirname(_os.path.dirname(
             _os.path.abspath(__file__))), ".local")
@@ -862,6 +863,21 @@ class Brain:
 
         if migrated:
             log.info(f"Brain: migrated legacy files: {migrated}")
+        # Always re-sync outreach_patterns.json regardless of migration state
+        import os as _os3, json as _json3
+        _local3 = _os3.path.join(_os3.path.dirname(_os3.path.dirname(
+            _os3.path.abspath(__file__))), ".local")
+        _op3 = _os3.path.join(_local3, "outreach_patterns.json")
+        if _os3.path.exists(_op3):
+            try:
+                _d3 = _json3.load(open(_op3))
+                for _dom3, _pat3 in _d3.items():
+                    if _dom3 != "_global_best" and _pat3:
+                        if not self.best_pattern_for(_dom3):
+                            self.record_pattern_success(_dom3, _pat3, "resync")
+                log.debug(f"Brain: re-synced outreach_patterns.json ({len(_d3)} entries)")
+            except Exception as _re3:
+                log.debug(f"Pattern resync failed: {_re3}")
 
         self._data["_legacy_migration_done"] = True
         self._data["_legacy_migration_ts"] = _t.time()

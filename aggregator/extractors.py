@@ -1432,6 +1432,34 @@ class PageFetcher:
         return cls._failed_urls
 
     @classmethod
+    def _prune_failed_urls(cls):
+        try:
+            from aggregator.config import FAILED_URLS_FILE
+            import datetime as _dt
+            if not os.path.exists(FAILED_URLS_FILE):
+                return
+            data = json.load(open(FAILED_URLS_FILE))
+            cutoff = _dt.datetime.now() - _dt.timedelta(days=30)
+            pruned = {}
+            for k, v in data.items():
+                if isinstance(v, str):
+                    try:
+                        keep = _dt.datetime.fromisoformat(v[:10]) > cutoff
+                    except Exception:
+                        keep = True
+                elif isinstance(v, dict):
+                    keep = v.get("ts", time.time()) > time.time() - 30*86400
+                else:
+                    keep = True
+                if keep:
+                    pruned[k] = v
+            if len(pruned) < len(data):
+                json.dump(pruned, open(FAILED_URLS_FILE, "w"), indent=2)
+                logging.debug(f"Pruned failed URLs: {len(data)} → {len(pruned)}")
+        except Exception:
+            pass
+
+    @classmethod
     def _save_failed_url(cls, url):
         failed = cls._load_failed_urls()
         import time as _t

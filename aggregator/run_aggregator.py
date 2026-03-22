@@ -333,6 +333,30 @@ class ProcessedEmailTracker:
 # Uses a simple cache to avoid repeat API calls for same company.
 _SPONSORSHIP_CACHE = {}
 
+def _load_sponsorship_from_brain()
+
+# Auto-prune stale failed URL cache on startup
+try:
+    from aggregator.extractors import PageFetcher as _PF
+    _PF._prune_failed_urls()
+except Exception:
+    pass:
+    """Load Brain sponsorship cache into memory at startup."""
+    try:
+        from outreach.brain import Brain
+        b = Brain.get()
+        cached = b._data.get("sponsorship", {})
+        _SPONSORSHIP_CACHE.update(cached)
+        if cached:
+            import logging as _log
+            _log.getLogger(__name__).info(
+                f"Loaded {len(cached)} sponsorship entries from Brain"
+            )
+    except Exception:
+        pass
+
+_load_sponsorship_from_brain()
+
 def _claude_sponsorship_check(company, title):
     """
     Ask Claude whether this company sponsors F-1/H-1B visas.
