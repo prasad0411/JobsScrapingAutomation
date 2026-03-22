@@ -445,6 +445,17 @@ class Mailer:
                 data=_j.dumps(draft_payload),
                 timeout=30,
             )
+            if create_resp.status_code == 401:
+                # Token expired mid-run — force refresh and retry once
+                log.warning("401 on draft create — forcing token refresh and retrying")
+                self._ms_access_token = None
+                self._ms_token_acquired_at = 0
+                token = self._ms_token()
+                create_resp = _req.post(
+                    f"https://graph.microsoft.com/v1.0/users/{MS_SENDER_EMAIL}/messages",
+                    headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"},
+                    data=_j.dumps(draft_payload), timeout=30,
+                )
             if create_resp.status_code not in (200, 201):
                 raise Exception(
                     f"Draft create failed {create_resp.status_code}: {create_resp.text[:200]}"
