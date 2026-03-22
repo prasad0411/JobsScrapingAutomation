@@ -1507,6 +1507,23 @@ class PageFetcher:
             }
             return response, response.url, response.text
 
+        # Auto-retry with different user agents before falling back to Selenium
+        if not response or response.status_code not in [404, 410]:
+            for _alt_ua in USER_AGENTS[1:3]:
+                try:
+                    import requests as _req
+                    _r = _req.get(url, timeout=15, headers={"User-Agent": _alt_ua}, allow_redirects=True)
+                    if _r and 200 <= _r.status_code < 400:
+                        logging.info(f"Retry with alt UA succeeded: {url[:60]}")
+                        _HTTP_RESPONSE_CACHE[url] = {
+                            "response": _r,
+                            "final_url": _r.url,
+                            "page_source": _r.text,
+                        }
+                        return _r, _r.url, _r.text
+                except Exception:
+                    continue
+
         if SELENIUM_AVAILABLE:
             logging.info(f"Standard request failed, trying Selenium for {url}")
             html, final_url, page_source = self._try_selenium(url)

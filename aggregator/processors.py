@@ -2882,6 +2882,11 @@ class ValidationHelper:
                 r"dod\s+(?:secret|top\s+secret)",
                 r"ts/sci",
                 r"polygraph",
+                r"ear/itar",
+                r"itar.*(?:required|compliance|restriction)",
+                r"export\s+control.*(?:required|compliance|restriction)",
+                r"access\s+to\s+export.controlled",
+                r"export.controlled.*(?:information|technology|data)",
             ]
 
             for pattern in clearance_patterns:

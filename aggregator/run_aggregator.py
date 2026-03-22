@@ -1035,21 +1035,23 @@ class UnifiedJobAggregator:
             )
 
             inline_dups = 0
-            for idx, url in enumerate(deduped_urls):
+            # Process URLs in parallel (10 threads) for speed
+            import concurrent.futures as _cf
+            def _process_url(args):
+                idx, url = args
                 try:
-                    result = self._process_single_email_url(
-                        url,
-                        sender,
-                        html_content,
-                        subject,
-                        url_idx=idx + 1,
-                        url_total=len(deduped_urls),
+                    return self._process_single_email_url(
+                        url, sender, html_content, subject,
+                        url_idx=idx + 1, url_total=len(deduped_urls),
                     )
-                    if result == "duplicate":
-                        inline_dups += 1
                 except Exception as e:
                     logging.error(f"Failed to process email URL {url}: {e}")
-                    continue
+                    return None
+
+            with _cf.ThreadPoolExecutor(max_workers=10) as pool:
+                results = list(pool.map(_process_url, enumerate(deduped_urls)))
+
+            inline_dups = sum(1 for r in results if r == "duplicate")
             if inline_dups > 0:
                 print(f"    [{inline_dups} duplicates skipped]")
 
@@ -1987,13 +1989,29 @@ class UnifiedJobAggregator:
             job_id = PageParser.extract_job_id(soup, final_url or url)
             sponsorship = ValidationHelper.check_sponsorship_status(soup)
 
+            # Use original URL if redirect crossed to different domain (prevents company/URL mismatch)
+            _store_url = final_url or url
+            if final_url and url:
+                try:
+                    from urllib.parse import urlparse as _up
+                    _orig_domain = _up(url).netloc.lower()
+                    _final_domain = _up(final_url).netloc.lower()
+                    # If domains differ significantly (not just www vs non-www), use original
+                    _o = _orig_domain.replace("www.", "")
+                    _f = _final_domain.replace("www.", "")
+                    if _o != _f and not _f.endswith(_o) and not _o.endswith(_f):
+                        _store_url = url
+                        logging.debug(f"Domain mismatch: {_orig_domain} → {_final_domain}, using original URL")
+                except Exception:
+                    pass
+
             job_data = {
                 "company": company,
                 "title": title,
                 "location": location,
                 "remote": remote,
-                "url": final_url or url,
-                "job_id": "N/A" if (final_url or url) and "greenhouse.io" in (final_url or url).lower() else (job_id if job_id else "N/A"),
+                "url": _store_url,
+                "job_id": "N/A" if _store_url and "greenhouse.io" in _store_url.lower() else (job_id if job_id else "N/A"),
                 "job_type": "Internship",
                 "sponsorship": sponsorship,
                 "entry_date": self._format_date(),

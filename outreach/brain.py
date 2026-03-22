@@ -330,11 +330,19 @@ class Brain:
         e["rejection_velocity"] = vel[-20:]
         # Auto-blacklist logic:
         # 1. Permanent reason → blacklist after 1 rejection
-        # 2. 3+ same reason in any timeframe → blacklist
-        # 3. 3+ same reason within 7 days → blacklist immediately
+        # 2. 10+ same reason in any timeframe → blacklist
+        # 3. NEVER blacklist for age, salary, season, or per-job reasons
         reason_lower = reason.lower()
         is_permanent = any(p in reason_lower for p in _PERMANENT_REJECTION_REASONS)
         is_role_only = any(p in reason_lower for p in _ROLE_REJECTION_REASONS)
+        # Never blacklist for transient reasons
+        is_transient = any(p in reason_lower for p in [
+            "posted", "days ago", "too old", "salary", "low salary",
+            "season", "spring", "summer", "fall", "wrong season",
+            "duplicate", "quality", "parse", "http", "fetch"
+        ])
+        if is_transient:
+            return  # Never blacklist for transient reasons
         if is_permanent and not is_role_only:
             if not e.get("blacklist"):
                 e["blacklist"] = True
@@ -343,10 +351,10 @@ class Brain:
                 self.save()
                 return
         top_reason_count = max(reasons.values()) if reasons else 0
-        if top_reason_count >= 3 and not is_role_only:
-            # Check velocity: were 3+ recent rejections within 7 days?
-            recent = [t for t in vel if time.time() - t < 7 * 86400]
-            if len(recent) >= 3 or top_reason_count >= 5:
+        if top_reason_count >= 10 and not is_role_only and not is_transient:
+            # Check velocity: were 10+ recent rejections within 30 days?
+            recent = [t for t in vel if time.time() - t < 30 * 86400]
+            if len(recent) >= 10 or top_reason_count >= 15:
                 if not e.get("blacklist"):
                     top_reason = max(reasons, key=reasons.get)
                     e["blacklist"] = True
