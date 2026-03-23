@@ -265,6 +265,27 @@ class Finder:
             else:
                 log.info(f"Name field was LinkedIn URL but extraction failed: {name}")
 
+        # Check Brain for previously verified contact for this company+role
+        try:
+            from outreach.brain import Brain
+            _b = Brain.get()
+            _role = "hm" if "hiring" in name.lower() or not name else "recruiter"
+            _cached_contact = _b.get_verified_contact(company, _role)
+            if _cached_contact and not _cached_contact.get("bounced"):
+                _cached_email = _cached_contact.get("email", "")
+                _cached_conf = _cached_contact.get("confidence", 0)
+                if _cached_email and _cached_conf >= 0.7:
+                    log.info(f"Brain contact reuse: {company} [{_role}] → {_cached_email} (conf={_cached_conf})")
+                    r.update(
+                        email=_cached_email,
+                        source="brain_contact_cache",
+                        status="Valid",
+                        confidence=_cached_conf,
+                    )
+                    return r
+        except Exception as _ce:
+            log.debug(f"Brain contact lookup failed: {_ce}")
+
         parsed = NameParser.parse(name)
         if parsed and (parsed["single"] or (parsed["last"] and len(parsed["last"]) <= 2)):
             li_name = self._extract_name_from_linkedin_url(linkedin)
@@ -391,6 +412,20 @@ class Finder:
             result["confidence"] = 95 if result["status"] == "Valid" else 60
             self.pc.detect(result["email"], parsed)
             self._clear_retry(retry_key)
+            # Store verified contact in Brain for future reuse
+            try:
+                from outreach.brain import Brain
+                _role = "hm" if not linkedin else "recruiter"
+                Brain.get().store_verified_contact(
+                    company=company,
+                    role=_role,
+                    name=name,
+                    email=result["email"],
+                    linkedin=linkedin,
+                    confidence=result["confidence"],
+                )
+            except Exception as _bce:
+                log.debug(f"Brain contact store failed: {_bce}")
         else:
             error = result.get("error", "")
             # FIX 6: only track permanent failures — not transient credit exhaustion

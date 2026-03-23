@@ -28,7 +28,7 @@ BACKUP_TRACKING_FILE = os.path.join(
 )
 BACKUP_INTERVAL_DAYS = 7
 
-EXPIRY_DAYS = 2  # Jobs older than this with no status get moved
+EXPIRY_DAYS = 1  # Jobs older than this with no status get moved
 
 FILES_TO_BACKUP = [
     "credentials.json",

@@ -158,6 +158,7 @@ class Brain:
             "mx_cache": {},
             "linkedin_names": {},
             "domain_corrections": {},
+            "company_contacts": {},
         }
 
     # ── Domain / Pattern API ─────────────────────────────────────────────────
@@ -753,6 +754,79 @@ class Brain:
         }
         log.info(f"Brain: domain correction learned: {wrong_domain} → {correct_domain}")
         self.save()
+
+    def record_source_quality(self, source: str, valid: int, rejected: int):
+        """Track daily source quality for monitoring."""
+        import datetime
+        today = datetime.date.today().isoformat()
+        sq = self._data.setdefault("source_quality", {})
+        if source not in sq:
+            sq[source] = []
+        sq[source].append({"date": today, "valid": valid, "rejected": rejected})
+        # Keep last 30 days only
+        sq[source] = sq[source][-30:]
+        self.save()
+
+    def get_source_quality_report(self) -> str:
+        """Return a summary of source quality over last 7 days."""
+        import datetime
+        cutoff = (datetime.date.today() - datetime.timedelta(days=7)).isoformat()
+        sq = self._data.get("source_quality", {})
+        lines = ["Source Quality (last 7 days):"]
+        for source, records in sq.items():
+            recent = [r for r in records if r["date"] >= cutoff]
+            if not recent:
+                continue
+            total_valid = sum(r["valid"] for r in recent)
+            total_rejected = sum(r["rejected"] for r in recent)
+            total = total_valid + total_rejected
+            pct = f"{100*total_valid//total}%" if total > 0 else "N/A"
+            lines.append(f"  {source}: {total_valid} valid / {total} total ({pct}) over {len(recent)} runs")
+        return "\n".join(lines) if len(lines) > 1 else "No source quality data yet"
+
+    def store_verified_contact(self, company: str, role: str, name: str, 
+                                email: str, linkedin: str = "", confidence: float = 0):
+        """Store a verified contact for a company permanently."""
+        key = re.sub(r"[^a-z0-9]", "", company.lower().strip())
+        if "company_contacts" not in self._data:
+            self._data["company_contacts"] = {}
+        if key not in self._data["company_contacts"]:
+            self._data["company_contacts"][key] = {}
+        self._data["company_contacts"][key][role] = {
+            "name": name,
+            "email": email,
+            "linkedin": linkedin,
+            "confidence": confidence,
+            "verified_at": time.time(),
+            "bounced": False,
+            "bounce_count": 0,
+        }
+        log.info(f"Brain: stored contact {name} ({email}) for {company} [{role}]")
+        self.save()
+
+    def get_verified_contact(self, company: str, role: str) -> dict | None:
+        """Get a previously verified contact for a company."""
+        key = re.sub(r"[^a-z0-9]", "", company.lower().strip())
+        contacts = self._data.get("company_contacts", {})
+        contact = contacts.get(key, {}).get(role)
+        if not contact:
+            return None
+        if contact.get("bounced") and contact.get("bounce_count", 0) >= 2:
+            log.info(f"Brain: contact {contact.get('email')} for {company} is bounced, skipping")
+            return None
+        return contact
+
+    def mark_contact_bounced(self, company: str, role: str, email: str):
+        """Mark a contact email as bounced."""
+        key = re.sub(r"[^a-z0-9]", "", company.lower().strip())
+        contacts = self._data.get("company_contacts", {})
+        if key in contacts and role in contacts[key]:
+            if contacts[key][role].get("email") == email:
+                contacts[key][role]["bounced"] = True
+                contacts[key][role]["bounce_count"] = contacts[key][role].get("bounce_count", 0) + 1
+                contacts[key][role]["bounced_at"] = time.time()
+                log.info(f"Brain: marked {email} as bounced for {company} [{role}]")
+                self.save()
 
     def get_domain_correction(self, domain: str) -> str | None:
         """Return corrected domain if known, else None."""

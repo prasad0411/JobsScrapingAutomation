@@ -127,6 +127,19 @@ class BounceScanner:
                                 log.debug(f"verify cache invalidation failed: {_eve}")
                             newly_found.add(email_lower)
                             log.info(f"Bounce detected: {email_lower} | {subject[:60]}")
+                            # Mark contact as bounced in Brain for contact reuse system
+                            try:
+                                from outreach.brain import Brain
+                                _b = Brain.get()
+                                # Find which company this contact belongs to
+                                for _co_key, _contacts in _b._data.get("company_contacts", {}).items():
+                                    for _role, _contact in _contacts.items():
+                                        if _contact.get("email", "").lower() == email_lower:
+                                            _b.mark_contact_bounced(_co_key, _role, email_lower)
+                                            log.info(f"Brain: marked bounced contact {email_lower} for {_co_key}")
+                                            break
+                            except Exception as _bce:
+                                log.debug(f"Brain bounce mark failed: {_bce}")
                             # Auto-raise confidence threshold for this domain in Brain
                             try:
                                 from outreach.brain import Brain
