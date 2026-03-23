@@ -2269,6 +2269,9 @@ COMPANY_NAME_FIXES = {
     "lumosfiber": "Lumos Fiber",
     "coherent corp. us": "Coherent",
     "coherent corp": "Coherent",
+    "coherent corp.": "Coherent",
+    "coherentcorpus": "Coherent",
+    "coherent corporation": "Coherent",
     "tokyo electron u.s.holdings": "Tokyo Electron US Holdings",
 }
 

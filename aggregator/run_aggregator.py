@@ -860,10 +860,24 @@ class UnifiedJobAggregator:
             _domain_slug = re.sub(r"[^a-z0-9]", "", _domain_slug)
             # Only flag mismatch if domain slug is a known company AND clearly != hint company
             _known_workday_companies = {
-                "ingrammicro": "ingram micro", "synnex": "td synnex", "vishay": "vishay",
-                "cooperstandard": "cooper standard", "edwards": "edwards lifesciences",
-                "biorad": "bio-rad", "careers-biorad": "bio-rad",
-                "arlo": "arlo", "revvity": "revvity",
+                "ingrammicro": "ingram micro",
+                "synnex": "td synnex",
+                "vishay": "vishay",
+                "cooperstandard": "cooper standard",
+                "edwards": "edwards lifesciences",
+                "biorad": "bio-rad",
+                "careers-biorad": "bio-rad",
+                "arlo": "arlo",
+                "revvity": "revvity",
+                "hyperiongrp": "hyperion",
+                "ffive": "f5",
+                "pae": "amentum",
+                "vhr-genband": "ribbon",
+                "vhr-otsuka": "otsuka",
+                "hcjy": "cooper companies",
+                "nordsonhcm": "nordson",
+                "vareximaging": "varex imaging",
+                "sonyglobal": "sony",
             }
             if _domain_slug in _known_workday_companies:
                 _expected = re.sub(r"[^a-z0-9]", "", _known_workday_companies[_domain_slug])
