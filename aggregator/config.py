@@ -1599,6 +1599,8 @@ JOB_ID_PATTERNS = [
     (r"smartrecruiters\.com/[^/]+/(\d{15})", 0.96),
     (r"/jobs/(\d+)/job", 0.94),
     (r"icims\.com/jobs/(\d+)/", 0.94),  # iCIMS job ID
+    (r"successfactors\.com/.*?/(\d{6,})", 0.88),  # SuccessFactors
+    (r"/job/[^/]+/(\d{7,})/", 0.88),  # SuccessFactors numeric ID in URL
     (r"REQ[_-]?(\d{6,})", 0.92),
     (r"job[/_]([A-Z0-9_-]{6,15})(?:\?|$|/)", 0.86),
     (r"[?&]reqId=([A-Z0-9_-]{4,15})(?:&|$)", 0.88),
@@ -2196,6 +2198,7 @@ GARBAGE_COMPANY_NAMES = {
     "information",
     "bank usa",
     "4001us00 dual north america",
+    "4001us00",
 }
 
 
@@ -2254,7 +2257,8 @@ COMPANY_NAME_FIXES = {
     "general dynamics information technology": "GDIT",
     "logistics management institute": "LMI",
     "lmi": "LMI",
-    "4001us00 dual north america": "DUAL North America",
+    "4001us00 dual north america": "GDIT",
+    "4001us00": "GDIT",
     "simmons bank": "Unknown",
     "bloomberg philanthropies": "Unknown",
     "ensemble rcm": "Ensemble Health Partners",
@@ -2282,6 +2286,7 @@ CITY_TO_STATE_EXTRA = {
     "denver": "CO", "boulder": "CO", "atlanta": "GA", "miami": "FL",
     "portland": "OR", "pittsburgh": "PA", "philadelphia": "PA",
     "minneapolis": "MN", "detroit": "MI", "ann arbor": "MI",
+    "chaska": "MN", "eden prairie": "MN", "bloomington": "MN",
     "washington": "DC", "arlington": "VA", "mclean": "VA",
     "salt lake city": "UT", "phoenix": "AZ", "scottsdale": "AZ",
     "nashville": "TN", "columbus": "OH", "cleveland": "OH", "cincinnati": "OH",
