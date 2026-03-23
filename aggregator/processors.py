@@ -129,6 +129,7 @@ class TitleProcessor:
     @staticmethod
     @lru_cache(maxsize=512)
     def clean_title_aggressive(title):
+        title = re.sub(r"^[:\s]+", "", title).strip()  # strip leading colon/space
         if not title or len(title) < 5:
             return title
 
@@ -2382,6 +2383,12 @@ class ValidationHelper:
                 r"undergraduate\s+program\s+student",
                 r"enrolled\s+in\s+(?:a\s+)?4-year\s+(?:bachelor|undergraduate)",
                 r"pursuing\s+(?:a\s+)?4-year\s+degree",
+                r"rising\s+(?:sophomore|junior|senior)\s+(?:year\s+)?(?:student|pursuing|working)",
+                r"completed\s+(?:2|3|two|three)\s+years?\s+by\s+start",
+                r"must\s+have\s+completed\s+(?:sophomore|junior|senior)\s+year",
+                r"entering\s+(?:their\s+)?(?:sophomore|junior|senior)\s+year",
+                r"currently\s+enrolled\s+as\s+a\s+(?:junior|senior)\s+pursuing\s+a\s+bachelor",
+                r"junior\s+or\s+senior\s+pursuing\s+a\s+bachelor",
                 r"(?:must|should)\s+be\s+pursuing\s+(?:their|a)\s+bachelor",
                 r"target(?:ed)?\s+majors?.*bachelor",
                 r"(?:associate|associates|aa|as)\s+(?:or|and)\s+bachelor",

@@ -388,7 +388,8 @@ PERMANENT_US_AUTHORIZATION_PATTERNS = [
     r"permanent.*(?:right|ability)\s+to\s+work.*(?:in\s+the\s+)?(?:us|united\s+states)",
     r"not\s+(?:currently\s+)?hiring\s+foreign\s+national\s+applicants.*(?:sponsorship|H,\s*L,\s*TN,\s*F)",
     r"not\s+(?:currently\s+)?(?:hiring|sponsoring).*foreign\s+national.*(?:H|L|TN|F|J|E|O)",
-    r"visa\s+sponsorship\s+is\s+not\s+available",
+    # Removed: r"visa sponsorship is not available" — too broad, catches companies
+    # that just won't sponsor H-1B post-graduation, which is fine for F-1 CPT internships
 ]
 
 US_PERSON_DOD_PATTERNS = [
@@ -2259,6 +2260,12 @@ COMPANY_NAME_FIXES = {
     "ensemble rcm": "Ensemble Health Partners",
     "nordson efd": "Nordson",
     "eversource energy service": "Eversource Energy",
+    "rakuten marketing": "Rakuten Advertising",
+    "rakuten advertising": "Rakuten Advertising",
+    "lumosfiber": "Lumos Fiber",
+    "coherent corp. us": "Coherent",
+    "coherent corp": "Coherent",
+    "tokyo electron u.s.holdings": "Tokyo Electron US Holdings",
 }
 
 # City to state mapping for location normalization
