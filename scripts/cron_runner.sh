@@ -7,6 +7,17 @@
 export PATH="/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin"
 export HOME="/Users/prasadkanade"
 
+# Wait for network to be ready (handles wake-from-sleep timing)
+_WAIT=0
+while ! ping -c1 -W1 8.8.8.8 &>/dev/null; do
+    sleep 5
+    _WAIT=$((_WAIT + 5))
+    if [[ $_WAIT -ge 60 ]]; then
+        echo "FATAL: No network after 60s — aborting"
+        exit 1
+    fi
+done
+
 BASE_DIR="/Users/prasadkanade/Documents/Prasad Kanade/Job Hunt Tracker"
 cd "$BASE_DIR" || { echo "FATAL: Cannot cd to $BASE_DIR"; exit 1; }
 
