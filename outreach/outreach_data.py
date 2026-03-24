@@ -334,6 +334,27 @@ class Sheets:
                 nr[C["extract"]] = "Skip"
                 nr[C["job_id"]] = jid
 
+                # AUTO-FILL: check Brain for verified contacts for this company
+                try:
+                    _b = Brain.get()
+                    for _role, _col_name, _col_email in [
+                        ("hm",  "hm_name",  "hm_email"),
+                        ("rec", "rec_name", "rec_email"),
+                    ]:
+                        _contact = _b.get_verified_contact(co, _role)
+                        if _contact and _contact.get("name") and _contact.get("email"):
+                            nr[C[_col_name]]  = _contact["name"]
+                            nr[C[_col_email]] = _contact["email"]
+                            if _contact.get("linkedin"):
+                                _li_col = "hm_li" if _role == "hm" else "rec_li"
+                                nr[C[_li_col]] = _contact["linkedin"]
+                            log.info(
+                                f"pull: auto-filled {_role} contact for {co}: "
+                                f"{_contact['name']} <{_contact['email']}>"
+                            )
+                except Exception as _bce:
+                    log.debug(f"pull: Brain contact auto-fill failed for {co}: {_bce}")
+
             result_rows.append(nr)
 
         # Assign sequential Sr. No.

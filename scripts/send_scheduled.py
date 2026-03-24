@@ -4,7 +4,7 @@ Send scheduled outreach emails from Outlook 'Scheduled Outreach' folder.
 Drafts are created by outreach_mailer.py with X-Send-At / X-Company headers.
 Run every 15 min via launchd — zero manual intervention needed.
 """
-import sys, os, datetime, time, logging, json
+import sys, os, datetime, time, logging, json, re
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from outreach.outreach_config import (
@@ -234,7 +234,17 @@ def _should_send(send_at_iso):
     if not send_at_iso:
         return False
     try:
-        send_at = datetime.datetime.fromisoformat(send_at_iso)
+        # Try ISO format first: 2026-03-23T10:00:00
+        try:
+            send_at = datetime.datetime.fromisoformat(send_at_iso)
+        except Exception:
+            # Fallback: human format "Mar 23, 10:00 AM ET"
+            clean = re.sub(r"\s*(ET|EST|EDT|PT|CT|MT)\s*$", "", send_at_iso.strip())
+            year = datetime.datetime.now().year
+            send_at = datetime.datetime.strptime(f"{clean} {year}", "%b %d, %I:%M %p %Y")
+            # Treat as US Eastern
+            from zoneinfo import ZoneInfo
+            send_at = send_at.replace(tzinfo=ZoneInfo("America/New_York"))
         if send_at.tzinfo is None:
             send_at = send_at.replace(tzinfo=datetime.timezone.utc)
         now = datetime.datetime.now(datetime.timezone.utc)
@@ -337,6 +347,30 @@ def main():
 
     brain = Brain.get()
     sl    = _load_sl()
+
+    # Load bounce lists — skip addresses confirmed bounced via NDR processor
+    _BOUNCE_LOG = os.path.join(_LOCAL, "bounce_log.json")
+    _BOUNCED_F  = os.path.join(_LOCAL, "bounced_emails.json")
+    try:
+        _bl = json.load(open(_BOUNCE_LOG)) if os.path.exists(_BOUNCE_LOG) else {}
+        _be = json.load(open(_BOUNCED_F))  if os.path.exists(_BOUNCED_F)  else {}
+    except Exception:
+        _bl, _be = {}, {}
+    all_bounced = set(list(_bl.keys()) + list(_be.keys()))
+    if all_bounced:
+        log.info(f"Bounce skip list: {len(all_bounced)} addresses loaded")
+
+    # Load bounce lists — skip addresses confirmed bounced via NDR processor
+    _BOUNCE_LOG  = os.path.join(_LOCAL, "bounce_log.json")
+    _BOUNCED_F   = os.path.join(_LOCAL, "bounced_emails.json")
+    try:
+        _bl = json.load(open(_BOUNCE_LOG)) if os.path.exists(_BOUNCE_LOG) else {}
+        _be = json.load(open(_BOUNCED_F))  if os.path.exists(_BOUNCED_F)  else {}
+    except Exception:
+        _bl, _be = {}, {}
+    all_bounced = set(list(_bl.keys()) + list(_be.keys()))
+    if all_bounced:
+        log.info(f"Bounce skip list: {len(all_bounced)} addresses loaded")
     ws    = None  # lazy — only loaded if we actually send
 
     scheduled_fid = _ensure_folder(token, SCHEDULED_FOLDER)
@@ -378,6 +412,11 @@ def main():
         if _is_dup(sl, to_email, subject):
             log.debug(f"Dup: {to_email}"); dedup += 1; continue
 
+        # Skip previously bounced addresses (learned from NDR processor)
+        if to_email.lower() in all_bounced:
+            log.info(f"Bounce skip: {to_email} (previously bounced)")
+            print(f"  ⊘ Skipped (bounced): {to_email}")
+            skipped += 1; continue
         if not _should_send(send_at_iso):
             log.debug(f"Not yet: {company} | send_at={send_at_iso}"); skipped += 1; continue
 
@@ -402,22 +441,34 @@ def main():
             time.sleep(3)
             try:
                 safe = subject.replace("'", "''")
+                # Note: $orderby removed — causes 400 on some tenants
                 si = _req.get(
                     f"https://graph.microsoft.com/v1.0/users/{MS_SENDER_EMAIL}"
                     f"/mailFolders/sentitems/messages",
                     headers={"Authorization": f"Bearer {token}"},
-                    params={"$filter": f"subject eq '{safe}'",
-                            "$top": 5, "$orderby": "sentDateTime desc"},
+                    params={"$filter": f"subject eq '{safe}'", "$top": 10},
                     timeout=10,
                 )
+                moved = False
                 if si.status_code == 200:
+                    # Find most recent match for this recipient
+                    candidates = []
                     for m in si.json().get("value", []):
                         rs = [r["emailAddress"]["address"].lower()
                               for r in m.get("toRecipients", [])]
                         if to_email.lower() in rs:
-                            if _move(token, m["id"], cold_fid):
-                                print(f"    ✓ Moved → '{COLD_EMAILING_FOLDER}'")
-                            break
+                            candidates.append(m)
+                    if candidates:
+                        # Sort by sentDateTime descending in Python
+                        candidates.sort(
+                            key=lambda x: x.get("sentDateTime", x.get("createdDateTime", "")),
+                            reverse=True
+                        )
+                        if _move(token, candidates[0]["id"], cold_fid):
+                            print(f"    ✓ Moved → '{COLD_EMAILING_FOLDER}'")
+                            moved = True
+                if not moved:
+                    print(f"    ⚠ Could not move to '{COLD_EMAILING_FOLDER}' (will retry next run)")
             except Exception as me:
                 log.debug(f"Move failed: {me}")
 

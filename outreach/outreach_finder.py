@@ -879,6 +879,24 @@ class Finder:
                 log.warning(f"Docker auto-start failed: {e}")
             self._reacher = False
             log.warning("Reacher unavailable. Pattern-based email verification disabled.")
+            # Notify via Brain alert so you know to start Docker
+            try:
+                from outreach.brain import Brain as _B
+                _b = _B.get()
+                _last_alert = _b._data.get("_reacher_last_alert", 0)
+                import time as _t
+                if _t.time() - _last_alert > 6 * 3600:  # Alert at most every 6h
+                    _b._data["_reacher_last_alert"] = _t.time()
+                    _b.save()
+                    _b.send_email_alert(
+                        "⚠️ Reacher Docker is down",
+                        "Reacher email verifier is not running.\n\n"
+                        "Email confidence scores will be lower until it restarts.\n\n"
+                        "To fix: open Docker Desktop and wait for containers to start.\n"
+                        "Or run: cd \'Job Hunt Tracker\' && docker compose up -d"
+                    )
+            except Exception as _re:
+                log.debug(f"Reacher alert failed: {_re}")
         return self._reacher
 
     def _apis(self, p, dom, li, r):

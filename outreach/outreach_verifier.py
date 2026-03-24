@@ -480,7 +480,7 @@ class EmailVerifier:
                 "status": "verified" | "manual_review" | "rejected",
                 "source": str (what verified it),
                 "details": str (human-readable explanation),
-                "send_ok": bool (confidence >= AUTO_SEND_THRESHOLD),
+                "send_ok": bool (confidence >= effective threshold for this domain),
             }
         """
         if not email or "@" not in email:
@@ -490,6 +490,20 @@ class EmailVerifier:
         if domain is None:
             domain = email.split("@")[1]
         domain = domain.lower().strip()
+
+        # ── Domain-specific threshold from Brain (raised on each bounce) ──
+        # Brain.record_bounce raises threshold by +10 per bounce, max 95.
+        # Domains with history of bounces require higher confidence before sending.
+        _effective_threshold = AUTO_SEND_THRESHOLD  # default 75
+        try:
+            if _Brain:
+                _dt = _Brain.get()._data.get("domain_thresholds", {})
+                _domain_thresh = _dt.get(domain)
+                if _domain_thresh and _domain_thresh > AUTO_SEND_THRESHOLD:
+                    _effective_threshold = _domain_thresh
+                    log.debug(f"Domain threshold {domain}: {_effective_threshold} (raised from bounces)")
+        except Exception:
+            pass
 
         # ── Gate 1: Suspicious domain check ──
         if is_suspicious_email(email):
@@ -514,16 +528,23 @@ class EmailVerifier:
             provider = self.pv.get_provider(domain)
 
             if provider == "google":
-                # FIX 5: gxlu unreliable as of Mar 2026 — skip directly to Reacher
-                # _verify_google always returns "unknown" now, wasting 2s per email
-                # When gxlu is fixed, remove this comment and restore the block below
-                pass
-                # result = self.pv._verify_google(email, domain)
-                # if result == "exists":
-                #     conf = 90 if source_hint != "pattern_guess" else 85
-                #     return self._result(conf, "verified", "google_gxlu", ...)
-                # elif result == "not_exists":
-                #     return self._result(0, "rejected", "google_gxlu", ...)
+                # gxlu verification — re-enabled with timeout and fallback
+                try:
+                    result = self.pv._verify_google(email, domain)
+                    if result == "exists":
+                        conf = 90 if source_hint not in ("pattern_guess",) else 85
+                        return self._result(
+                            conf, "verified", "google_gxlu",
+                            f"Google gxlu confirmed: {email}"
+                        )
+                    elif result == "not_exists":
+                        return self._result(
+                            0, "rejected", "google_gxlu",
+                            f"Google gxlu rejected: {email}"
+                        )
+                    # "unknown" → fall through to Reacher
+                except Exception as _gxlu_e:
+                    log.debug(f"gxlu error (falling through): {_gxlu_e}")
 
             elif provider == "microsoft":
                 result = self.pv._verify_microsoft(email)
@@ -575,12 +596,14 @@ class EmailVerifier:
                         "website_mining",
                     ):
                         conf = 80
-                    return self._result(
-                        conf,
-                        "verified",
-                        "reacher_smtp",
-                        f"Reacher SMTP verified: {email}",
-                    )
+                    # Use domain-specific threshold for send_ok decision
+                    return {
+                        "confidence": conf,
+                        "status": "verified",
+                        "source": "reacher_smtp",
+                        "details": f"Reacher SMTP verified: {email}",
+                        "send_ok": conf >= _effective_threshold,
+                    }
 
             elif reacher_result == "risky":
                 return self._result(
@@ -595,12 +618,14 @@ class EmailVerifier:
 
         if source_hint == "api_verified":
             # API (Apollo) confirmed this email — trust it even without provider verification
-            return self._result(
-                85,
-                "verified",
-                "api_verified",
-                f"API-confirmed email, provider ({provider_name}) unverifiable",
-            )
+            # Use domain threshold for send_ok — if domain has bounced before, require higher conf
+            return {
+                "confidence": 85,
+                "status": "verified",
+                "source": "api_verified",
+                "details": f"API-confirmed email, provider ({provider_name}) unverifiable",
+                "send_ok": 85 >= _effective_threshold,
+            }
 
         if source_hint in ("pattern_cache", "website_mining"):
             # Known pattern but can't verify — manual review
