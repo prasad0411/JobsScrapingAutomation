@@ -7,9 +7,9 @@
 export PATH="/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin"
 export HOME="/Users/prasadkanade"
 
-# Wait for network to be ready (handles wake-from-sleep timing)
+# Wait for network (launchd-safe)
 _WAIT=0
-while ! ping -c1 -W1 8.8.8.8 &>/dev/null; do
+while ! curl -s --head https://www.google.com >/dev/null; do
     sleep 5
     _WAIT=$((_WAIT + 5))
     if [[ $_WAIT -ge 60 ]]; then
