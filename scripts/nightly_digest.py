@@ -26,7 +26,11 @@ def _get_token():
     if not result or "access_token" not in result:
         raise Exception("MS token expired")
     if cache.has_state_changed:
-        open(MS_TOKEN_FILE, "w").write(cache.serialize())
+        import fcntl as _fcntl
+        with open(MS_TOKEN_FILE + ".lock", "w") as _lf:
+            _fcntl.flock(_lf, _fcntl.LOCK_EX)
+            open(MS_TOKEN_FILE, "w").write(cache.serialize())
+            _fcntl.flock(_lf, _fcntl.LOCK_UN)
     return result["access_token"]
 
 

@@ -134,7 +134,13 @@ class Mailer:
                 self._ms_access_token = result["access_token"]
                 self._ms_token_acquired_at = __import__("time").time()
                 if cache.has_state_changed:
-                    open(MS_TOKEN_FILE, "w").write(cache.serialize())
+                    import fcntl as _fcntl
+                    with open(MS_TOKEN_FILE + ".lock", "w") as _lf:
+                        _fcntl.flock(_lf, _fcntl.LOCK_EX)
+                        open(MS_TOKEN_FILE, "w").write(cache.serialize())
+                        _fcntl.flock(_lf, _fcntl.LOCK_UN)
+                    _fcntl.flock(_lf, _fcntl.LOCK_UN)
+                        _fcntl.flock(_lf, _fcntl.LOCK_UN)
                 log.info("MS token pre-checked: valid")
                 return
             # Silent refresh failed — token or refresh token expired
@@ -154,7 +160,13 @@ class Mailer:
                     if result and "access_token" in result:
                         self._ms_access_token = result["access_token"]
                         if cache.has_state_changed:
-                            open(MS_TOKEN_FILE, "w").write(cache.serialize())
+                            import fcntl as _fcntl
+                    with open(MS_TOKEN_FILE + ".lock", "w") as _lf:
+                        _fcntl.flock(_lf, _fcntl.LOCK_EX)
+                        open(MS_TOKEN_FILE, "w").write(cache.serialize())
+                        _fcntl.flock(_lf, _fcntl.LOCK_UN)
+                    _fcntl.flock(_lf, _fcntl.LOCK_UN)
+                        _fcntl.flock(_lf, _fcntl.LOCK_UN)
                         log.info("MS token refreshed via device flow")
                         return
             else:
@@ -253,7 +265,12 @@ class Mailer:
             result = app.acquire_token_by_device_flow(flow)
         if cache.has_state_changed:
             try:
-                open(MS_TOKEN_FILE, "w").write(cache.serialize())
+                import fcntl as _fcntl
+                with open(MS_TOKEN_FILE + ".lock", "w") as _lf:
+                    _fcntl.flock(_lf, _fcntl.LOCK_EX)
+                    open(MS_TOKEN_FILE, "w").write(cache.serialize())
+                    _fcntl.flock(_lf, _fcntl.LOCK_UN)
+                    _fcntl.flock(_lf, _fcntl.LOCK_UN)
             except Exception as e:
                 log.debug(f"MS token cache save failed: {e}")
         if "access_token" not in result:

@@ -153,7 +153,8 @@ PLATFORM_BLACKLIST = []
 PLATFORM_BLACKLIST_REASONS = {}
 
 
-COMPANY_BLACKLIST = [
+
+    "Sierra Space",
     "RTX",
     "Raytheon",
     "Raytheon Technologies",
@@ -172,7 +173,8 @@ COMPANY_BLACKLIST = [
     "Savannah River National Laboratory",
 ]
 
-COMPANY_BLACKLIST_REASONS = {
+
+    "Sierra Space": "Auto-blacklisted: Security clearance required",
     "RTX": "Company always requires security clearance",
     "Raytheon": "Company always requires security clearance",
     "Raytheon Technologies": "Company always requires security clearance",
