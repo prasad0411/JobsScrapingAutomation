@@ -31,8 +31,8 @@ RESTARTS=0
 
 # Jobs: "health_name|launchd_label|max_age_sec"
 JOBS=(
-    "aggregator|com.prasad.jobtracker.aggregator.smart|14400"
-    "send_scheduled|com.prasad.jobtracker.send.smart|14400"
+    "aggregator|com.prasad.jobtracker.aggregator.smart|28800"
+    "send_scheduled|com.prasad.jobtracker.send.smart|86400"
     "process_bounces|com.prasad.jobtracker.bounceprocessor.smart|3600"
     "nightly_digest|com.prasad.jobtracker.digest.smart|90000"
     "outreach|com.prasad.jobtracker.outreach.smart|90000"
