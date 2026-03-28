@@ -148,12 +148,7 @@ BACKOFF_MULTIPLIER = 2
 
 BLACKLIST_DOMAINS = ["workatastartup.com"]
 
-PLATFORM_BLACKLIST = []
-
-PLATFORM_BLACKLIST_REASONS = {}
-
-
-
+PLATFORM_BLACKLIST = [
     "Sierra Space",
     "RTX",
     "Raytheon",
@@ -172,8 +167,7 @@ PLATFORM_BLACKLIST_REASONS = {}
     "Lawrence Livermore National Laboratory (LLNL)",
     "Savannah River National Laboratory",
 ]
-
-
+PLATFORM_BLACKLIST_REASONS = {
     "Sierra Space": "Auto-blacklisted: Security clearance required",
     "RTX": "Company always requires security clearance",
     "Raytheon": "Company always requires security clearance",
@@ -2325,3 +2319,7 @@ CITY_TO_STATE_EXTRA = {
     "providence": "RI", "newport": "RI",
     "dover": "DE", "wilmington": "DE",
 }
+
+# Aliases for backward compatibility (run_aggregator.py uses COMPANY_BLACKLIST)
+COMPANY_BLACKLIST = PLATFORM_BLACKLIST
+COMPANY_BLACKLIST_REASONS = PLATFORM_BLACKLIST_REASONS
