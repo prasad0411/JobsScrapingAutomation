@@ -3303,12 +3303,16 @@ class CompanyExtractor:
                 LEGAL_ENTITY_SUFFIXES,
                 DBA_INDICATORS,
                 COMPANY_NORMALIZATIONS,
+                COMPANY_NAME_FIXES,
+                GARBAGE_COMPANY_NAMES,
             )
         except (ImportError, AttributeError):
             PORTAL_NAME_INDICATORS = []
             LEGAL_ENTITY_SUFFIXES = ["LLC", "Inc.", "Corp.", "Ltd."]
             DBA_INDICATORS = [" DBA ", " d/b/a "]
             COMPANY_NORMALIZATIONS = {}
+            COMPANY_NAME_FIXES = {}
+            GARBAGE_COMPANY_NAMES = set()
 
         import html
 
@@ -3377,6 +3381,18 @@ class CompanyExtractor:
                 if name.endswith(suffix):
                     name = name[: -len(suffix)].strip()
                     break
+
+        # ── Self-healing: apply COMPANY_NAME_FIXES + GARBAGE_COMPANY_NAMES ──
+        try:
+            from aggregator.config import COMPANY_NAME_FIXES, GARBAGE_COMPANY_NAMES
+            name_key = name.lower().strip()
+            if name_key in GARBAGE_COMPANY_NAMES:
+                return "Unknown"
+            if name_key in COMPANY_NAME_FIXES:
+                fixed = COMPANY_NAME_FIXES[name_key]
+                return "Unknown" if fixed == "Unknown" else fixed
+        except Exception:
+            pass
 
         return name
 
