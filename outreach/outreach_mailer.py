@@ -139,8 +139,6 @@ class Mailer:
                         _fcntl.flock(_lf, _fcntl.LOCK_EX)
                         open(MS_TOKEN_FILE, "w").write(cache.serialize())
                         _fcntl.flock(_lf, _fcntl.LOCK_UN)
-                    _fcntl.flock(_lf, _fcntl.LOCK_UN)
-                        _fcntl.flock(_lf, _fcntl.LOCK_UN)
                 log.info("MS token pre-checked: valid")
                 return
             # Silent refresh failed — token or refresh token expired
@@ -164,8 +162,6 @@ class Mailer:
                     with open(MS_TOKEN_FILE + ".lock", "w") as _lf:
                         _fcntl.flock(_lf, _fcntl.LOCK_EX)
                         open(MS_TOKEN_FILE, "w").write(cache.serialize())
-                        _fcntl.flock(_lf, _fcntl.LOCK_UN)
-                    _fcntl.flock(_lf, _fcntl.LOCK_UN)
                         _fcntl.flock(_lf, _fcntl.LOCK_UN)
                         log.info("MS token refreshed via device flow")
                         return
@@ -269,7 +265,6 @@ class Mailer:
                 with open(MS_TOKEN_FILE + ".lock", "w") as _lf:
                     _fcntl.flock(_lf, _fcntl.LOCK_EX)
                     open(MS_TOKEN_FILE, "w").write(cache.serialize())
-                    _fcntl.flock(_lf, _fcntl.LOCK_UN)
                     _fcntl.flock(_lf, _fcntl.LOCK_UN)
             except Exception as e:
                 log.debug(f"MS token cache save failed: {e}")
