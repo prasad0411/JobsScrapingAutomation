@@ -867,8 +867,7 @@ class UnifiedJobAggregator:
                         if _ashby_company and _ashby_company not in _company_norm and len(_ashby_company) > 3:
                             logging.info(f"Ashby URL company: {_path_parts[0]} vs hint: {company_from_github}")
                             if _ashby_company not in _company_norm and _company_norm not in _ashby_company:
-                                self.outcomes["skipped_url_mismatch"] = self.outcomes.get("skipped_url_mismatch", 0) + 1
-                                return
+                                logging.info(f"Ashby URL-company mismatch (logged only): {_path_parts[0]} vs {company_from_github}")
                 except Exception:
                     pass
             _domain_slug = re.sub(r"[^a-z0-9]", "", _domain_slug)
@@ -912,9 +911,8 @@ class UnifiedJobAggregator:
             if _domain_slug in _known_workday_companies:
                 _expected = re.sub(r"[^a-z0-9]", "", _known_workday_companies[_domain_slug])
                 if _expected not in _company_norm and _company_norm not in _expected:
-                    logging.info(f"URL-COMPANY MISMATCH | {company_from_github} | URL domain: {_domain_slug} | Skipping")
-                    self.outcomes["skipped_url_mismatch"] = self.outcomes.get("skipped_url_mismatch", 0) + 1
-                    return
+                    # Log mismatch but continue — job still processed normally
+                    logging.info(f"URL-COMPANY MISMATCH (logged only) | {company_from_github} | URL domain: {_domain_slug}")
         except Exception:
             pass
 
@@ -991,6 +989,27 @@ class UnifiedJobAggregator:
                 if _hq:
                     location_from_github = _hq
                     logging.info(f"HQ fallback: {company_from_github} → {_hq}")
+            except Exception:
+                pass
+
+        # URL-based location extraction using Workday URL city slugs
+        if not location_from_github or location_from_github == "Unknown":
+            try:
+                from aggregator.config import URL_CITY_STATE_MAP
+                import re as _re_loc
+                _loc_match = _re_loc.search(r"/job/([^/]+)/", resolved_url)
+                if _loc_match:
+                    _slug = _loc_match.group(1).lower()
+                    # Remove country/state suffixes
+                    for _sfx in ["-united-states-of-america", "-united-states", "-usa", "-us"]:
+                        _slug = _slug.replace(_sfx, "")
+                    # Try full slug first, then first part
+                    _city_key = _slug.replace("-", " ").strip()
+                    _city_key2 = _slug.split("-")[0]
+                    _mapped = URL_CITY_STATE_MAP.get(_city_key) or URL_CITY_STATE_MAP.get(_city_key2) or URL_CITY_STATE_MAP.get(_slug)
+                    if _mapped:
+                        location_from_github = _mapped
+                        logging.info(f"URL location: {company_from_github} → {_mapped}")
             except Exception:
                 pass
 
@@ -2136,10 +2155,13 @@ class UnifiedJobAggregator:
                 logging.info(f"DUPLICATE (url) | {company} | {title} | {url[:60]}")
                 return True
             norm_key = URLCleaner.normalize_text(f"{company}_{title}")
-            if norm_key in self.existing_jobs:
+            if norm_key in self.existing_jobs or norm_key in self.processing_lock:
                 self.outcomes["skipped_duplicate_company_title"] += 1
                 logging.info(f"DUPLICATE (company+title) | {company} | {title}")
                 return True
+            # Add norm_key to processing_lock so parallel threads see it as duplicate
+            self.processing_lock.add(norm_key)
+            self.processing_lock.add(clean_url)
             if (
                 job_id
                 and job_id != "N/A"

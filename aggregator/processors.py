@@ -3342,7 +3342,7 @@ class CompanyExtractor:
 
         # Strip GitHub continuation row prefixes (e.g. "at Atlantic Health System")
         name = re.sub(r"^(?:at|by|for|with|from)\s+", "", name, flags=re.I)
-        name = re.sub(r"^[-*#@!]+\s*", "", name)
+        name = re.sub(r"^[-*#@!|]+\s*", "", name)
 
         name = re.sub(r"^[A-Z]{2,6}\d{2,6}\s+", "", name)
         name = re.sub(r"^\d{2}-\d{7}\s+", "", name)
