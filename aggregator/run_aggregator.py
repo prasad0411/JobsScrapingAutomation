@@ -857,6 +857,20 @@ class UnifiedJobAggregator:
             _company_norm = re.sub(r"[^a-z0-9]", "", company_from_github.lower())
             # Extract company slug from domain (e.g. "ingrammicro" from "ingrammicro.wd5.myworkdayjobs.com")
             _domain_slug = _url_domain.split(".")[0].lower()
+            # Special case: ashbyhq.com/company-name/job → extract company from path
+            if "ashbyhq" in _url_domain or "jobs.ashbyhq" in _url_domain:
+                try:
+                    from urllib.parse import urlparse as _up2
+                    _path_parts = [p for p in _up2(resolved_url).path.split("/") if p]
+                    if _path_parts:
+                        _ashby_company = re.sub(r"[^a-z0-9]", "", _path_parts[0].lower())
+                        if _ashby_company and _ashby_company not in _company_norm and len(_ashby_company) > 3:
+                            logging.info(f"Ashby URL company: {_path_parts[0]} vs hint: {company_from_github}")
+                            if _ashby_company not in _company_norm and _company_norm not in _ashby_company:
+                                self.outcomes["skipped_url_mismatch"] = self.outcomes.get("skipped_url_mismatch", 0) + 1
+                                return
+                except Exception:
+                    pass
             _domain_slug = re.sub(r"[^a-z0-9]", "", _domain_slug)
             # Only flag mismatch if domain slug is a known company AND clearly != hint company
             _known_workday_companies = {
@@ -878,6 +892,22 @@ class UnifiedJobAggregator:
                 "nordsonhcm": "nordson",
                 "vareximaging": "varex imaging",
                 "sonyglobal": "sony",
+                "rgare": "reinsurance group of america",
+                "statestreet": "state street",
+                "eversource": "eversource",
+                "argonne": "argonne national laboratory",
+                "primerica": "primerica",
+                "bxp": "bxp",
+                "teledyneetm": "teledyne etm",
+                "cohu": "cohu",
+                "situsaac": "situsamc",
+                "dustyrobotics": "dusty robotics",
+                "botauto": "bot auto",
+                "moog": "moog",
+                "takeda": "takeda",
+                "socure": "socure",
+                "dmatrix": "d-matrix",
+                "ashbyhq": None,  # ashby is an ATS, not a company
             }
             if _domain_slug in _known_workday_companies:
                 _expected = re.sub(r"[^a-z0-9]", "", _known_workday_companies[_domain_slug])
@@ -2139,6 +2169,13 @@ class UnifiedJobAggregator:
         reason,
     ):
         with getattr(self, "_github_lock", _NOOP_LOCK):
+            # Dedup: skip if same URL+reason already discarded
+            _url_key = (url, reason)
+            if not hasattr(self, "_discarded_url_seen"):
+                self._discarded_url_seen = set()
+            if _url_key in self._discarded_url_seen:
+                return
+            self._discarded_url_seen.add(_url_key)
             self.discarded_jobs.append(
                 {
                     "company": company,
