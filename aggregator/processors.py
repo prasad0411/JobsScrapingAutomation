@@ -160,6 +160,19 @@ class TitleProcessor:
         title = re.sub(r"\s*\|\s*Simplify.*", "", title, flags=re.I)
         title = title.rstrip(",.;- ")
 
+        # Fix encoding artifacts
+        try:
+            from aggregator.config import TITLE_ENCODING_FIXES
+            for bad, good in TITLE_ENCODING_FIXES.items():
+                title = title.replace(bad, good)
+        except Exception:
+            pass
+        # Dedup: "Data Analytics Intern - Data Analytics" -> "Data Analytics Intern"
+        import re as _re2
+        _dd = _re2.compile(r'^(.+?)\s*[-\u2013\u2014]\s*\1\s*$', _re2.I)
+        _m = _dd.match(title.strip())
+        if _m:
+            title = _m.group(1).strip()
         return title if len(title) >= 5 else original
 
     @staticmethod

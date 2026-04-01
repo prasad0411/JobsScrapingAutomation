@@ -473,6 +473,8 @@ US_PERSON_DOD_PATTERNS = [
     r"defense\s+contract",
 ]
 
+# These patterns trigger skip when found in job page text
+# Added to SPONSORSHIP_REJECT_PATTERNS so they are checked automatically
 EXPORT_CONTROL_EXCLUSION_KEYWORDS = [
     "export control",
     "export compliance",
@@ -1450,6 +1452,17 @@ URL_TO_COMPANY_MAPPING = {
     r"lumentum\.wd\d+\.myworkdayjobs\.com": "Lumentum",
     r"ingrammicro\.wd\d+\.myworkdayjobs\.com": "Ingram Micro",
     r"jobs\.smartrecruiters\.com/MSXInternational": "MSX International",
+    r"centific\.wd\d+\.myworkdayjobs\.com": "Centific",
+    r"jpmc\.fa\.[^/]+\.oraclecloud\.com": "JPMorgan Chase",
+    r"jpmorganchase\.wd\d+\.myworkdayjobs\.com": "JPMorgan Chase",
+    r"commscope\.wd\d+\.myworkdayjobs\.com": "CommScope",
+    r"jobs\.commscope\.com": "CommScope",
+    r"freseniusmedicalcare\.wd\d+\.myworkdayjobs\.com": "Fresenius Medical Care",
+    r"alleghenycounty\.bamboohr\.com": "Allegheny County",
+    r"rdccareers.*greenhouse\.io": "Realtor.com",
+    r"job-boards\.greenhouse\.io/rdccareers": "Realtor.com",
+    r"pge\.com.*job": "PG&E",
+    r"altera\.wd\d+\.myworkdayjobs\.com": "Altera",
     r"usaa\.wd\d+\.myworkdayjobs\.com": "USAA",
     r"pwc\.wd\d+\.myworkdayjobs\.com": "PwC",
     r"sec\.wd\d+\.myworkdayjobs\.com": "Samsung Electronics America",
@@ -1639,6 +1652,7 @@ COMPANY_SLUG_MAPPING = {
     "launchdarkly": "LaunchDarkly",
     "gelberhandshake": "Gelber Group",
     "sigmacomputing": "Sigma Computing",
+    "centific global": "Centific",
     "abacusinsights": "Abacus Insights",
     "physicsx": "PhysicsX",
     "appliedintuition": "Applied Intuition",
@@ -2028,6 +2042,18 @@ SPONSORSHIP_REJECT_PATTERNS = [
     r"sponsor(?:ship)?\s+(?:not available|unavailable|not offered)",
     r"must (?:be|have).{0,50}(?:authorized|authorization).{0,50}(?:without|no).{0,50}sponsor",
     r"(?:clearance.*required)",
+    r"applicants must be eligible for any required u\.s\. export",
+    r"publication\s+record\s+in\s+top",
+    r"publications?\s+at\s+top\s+(?:ml|nlp|ai|cv)\s+(?:conference|venue)",
+    r"published\s+(?:papers?|research)\s+(?:at|in)\s+(?:cvpr|iccv|neurips|icml|iclr|acl|emnlp|aaai|siggraph)",
+    r"one\s+or\s+more\s+publications",
+    r"minimum\s+of\s+two\s+reference\s+letters",
+    r"submit.*reference\s+letters",
+    r"must be eligible for.*export authoriz",
+    r"export-controlled.*information",
+    r"this position requires access to u\.s\. export-controlled",
+    r"requires access to.*export.controlled information",
+
 ]
 
 GMAIL_SCOPES = ["https://www.googleapis.com/auth/gmail.readonly"]
@@ -2338,6 +2364,16 @@ GARBAGE_COMPANY_NAMES = {
     "jobs2web",
     "smx",
     "unavailable",
+    "candidate experience page",
+    "our technology",
+    "the dna of tech.",
+    "login",
+    "depot management",
+    "fitness solutions",
+    "power the world",
+    "enterprise partners",
+    "generac power systems",
+    "precision healthcare",
     "research",
     "icims",
     "taleo",
@@ -2347,6 +2383,22 @@ GARBAGE_COMPANY_NAMES = {
 
 
 # Moved from run_aggregator.py
+# Special characters that appear in titles due to encoding issues
+TITLE_ENCODING_FIXES = {
+    "\u00e2\u20ac\u201c": "-",   # em dash encoded
+    "\u00e2\u20ac\u2122": "'",   # apostrophe encoded
+    "\u00e2\u20ac\u0153": '"',   # left quote encoded
+    "\u00e2\u20ac": "",            # partial encoding artifact
+    "\u00e2\xb3": "",              # hourglass character
+    "\u00e2": "",                   # stray encoding artifact
+    "\u2193": "",                   # down arrow
+    "\u2713": "",                   # checkmark
+    "&amp;": "&",
+    "&lt;": "<",
+    "&gt;": ">",
+    " a ": " - ",                    # "Applied a Reinforcement" spacing artifact
+}
+
 COMPANY_NAME_FIXES = {
     "pg&e": "PG&E",
     "amat": "Applied Materials",
