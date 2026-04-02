@@ -111,8 +111,6 @@ for JOB_DEF in "${JOBS[@]}"; do
 
     if [[ $FILE_AGE -gt $MAX_AGE ]]; then
         log "  ⚠ STALE — ${FILE_AGE}s since last run"
-        alert "$MODULE stale (${FILE_AGE}s) — restarting"
-        restart_agent "$LABEL"
         if [[ "$MODULE" == "process_bounces" && $FILE_AGE -gt 7200 ]]; then
             log "  [autorun] Running process_bounces immediately"
             bash "$SCRIPTS/cron_runner.sh" scripts/process_bounces >> "$LOG" 2>&1 &
