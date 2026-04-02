@@ -34,11 +34,11 @@ JOBS=(
     "aggregator|com.prasad.jobtracker.aggregator.smart|28800"
     "send_scheduled|com.prasad.jobtracker.send.smart|86400"
     "process_bounces|com.prasad.jobtracker.bounceprocessor.smart|3600"
-    "nightly_digest|com.prasad.jobtracker.digest.smart|90000"
-    "outreach|com.prasad.jobtracker.outreach.smart|90000"
-    "cleanup_not_applied|com.prasad.jobtracker.cleanup.smart|90000"
-    "build_auto_blacklist|com.prasad.jobtracker.autoblacklist.smart|90000"
-    "retry_simplify|com.prasad.jobtracker.simplifyretry.smart|90000"
+    "nightly_digest|com.prasad.jobtracker.digest.smart|108000"
+    "outreach|com.prasad.jobtracker.outreach.smart|108000"
+    "cleanup_not_applied|com.prasad.jobtracker.cleanup.smart|108000"
+    "build_auto_blacklist|com.prasad.jobtracker.autoblacklist.smart|108000"
+    "retry_simplify|com.prasad.jobtracker.simplifyretry.smart|108000"
 )
 
 auto_fix_pycache() {
@@ -52,8 +52,17 @@ restart_agent() {
     local plist="$HOME/Library/LaunchAgents/${label}.plist"
     if [[ -f "$plist" ]]; then
         launchctl unload "$plist" 2>/dev/null
-        sleep 1
+        sleep 2
         launchctl load "$plist"
+        sleep 1
+        # Verify it loaded correctly — exit 78 means config error, try once more
+        local exit_code=$(launchctl print gui/$(id -u)/${label} 2>/dev/null | grep "last exit code" | grep -o "[0-9]*" | head -1)
+        if [[ "$exit_code" == "78" ]]; then
+            log "  [restart] exit 78 detected — force reloading $label"
+            launchctl remove "$label" 2>/dev/null
+            sleep 2
+            launchctl load "$plist"
+        fi
         log "  [restart] $label reloaded"
         RESTARTS=$((RESTARTS + 1))
     else
@@ -79,6 +88,17 @@ for JOB_DEF in "${JOBS[@]}"; do
     FILE_AGE=$(( NOW - FILE_MOD ))
 
     log "[$MODULE] exit=$EXIT_CODE age=${FILE_AGE}s dur=${DURATION}s last=$LAST_RUN"
+
+    # Check if launchd shows exit 78 (config error) — force reload
+    LAUNCHD_EXIT=$(launchctl print gui/$(id -u)/$LABEL 2>/dev/null | grep "last exit code" | grep -o "[0-9]*" | head -1)
+    if [[ "$LAUNCHD_EXIT" == "78" ]]; then
+        log "  ⚠ Exit 78 (EX_CONFIG) detected — force reloading plist"
+        launchctl remove "$LABEL" 2>/dev/null
+        sleep 2
+        launchctl load "$HOME/Library/LaunchAgents/${LABEL}.plist" 2>/dev/null
+        log "  [autofix] $LABEL reloaded after exit 78"
+        RESTARTS=$((RESTARTS + 1))
+    fi
 
     if [[ "$EXIT_CODE" != "0" && "$EXIT_CODE" != "?" ]]; then
         FAILURES=$((FAILURES + 1))
