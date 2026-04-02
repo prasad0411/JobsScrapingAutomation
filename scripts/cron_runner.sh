@@ -43,13 +43,16 @@ echo "=== [$MODULE] started at $(date) ===" >> "$LOG_FILE"
 echo "=== Running as: $(whoami) | Python: $(python3 --version 2>&1) ===" >> "$LOG_FILE"
 
 # ── Resume sync (with timeout so it can't block the main job)
-echo "--- resume_sync start ---" >> "$LOG_FILE"
-timeout 30 bash scripts/resume_sync.sh >> "$LOG_FILE" 2>&1
-SYNC_EXIT=$?
-if [[ $SYNC_EXIT -ne 0 ]]; then
-    echo "WARNING: resume_sync.sh exited with code $SYNC_EXIT (continuing anyway)" >> "$LOG_FILE"
+# Only sync resume for jobs that actually send emails
+if [[ "$MODULE" == "outreach" || "$MODULE" == "scripts/send_scheduled" ]]; then
+    echo "--- resume_sync start ---" >> "$LOG_FILE"
+    timeout 30 bash scripts/resume_sync.sh >> "$LOG_FILE" 2>&1
+    SYNC_EXIT=$?
+    if [[ $SYNC_EXIT -ne 0 ]]; then
+        echo "WARNING: resume_sync.sh exited with code $SYNC_EXIT (continuing anyway)" >> "$LOG_FILE"
+    fi
+    echo "--- resume_sync done ---" >> "$LOG_FILE"
 fi
-echo "--- resume_sync done ---" >> "$LOG_FILE"
 
 # ── Run the actual job
 START_TS=$(date +%s)
