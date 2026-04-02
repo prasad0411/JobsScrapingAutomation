@@ -680,3 +680,75 @@ if __name__ == "__main__":
         backup_to_private_repo()
 
     print()
+
+
+# ── Self-healing log rotation (runs daily via cleanup cron) ──
+def rotate_logs():
+    LOCAL = os.path.join(os.path.dirname(__file__), "..", ".local")
+    LOCAL = os.path.abspath(LOCAL)
+
+    # Large logs: keep last 500 lines
+    large_logs = [
+        "skipped_jobs.log", "outreach.log", "resume_sync.log",
+        "watchdog_alerts.log", "failures.log", "simplify_retry.log",
+        "watchdog.log", "watchdog_err.log",
+    ]
+    for log in large_logs:
+        f = os.path.join(LOCAL, log)
+        if not os.path.exists(f):
+            continue
+        lines = open(f).readlines()
+        if len(lines) > 500:
+            open(f, "w").writelines(lines[-500:])
+            print(f"  [rotate] {log}: {len(lines)} → 500 lines")
+
+    # Cron logs: delete logs older than 7 days
+    cron_dir = os.path.join(LOCAL, "cron_logs")
+    if os.path.exists(cron_dir):
+        cutoff = datetime.datetime.now() - datetime.timedelta(days=7)
+        deleted = 0
+        for f in os.listdir(cron_dir):
+            fp = os.path.join(cron_dir, f)
+            if os.path.getmtime(fp) < cutoff.timestamp():
+                os.remove(fp)
+                deleted += 1
+        if deleted:
+            print(f"  [rotate] Deleted {deleted} cron logs older than 7 days")
+
+    # .bak files: delete all (git is the backup)
+    base = os.path.join(os.path.dirname(__file__), "..")
+    deleted_bak = 0
+    for root, dirs, files in os.walk(base):
+        dirs[:] = [d for d in dirs if d != "venv" and d != ".git"]
+        for f in files:
+            if ".bak_" in f:
+                os.remove(os.path.join(root, f))
+                deleted_bak += 1
+    if deleted_bak:
+        print(f"  [rotate] Deleted {deleted_bak} .bak files")
+
+    # Empty launchd logs: delete
+    for f in os.listdir(LOCAL):
+        if f.startswith("launchd_") and f.endswith(".log"):
+            fp = os.path.join(LOCAL, f)
+            if os.path.getsize(fp) == 0:
+                os.remove(fp)
+
+    # brain.json: warn if > 2MB
+    brain = os.path.join(LOCAL, "brain.json")
+    if os.path.exists(brain) and os.path.getsize(brain) > 2_000_000:
+        print(f"  [warn] brain.json is {os.path.getsize(brain)//1024}KB — consider pruning old entries")
+
+    # failed_simplify_urls.json: keep last 200 entries
+    fsf = os.path.join(LOCAL, "failed_simplify_urls.json")
+    if os.path.exists(fsf):
+        import json
+        try:
+            data = json.load(open(fsf))
+            if isinstance(data, list) and len(data) > 200:
+                json.dump(data[-200:], open(fsf, "w"), indent=2)
+                print(f"  [rotate] failed_simplify_urls.json: trimmed to 200 entries")
+        except Exception:
+            pass
+
+rotate_logs()

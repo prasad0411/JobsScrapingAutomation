@@ -2445,7 +2445,7 @@ class ValidationHelper:
                             "masters degree",
                             "ms degree",
                             "or ms",
-                            "m\.s\.",
+                            r"m\.s\.",
                             "grad student",
                             "graduate student",
                         ]
