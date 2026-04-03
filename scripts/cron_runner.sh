@@ -1,4 +1,6 @@
 #!/bin/bash
+# Force working directory immediately to avoid getcwd errors from launchd
+cd "/Users/prasadkanade/Documents/Prasad Kanade/Job Hunt Tracker" 2>/dev/null || true
 
 # ============================================================
 # cron_runner.sh — self-healing job runner for Job Hunt Tracker
