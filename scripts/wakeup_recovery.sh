@@ -76,8 +76,7 @@ else:
 
     if [[ $gap -gt $MAX_GAP ]]; then
         echo "  [$MODULE] Missed — ${gap}s since last run (max ${MAX_GAP}s) — running now" >> "$LOG"
-        bash "$SCRIPTS" "$MODULE" >> "$LOG" 2>&1 &
-        sleep 5  # Stagger jobs so they don't all hit Google Sheets at once
+        bash "$SCRIPTS" "$MODULE" >> "$LOG" 2>&1
     else
         echo "  [$MODULE] OK — ${gap}s since last run" >> "$LOG"
     fi
