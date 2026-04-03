@@ -20,9 +20,22 @@ source "$BASE/venv/bin/activate" 2>/dev/null
 now=$(date +%s)
 echo "=== Wakeup check $(date) ===" >> "$LOG"
 
+# Auto-fix exit 78 for all agents
+for label in aggregator autoblacklist bounceprocessor cleanup digest outreach send simplifyretry; do
+    full_label="com.prasad.jobtracker.${label}.smart"
+    exit_code=$(launchctl print gui/$(id -u)/${full_label} 2>/dev/null | grep "last exit code" | grep -o "[0-9]*" | head -1)
+    if [[ "$exit_code" == "78" ]]; then
+        echo "  [fix78] ${full_label} has exit 78 — reloading" >> "$LOG"
+        launchctl remove "$full_label" 2>/dev/null
+        sleep 1
+        launchctl load "$HOME/Library/LaunchAgents/${full_label}.plist" 2>/dev/null
+        echo "  [fix78] ${full_label} reloaded" >> "$LOG"
+    fi
+done
+
 # Job definitions: "module|health_file|max_gap_seconds|schedule_description"
 JOBS=(
-    "aggregator|health_aggregator|28800|8AM/3PM/9PM"
+    "aggregator|health_aggregator|7200|8AM/3PM/9PM"
     "scripts/send_scheduled|health_send_scheduled|86400|9AM-12:30PM"
     "scripts/process_bounces|health_process_bounces|3600|every 30min"
     "scripts/nightly_digest|health_nightly_digest|108000|12:22AM"
