@@ -9,14 +9,15 @@ cd "/Users/prasadkanade/Documents/Prasad Kanade/Job Hunt Tracker" 2>/dev/null ||
 export PATH="/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin"
 export HOME="/Users/prasadkanade"
 
-# Wait for network (launchd-safe)
+# Wait for network — up to 5 minutes, handles slow wake-from-sleep
 _WAIT=0
-while ! curl -s --head https://www.google.com >/dev/null; do
-    sleep 5
-    _WAIT=$((_WAIT + 5))
-    if [[ $_WAIT -ge 60 ]]; then
-        echo "FATAL: No network after 60s — aborting"
-        exit 1
+until curl -s --max-time 5 --head https://www.google.com >/dev/null 2>&1; do
+    sleep 10
+    _WAIT=$((_WAIT + 10))
+    if [[ $_WAIT -ge 300 ]]; then
+        # Network never came up — try running anyway (some jobs work offline)
+        echo "WARNING: No network after 300s — proceeding anyway" >> "$LOG_FILE" 2>/dev/null || true
+        break
     fi
 done
 
