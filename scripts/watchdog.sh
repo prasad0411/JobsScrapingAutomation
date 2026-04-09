@@ -89,24 +89,13 @@ for JOB_DEF in "${JOBS[@]}"; do
 
     log "[$MODULE] exit=$EXIT_CODE age=${FILE_AGE}s dur=${DURATION}s last=$LAST_RUN"
 
-    # Check if launchd shows exit 78 (config error) — force reload
-    LAUNCHD_EXIT=$(launchctl print gui/$(id -u)/$LABEL 2>/dev/null | grep "last exit code" | grep -o "[0-9]*" | head -1)
-    if [[ "$LAUNCHD_EXIT" == "78" ]]; then
-        log "  ⚠ Exit 78 (EX_CONFIG) detected — force reloading plist"
-        launchctl remove "$LABEL" 2>/dev/null
-        sleep 2
-        launchctl load "$HOME/Library/LaunchAgents/${LABEL}.plist" 2>/dev/null
-        log "  [autofix] $LABEL reloaded after exit 78"
-        RESTARTS=$((RESTARTS + 1))
-    fi
-
     if [[ "$EXIT_CODE" != "0" && "$EXIT_CODE" != "?" ]]; then
         FAILURES=$((FAILURES + 1))
-        log "  ⚠ FAILED — auto-fixing and restarting"
-        alert "$MODULE failed (exit $EXIT_CODE) — auto-restarting"
+        log "  ⚠ FAILED — auto-fixing and re-running job directly"
+        alert "$MODULE failed (exit $EXIT_CODE) — re-running"
         auto_fix_pycache
         sleep 2
-        restart_agent "$LABEL"
+        bash "$SCRIPTS/cron_runner.sh" "$MODULE" >> "$LOG" 2>&1 &
     fi
 
     if [[ $FILE_AGE -gt $MAX_AGE ]]; then
