@@ -778,6 +778,16 @@ except Exception as e:
         except Exception:
             pass
 
+    # Clear .pyc cache files (can cause import errors)
+    import glob as _glob
+    _pyc = _glob.glob(f"{base}/**/*.pyc", recursive=True)
+    _pyc = [f for f in _pyc if "venv" not in f]
+    for f in _pyc:
+        try: os.remove(f)
+        except: pass
+    if _pyc:
+        print(f"  [rotate] Cleared {len(_pyc)} .pyc files")
+
     # brain.json: warn if > 2MB
     brain = os.path.join(LOCAL, "brain.json")
     if os.path.exists(brain) and os.path.getsize(brain) > 2_000_000:
