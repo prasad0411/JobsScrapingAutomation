@@ -2088,6 +2088,15 @@ class ValidationHelper:
                 r'hourly\s+rate[:\s]+\$(\d+(?:\.\d+)?)',
                 r'\$(\d+(?:\.\d+)?)\s*-\s*\$?\d+(?:\.\d+)?\s*/\s*hr',
                 r'starting\s+(?:at\s+)?\$(\d+(?:\.\d+)?)\s*/\s*hr',
+                r'\$(\d+(?:\.\d+)?)\s*-\s*\$(\d+(?:\.\d+)?)\s*(?:per\s*hour|/hour|usd/hr)',
+                r'proposed\s+(?:minimum\s+)?salary[:\s]+\$(\d+(?:\.\d+)?)',
+                r'base\s+pay[:\s]+\$(\d+(?:\.\d+)?)',
+                r'hourly[:\s]+\$(\d+(?:\.\d+)?)',
+                r'pay\s+type[:\s]+hourly.*?\$(\d+(?:\.\d+)?)',
+                r'\$(\d+(?:\.\d+)?)\s*(?:USD)?\s*(?:hourly|per\s+hr)',
+                r'salary.*?\$(\d+(?:\.\d+)?)\s*(?:to|-|–)\s*\$(\d+(?:\.\d+)?)\s*(?:per\s*hour|/hour|hourly)',
+                r'(?:pay|wage|rate).*?\$(\d+(?:\.\d+)?)\s*(?:an?\s+hour|/hr|per\s+hour)',
+                r'\$(\d+(?:\.\d+)?)\s*/\s*(?:hour|hr)\s*(?:USD|usd)?',
             ]
             found = []
             for p in patterns:

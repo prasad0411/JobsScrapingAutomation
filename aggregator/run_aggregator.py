@@ -1807,6 +1807,12 @@ class UnifiedJobAggregator:
             normalized = CompanyNormalizer.normalize(company, url)
             if normalized and not self._is_garbage_company(normalized):
                 company = normalized
+            # Auto-learn: save URL domain → company name for future runs
+            try:
+                from aggregator.processors import CompanyExtractor as _CE
+                _CE.learn_company_name(final_url or url, company)
+            except Exception:
+                pass
 
             if self._is_garbage_company(company) and company_hint:
                 company = company_hint
