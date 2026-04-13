@@ -2,6 +2,18 @@
 # Force working directory immediately to avoid getcwd errors from launchd
 cd "/Users/prasadkanade/Documents/Prasad Kanade/Job Hunt Tracker" 2>/dev/null || true
 
+# Self-healing: detect and fix exit 78 on all plists before running
+_AGENTS="$HOME/Library/LaunchAgents"
+for _plist in "$_AGENTS"/com.prasad.jobtracker.*.plist; do
+    _label=$(basename "$_plist" .plist)
+    _exit=$(launchctl print gui/$(id -u)/$_label 2>/dev/null | grep "last exit code" | grep -o "[0-9]*" | head -1)
+    if [[ "$_exit" == "78" ]]; then
+        launchctl remove "$_label" 2>/dev/null
+        sleep 1
+        launchctl load "$_plist" 2>/dev/null
+    fi
+done
+
 # ============================================================
 # cron_runner.sh — self-healing job runner for Job Hunt Tracker
 # ============================================================
