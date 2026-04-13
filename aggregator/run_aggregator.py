@@ -752,7 +752,34 @@ class UnifiedJobAggregator:
                 logging.info(f"GitHub company normalized: '{company_from_github}' → '{fixed}'")
                 company_from_github = fixed
             elif company_from_github_lower in GARBAGE_COMPANY_NAMES:
-                return  # Skip garbage companies with no fix
+                # Try ATS path extraction before giving up
+                _ATS_SLUGS = {"greenhouse", "lever", "workable", "ashbyhq", "rippling",
+                              "smartrecruiters", "icims", "myworkdayjobs", "successfactors",
+                              "bamboohr", "jobvite", "applytojob", "oraclecloud", "stream",
+                              "telecom", "church", "atp", "hpiq", "beone", "bmwgroup"}
+                if company_from_github_lower in _ATS_SLUGS and url:
+                    try:
+                        from urllib.parse import urlparse as _up, unquote as _uq
+                        _path = _uq(_up(url).path)
+                        _parts = [p for p in _path.split("/") if p and len(p) > 2
+                                 and p.lower() not in ("jobs", "job", "careers", "apply",
+                                 "en", "external", "internal", "hcmui", "sites",
+                                 "candidateexperience", "recruiting", "search")]
+                        if _parts:
+                            _real = _parts[0].replace("-", " ").replace("_", " ").title()
+                            if len(_real) > 2:
+                                logging.info(f"ATS fix: '{company_from_github}' → '{_real}'")
+                                company_from_github = _real
+                                company_from_github_lower = _real.lower()
+                                # Don't return — continue processing with fixed name
+                            else:
+                                return
+                        else:
+                            return
+                    except Exception:
+                        return
+                else:
+                    return  # Skip garbage companies with no fix
 
         if job.get("is_closed", False):
             return

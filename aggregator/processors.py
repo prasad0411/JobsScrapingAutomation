@@ -3159,6 +3159,32 @@ class CompanyExtractor:
         return ExtractionResult(None, 0.0, "url_mapping")
 
     @staticmethod
+    def learn_company_name(url, company_name):
+        """Save URL domain→company mapping to brain.json for future use"""
+        if not url or not company_name or company_name in ("Unknown", ""):
+            return
+        try:
+            from outreach.brain import Brain
+            from urllib.parse import urlparse
+            domain = urlparse(url).netloc.lower().replace("www.", "")
+            slug = domain.split(".")[0]
+            _ats = {"greenhouse", "lever", "workable", "ashbyhq", "rippling",
+                    "smartrecruiters", "icims", "taleo", "bamboohr", "jobvite",
+                    "myworkdayjobs", "successfactors", "oraclecloud", "adp",
+                    "job-boards", "careers", "jobs", "apply", "wd1", "wd3", "wd5"}
+            if slug in _ats or len(slug) < 3:
+                return
+            b = Brain.get()
+            if "learned_company_names" not in b.data:
+                b.data["learned_company_names"] = {}
+            if slug not in b.data["learned_company_names"]:
+                b.data["learned_company_names"][slug] = company_name
+                b.save()
+                logging.info(f"Learned company: {slug} → {company_name}")
+        except Exception:
+            pass
+
+    @staticmethod
     def extract_from_json_ld(soup):
         """ORIGINAL"""
         if not soup:
