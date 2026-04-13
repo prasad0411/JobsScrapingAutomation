@@ -1895,6 +1895,19 @@ INVALID_LOCATION_KEYWORDS = [
     "part",
     "posted",
     "employment",
+    "Rling",
+    "DelawareOhio",
+    "Westminr",
+    "ORPortland",
+    "MDHuntsville",
+    "Technology, US",
+    "Based On Business Needs",
+    "Preference",
+    "Assistance",
+    "City, KS",
+    "In, Office",
+    "United States",
+    "in USA",
 ]
 
 DEPARTMENT_KEYWORDS = [
