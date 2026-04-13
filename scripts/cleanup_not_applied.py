@@ -683,7 +683,37 @@ if __name__ == "__main__":
 
 
 # ── Self-healing log rotation (runs daily via cleanup cron) ──
-def rotate_logs():
+def rotate_logs()
+
+# Weekly backup of secrets (every Sunday)
+try:
+    import datetime as _dt
+    if _dt.datetime.now().weekday() == 6:  # Sunday
+        import importlib.util, os
+        spec = importlib.util.spec_from_file_location(
+            "backup_secrets",
+            os.path.join(os.path.dirname(__file__), "backup_secrets.py")
+        )
+        bs = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(bs)
+        bs.backup()
+        print("  [backup_secrets] Done")
+except Exception as e:
+    print(f"  [backup_secrets] Skipped: {e}")
+
+# Run auto_extract to set Extract=yes on qualifying outreach entries
+try:
+    import importlib.util, os
+    spec = importlib.util.spec_from_file_location(
+        "auto_extract",
+        os.path.join(os.path.dirname(__file__), "auto_extract.py")
+    )
+    ae = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(ae)
+    ae.main()
+    print("  [auto_extract] Done")
+except Exception as e:
+    print(f"  [auto_extract] Skipped: {e}"):
     LOCAL = os.path.join(os.path.dirname(__file__), "..", ".local")
     LOCAL = os.path.abspath(LOCAL)
 
@@ -733,6 +763,20 @@ def rotate_logs():
             fp = os.path.join(LOCAL, f)
             if os.path.getsize(fp) == 0:
                 os.remove(fp)
+
+    # failed_simplify_urls.json: prune entries older than 3 days
+    fsf = os.path.join(LOCAL, "failed_simplify_urls.json")
+    if os.path.exists(fsf):
+        import json as _json, datetime as _dt
+        try:
+            _data = _json.load(open(fsf))
+            _cutoff = (_dt.datetime.now() - _dt.timedelta(days=3)).strftime("%Y-%m-%d")
+            _kept = {k:v for k,v in _data.items() if isinstance(v,str) and v >= _cutoff}
+            if len(_kept) < len(_data):
+                _json.dump(_kept, open(fsf,"w"), indent=2)
+                print(f"  [rotate] failed_simplify_urls: pruned {len(_data)-len(_kept)} stale entries")
+        except Exception:
+            pass
 
     # brain.json: warn if > 2MB
     brain = os.path.join(LOCAL, "brain.json")
