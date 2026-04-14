@@ -15,6 +15,19 @@ now=$(date +%s)
 echo "" >> "$LOG"
 echo "=== Wakeup check $(date) ===" >> "$LOG"
 
+# Self-heal: fix exit 78 on ALL plists before doing anything else
+for _plist in "$HOME/Library/LaunchAgents"/com.prasad.jobtracker.*.plist; do
+    _label=$(basename "$_plist" .plist)
+    _exit=$(launchctl print gui/$(id -u)/$_label 2>/dev/null | grep "last exit code" | grep -o "[0-9]*" | head -1)
+    if [[ "$_exit" == "78" ]]; then
+        echo "  [fix78] $_label — reloading" >> "$LOG"
+        launchctl remove "$_label" 2>/dev/null
+        sleep 1
+        launchctl load "$_plist" 2>/dev/null
+        echo "  [fix78] $_label — reloaded" >> "$LOG"
+    fi
+done
+
 # Jobs: "module|health_file|max_gap_sec"
 JOBS=(
     "aggregator|health_aggregator|7200"
