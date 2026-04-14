@@ -1,6 +1,27 @@
 #!/usr/bin/env python3
 
 import gspread
+import time as _time
+import functools
+
+def _sheets_retry(func):
+    """Retry Google Sheets API calls on quota/rate limit errors."""
+    @functools.wraps(func)
+    def wrapper(*args, **kwargs):
+        for attempt in range(5):
+            try:
+                return func(*args, **kwargs)
+            except Exception as e:
+                msg = str(e).lower()
+                if any(x in msg for x in ("429", "quota", "rate limit", "resource exhausted", "service unavailable")):
+                    wait = (2 ** attempt) * 5  # 5, 10, 20, 40, 80s
+                    import logging
+                    logging.warning(f"Sheets quota hit, retrying in {wait}s (attempt {attempt+1}/5)")
+                    _time.sleep(wait)
+                else:
+                    raise
+        return func(*args, **kwargs)
+    return wrapper
 import time
 import re
 from functools import lru_cache

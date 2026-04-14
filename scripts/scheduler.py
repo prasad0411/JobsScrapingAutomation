@@ -100,10 +100,35 @@ def load_state():
 def save_state(state):
     json.dump(state, open(STATE_FILE, "w"), indent=2)
 
+def has_network(timeout=5):
+    """Check if network is available."""
+    import socket
+    try:
+        socket.setdefaulttimeout(timeout)
+        socket.socket(socket.AF_INET, socket.SOCK_STREAM).connect(("8.8.8.8", 53))
+        return True
+    except Exception:
+        return False
+
+def wait_for_network(max_wait=300):
+    """Wait for network, return True if available within max_wait seconds."""
+    waited = 0
+    while waited < max_wait:
+        if has_network():
+            return True
+        log.warning(f"No network, waiting... ({waited}s/{max_wait}s)")
+        _time.sleep(15)
+        waited += 15
+    return False
+
 def run_job(job):
     name = job["name"]
     module = job["module"]
     log.info(f"▶ Running: {name}")
+    # Wait for network before running (handles post-sleep network delay)
+    if not wait_for_network(300):
+        log.warning(f"⚠ No network after 5 min — skipping {name}")
+        return
     try:
         if name == "watchdog":
             cmd = ["bash", f"{BASE}/scripts/watchdog.sh"]
