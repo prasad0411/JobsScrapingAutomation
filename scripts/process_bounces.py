@@ -211,7 +211,11 @@ def main():
 
         processed_ids.add(msg_id)
 
-    # Save state
+    # Save state — prune processed_ndr_ids older than 30 days to prevent unbounded growth
+    # NDR IDs are Graph message IDs; messages older than 30 days are already deleted
+    if len(processed_ids) > 500:
+        processed_ids = set(list(processed_ids)[-400:])
+        log.info(f"Pruned processed_ndr_ids to 400 entries")
     _save_bounce_log(bounce_log)
     _save_processed(processed_ids)
     brain.save()

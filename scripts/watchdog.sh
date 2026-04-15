@@ -59,7 +59,9 @@ for JOB_DEF in "${JOBS[@]}"; do
     MODULE=$(echo "$JOB_DEF" | cut -d'|' -f1)
     MODULE=$(echo "$JOB_DEF" | cut -d'|' -f2)
     MAX_AGE=$(echo "$JOB_DEF"| cut -d'|' -f3)
-    HEALTH_FILE="$LOCAL/health_${MODULE}.json"
+    # Strip scripts/ prefix for health file name (matches cron_runner.sh basename behavior)
+    HEALTH_SAFE=$(echo "$MODULE" | sed "s|scripts/||g" | sed "s|/|_|g")
+    HEALTH_FILE="$LOCAL/health_${HEALTH_SAFE}.json"
 
     if [[ ! -f "$HEALTH_FILE" ]]; then
         log "[$MODULE] No health file yet"
