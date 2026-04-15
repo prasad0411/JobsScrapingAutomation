@@ -1,90 +1,33 @@
 #!/bin/bash
-# Force working directory immediately to avoid getcwd errors from launchd
-cd "/Users/prasadkanade/Documents/Prasad Kanade/Job Hunt Tracker" 2>/dev/null || true
-
-# Self-healing: detect and fix exit 78 on all plists before running
-_AGENTS="$HOME/Library/LaunchAgents"
-for _plist in "$_AGENTS"/com.prasad.jobtracker.*.plist; do
-    _label=$(basename "$_plist" .plist)
-    _exit=$(launchctl print gui/$(id -u)/$_label 2>/dev/null | grep "last exit code" | grep -o "[0-9]*" | head -1)
-    if [[ "$_exit" == "78" ]]; then
-        launchctl remove "$_label" 2>/dev/null
-        sleep 1
-        launchctl load "$_plist" 2>/dev/null
-    fi
-done
-
-# ============================================================
-# cron_runner.sh — self-healing job runner for Job Hunt Tracker
-# ============================================================
-
-export PATH="/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin"
-export HOME="/Users/prasadkanade"
-
-# Wait for network — up to 5 minutes, handles slow wake-from-sleep
-_WAIT=0
-until curl -s --max-time 5 --head https://www.google.com >/dev/null 2>&1; do
-    sleep 10
-    _WAIT=$((_WAIT + 10))
-    if [[ $_WAIT -ge 300 ]]; then
-        # Network never came up — try running anyway (some jobs work offline)
-        echo "WARNING: No network after 300s — proceeding anyway" >> "$LOG_FILE" 2>/dev/null || true
-        break
-    fi
-done
-
 BASE_DIR="/Users/prasadkanade/Documents/Prasad Kanade/Job Hunt Tracker"
 cd "$BASE_DIR" || { echo "FATAL: Cannot cd to $BASE_DIR"; exit 1; }
-
+export PATH="/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin"
+export HOME="/Users/prasadkanade"
 source venv/bin/activate || { echo "FATAL: Cannot activate venv"; exit 1; }
-
 MODULE="$1"
-if [[ -z "$MODULE" ]]; then
-    echo "FATAL: No module specified"
-    exit 1
-fi
-
-# ── Fix: sanitize module name for log path (strips slashes like scripts/send_scheduled → send_scheduled)
+if [[ -z "$MODULE" ]]; then echo "FATAL: No module specified"; exit 1; fi
 LOG_SAFE_NAME=$(basename "$MODULE")
-
 LOG_DIR="$BASE_DIR/.local/cron_logs"
 mkdir -p "$LOG_DIR"
-
 TIMESTAMP=$(date '+%Y-%m-%d_%H-%M')
 LOG_FILE="$LOG_DIR/${LOG_SAFE_NAME}_${TIMESTAMP}.log"
 HEALTH_FILE="$BASE_DIR/.local/health_${LOG_SAFE_NAME}.json"
-
 echo "=== [$MODULE] started at $(date) ===" >> "$LOG_FILE"
-echo "=== Running as: $(whoami) | Python: $(python3 --version 2>&1) ===" >> "$LOG_FILE"
-
-# ── Resume sync (with timeout so it can't block the main job)
-# Only sync resume for jobs that actually send emails
+echo "=== Python: $(python3 --version 2>&1) | User: $(whoami) ===" >> "$LOG_FILE"
 if [[ "$MODULE" == "outreach" || "$MODULE" == "scripts/send_scheduled" ]]; then
-    echo "--- resume_sync start ---" >> "$LOG_FILE"
-    timeout 30 bash scripts/resume_sync.sh >> "$LOG_FILE" 2>&1
-    SYNC_EXIT=$?
-    if [[ $SYNC_EXIT -ne 0 ]]; then
-        echo "WARNING: resume_sync.sh exited with code $SYNC_EXIT (continuing anyway)" >> "$LOG_FILE"
-    fi
-    echo "--- resume_sync done ---" >> "$LOG_FILE"
+    echo "--- resume_sync ---" >> "$LOG_FILE"
+    timeout 30 bash scripts/resume_sync.sh >> "$LOG_FILE" 2>&1 || true
 fi
-
-# ── Run the actual job
 START_TS=$(date +%s)
-
 if [[ "$MODULE" == scripts/* ]]; then
     python3 "${MODULE}.py" >> "$LOG_FILE" 2>&1
 else
     python3 -m "$MODULE" >> "$LOG_FILE" 2>&1
 fi
-
 EXIT_CODE=$?
 END_TS=$(date +%s)
 DURATION=$((END_TS - START_TS))
-
 echo "=== [$MODULE] finished at $(date) | exit: $EXIT_CODE | duration: ${DURATION}s ===" >> "$LOG_FILE"
-
-# ── Write health status (self-healing: lets watchdog know what happened)
 cat > "$HEALTH_FILE" <<EOF
 {
   "module": "$MODULE",
@@ -94,14 +37,8 @@ cat > "$HEALTH_FILE" <<EOF
   "log": "$LOG_FILE"
 }
 EOF
-
-# ── Self-alert: if job failed, append to a master failure log
 if [[ $EXIT_CODE -ne 0 ]]; then
-    FAIL_LOG="$BASE_DIR/.local/failures.log"
-    echo "[$(date)] FAILED: $MODULE (exit $EXIT_CODE) — see $LOG_FILE" >> "$FAIL_LOG"
+    echo "[$(date)] FAILED: $MODULE (exit $EXIT_CODE) — $LOG_FILE" >> "$BASE_DIR/.local/failures.log"
 fi
-
-# ── Keep only last 7 days of logs
 find "$LOG_DIR" -name "*.log" -mtime +7 -delete
-
 exit $EXIT_CODE
