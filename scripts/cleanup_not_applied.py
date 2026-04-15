@@ -50,11 +50,13 @@ class ManualCleanup:
         "Not Applied": {"red": 0.6, "green": 0.76, "blue": 1.0},
         "Applied": {"red": 0.58, "green": 0.93, "blue": 0.31},
         "Rejected": {"red": 0.97, "green": 0.42, "blue": 0.42},
+        "Screening": {"red": 1.0, "green": 0.85, "blue": 0.4},
         "OA Round 1": {"red": 1.0, "green": 0.95, "blue": 0.4},
         "OA Round 2": {"red": 1.0, "green": 0.95, "blue": 0.4},
         "Interview 1": {"red": 0.82, "green": 0.93, "blue": 0.94},
-        "Offer accepted": {"red": 0.16, "green": 0.65, "blue": 0.27},
+        "Interview 2": {"red": 0.6, "green": 0.85, "blue": 0.95},
         "Assessment": {"red": 0.89, "green": 0.89, "blue": 0.89},
+        "Offer accepted": {"red": 0.16, "green": 0.65, "blue": 0.27},
     }
 
     STATUS_VALUES = list(STATUS_COLORS.keys())
@@ -63,11 +65,13 @@ class ManualCleanup:
     PROTECTED_STATUSES = {
         "Applied",
         "Rejected",
+        "Screening",
         "OA Round 1",
         "OA Round 2",
         "Interview 1",
-        "Offer accepted",
+        "Interview 2",
         "Assessment",
+        "Offer accepted",
     }
 
     def __init__(self):
@@ -683,126 +687,126 @@ if __name__ == "__main__":
 
 
 # ── Self-healing log rotation (runs daily via cleanup cron) ──
-def rotate_logs()
+def rotate_logs():
 
-# Weekly backup of secrets (every Sunday)
-try:
-    import datetime as _dt
-    if _dt.datetime.now().weekday() == 6:  # Sunday
+    # Weekly backup of secrets (every Sunday)
+    try:
+        import datetime as _dt
+        if _dt.datetime.now().weekday() == 6:  # Sunday
+            import importlib.util, os
+            spec = importlib.util.spec_from_file_location(
+                "backup_secrets",
+                os.path.join(os.path.dirname(__file__), "backup_secrets.py")
+            )
+            bs = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(bs)
+            bs.backup()
+            print("  [backup_secrets] Done")
+    except Exception as e:
+        print(f"  [backup_secrets] Skipped: {e}")
+
+    # Run auto_extract to set Extract=yes on qualifying outreach entries
+    try:
         import importlib.util, os
         spec = importlib.util.spec_from_file_location(
-            "backup_secrets",
-            os.path.join(os.path.dirname(__file__), "backup_secrets.py")
+            "auto_extract",
+            os.path.join(os.path.dirname(__file__), "auto_extract.py")
         )
-        bs = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(bs)
-        bs.backup()
-        print("  [backup_secrets] Done")
-except Exception as e:
-    print(f"  [backup_secrets] Skipped: {e}")
+        ae = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(ae)
+        ae.main()
+        print("  [auto_extract] Done")
+    except Exception as e:
+        print(f"  [auto_extract] Skipped: {e}")
+        LOCAL = os.path.join(os.path.dirname(__file__), "..", ".local")
+        LOCAL = os.path.abspath(LOCAL)
 
-# Run auto_extract to set Extract=yes on qualifying outreach entries
-try:
-    import importlib.util, os
-    spec = importlib.util.spec_from_file_location(
-        "auto_extract",
-        os.path.join(os.path.dirname(__file__), "auto_extract.py")
-    )
-    ae = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(ae)
-    ae.main()
-    print("  [auto_extract] Done")
-except Exception as e:
-    print(f"  [auto_extract] Skipped: {e}"):
-    LOCAL = os.path.join(os.path.dirname(__file__), "..", ".local")
-    LOCAL = os.path.abspath(LOCAL)
+        # Large logs: keep last 500 lines
+        large_logs = [
+            "skipped_jobs.log", "outreach.log", "resume_sync.log",
+            "watchdog_alerts.log", "failures.log", "simplify_retry.log",
+            "watchdog.log", "watchdog_err.log",
+        ]
+        for log in large_logs:
+            f = os.path.join(LOCAL, log)
+            if not os.path.exists(f):
+                continue
+            lines = open(f).readlines()
+            if len(lines) > 500:
+                open(f, "w").writelines(lines[-500:])
+                print(f"  [rotate] {log}: {len(lines)} → 500 lines")
 
-    # Large logs: keep last 500 lines
-    large_logs = [
-        "skipped_jobs.log", "outreach.log", "resume_sync.log",
-        "watchdog_alerts.log", "failures.log", "simplify_retry.log",
-        "watchdog.log", "watchdog_err.log",
-    ]
-    for log in large_logs:
-        f = os.path.join(LOCAL, log)
-        if not os.path.exists(f):
-            continue
-        lines = open(f).readlines()
-        if len(lines) > 500:
-            open(f, "w").writelines(lines[-500:])
-            print(f"  [rotate] {log}: {len(lines)} → 500 lines")
+        # Cron logs: delete logs older than 7 days
+        cron_dir = os.path.join(LOCAL, "cron_logs")
+        if os.path.exists(cron_dir):
+            cutoff = datetime.datetime.now() - datetime.timedelta(days=7)
+            deleted = 0
+            for f in os.listdir(cron_dir):
+                fp = os.path.join(cron_dir, f)
+                if os.path.getmtime(fp) < cutoff.timestamp():
+                    os.remove(fp)
+                    deleted += 1
+            if deleted:
+                print(f"  [rotate] Deleted {deleted} cron logs older than 7 days")
 
-    # Cron logs: delete logs older than 7 days
-    cron_dir = os.path.join(LOCAL, "cron_logs")
-    if os.path.exists(cron_dir):
-        cutoff = datetime.datetime.now() - datetime.timedelta(days=7)
-        deleted = 0
-        for f in os.listdir(cron_dir):
-            fp = os.path.join(cron_dir, f)
-            if os.path.getmtime(fp) < cutoff.timestamp():
-                os.remove(fp)
-                deleted += 1
-        if deleted:
-            print(f"  [rotate] Deleted {deleted} cron logs older than 7 days")
+        # .bak files: delete all (git is the backup)
+        base = os.path.join(os.path.dirname(__file__), "..")
+        deleted_bak = 0
+        for root, dirs, files in os.walk(base):
+            dirs[:] = [d for d in dirs if d != "venv" and d != ".git"]
+            for f in files:
+                if ".bak_" in f:
+                    os.remove(os.path.join(root, f))
+                    deleted_bak += 1
+        if deleted_bak:
+            print(f"  [rotate] Deleted {deleted_bak} .bak files")
 
-    # .bak files: delete all (git is the backup)
-    base = os.path.join(os.path.dirname(__file__), "..")
-    deleted_bak = 0
-    for root, dirs, files in os.walk(base):
-        dirs[:] = [d for d in dirs if d != "venv" and d != ".git"]
-        for f in files:
-            if ".bak_" in f:
-                os.remove(os.path.join(root, f))
-                deleted_bak += 1
-    if deleted_bak:
-        print(f"  [rotate] Deleted {deleted_bak} .bak files")
+        # Empty launchd logs: delete
+        for f in os.listdir(LOCAL):
+            if f.startswith("launchd_") and f.endswith(".log"):
+                fp = os.path.join(LOCAL, f)
+                if os.path.getsize(fp) == 0:
+                    os.remove(fp)
 
-    # Empty launchd logs: delete
-    for f in os.listdir(LOCAL):
-        if f.startswith("launchd_") and f.endswith(".log"):
-            fp = os.path.join(LOCAL, f)
-            if os.path.getsize(fp) == 0:
-                os.remove(fp)
+        # failed_simplify_urls.json: prune entries older than 3 days
+        fsf = os.path.join(LOCAL, "failed_simplify_urls.json")
+        if os.path.exists(fsf):
+            import json as _json, datetime as _dt
+            try:
+                _data = _json.load(open(fsf))
+                _cutoff = (_dt.datetime.now() - _dt.timedelta(days=3)).strftime("%Y-%m-%d")
+                _kept = {k:v for k,v in _data.items() if isinstance(v,str) and v >= _cutoff}
+                if len(_kept) < len(_data):
+                    _json.dump(_kept, open(fsf,"w"), indent=2)
+                    print(f"  [rotate] failed_simplify_urls: pruned {len(_data)-len(_kept)} stale entries")
+            except Exception:
+                pass
 
-    # failed_simplify_urls.json: prune entries older than 3 days
-    fsf = os.path.join(LOCAL, "failed_simplify_urls.json")
-    if os.path.exists(fsf):
-        import json as _json, datetime as _dt
-        try:
-            _data = _json.load(open(fsf))
-            _cutoff = (_dt.datetime.now() - _dt.timedelta(days=3)).strftime("%Y-%m-%d")
-            _kept = {k:v for k,v in _data.items() if isinstance(v,str) and v >= _cutoff}
-            if len(_kept) < len(_data):
-                _json.dump(_kept, open(fsf,"w"), indent=2)
-                print(f"  [rotate] failed_simplify_urls: pruned {len(_data)-len(_kept)} stale entries")
-        except Exception:
-            pass
+        # Clear .pyc cache files (can cause import errors)
+        import glob as _glob
+        _pyc = _glob.glob(f"{base}/**/*.pyc", recursive=True)
+        _pyc = [f for f in _pyc if "venv" not in f]
+        for f in _pyc:
+            try: os.remove(f)
+            except: pass
+        if _pyc:
+            print(f"  [rotate] Cleared {len(_pyc)} .pyc files")
 
-    # Clear .pyc cache files (can cause import errors)
-    import glob as _glob
-    _pyc = _glob.glob(f"{base}/**/*.pyc", recursive=True)
-    _pyc = [f for f in _pyc if "venv" not in f]
-    for f in _pyc:
-        try: os.remove(f)
-        except: pass
-    if _pyc:
-        print(f"  [rotate] Cleared {len(_pyc)} .pyc files")
+        # brain.json: warn if > 2MB
+        brain = os.path.join(LOCAL, "brain.json")
+        if os.path.exists(brain) and os.path.getsize(brain) > 2_000_000:
+            print(f"  [warn] brain.json is {os.path.getsize(brain)//1024}KB — consider pruning old entries")
 
-    # brain.json: warn if > 2MB
-    brain = os.path.join(LOCAL, "brain.json")
-    if os.path.exists(brain) and os.path.getsize(brain) > 2_000_000:
-        print(f"  [warn] brain.json is {os.path.getsize(brain)//1024}KB — consider pruning old entries")
+        # failed_simplify_urls.json: keep last 200 entries
+        fsf = os.path.join(LOCAL, "failed_simplify_urls.json")
+        if os.path.exists(fsf):
+            import json
+            try:
+                data = json.load(open(fsf))
+                if isinstance(data, list) and len(data) > 200:
+                    json.dump(data[-200:], open(fsf, "w"), indent=2)
+                    print(f"  [rotate] failed_simplify_urls.json: trimmed to 200 entries")
+            except Exception:
+                pass
 
-    # failed_simplify_urls.json: keep last 200 entries
-    fsf = os.path.join(LOCAL, "failed_simplify_urls.json")
-    if os.path.exists(fsf):
-        import json
-        try:
-            data = json.load(open(fsf))
-            if isinstance(data, list) and len(data) > 200:
-                json.dump(data[-200:], open(fsf, "w"), indent=2)
-                print(f"  [rotate] failed_simplify_urls.json: trimmed to 200 entries")
-        except Exception:
-            pass
-
-rotate_logs()
+    rotate_logs()
