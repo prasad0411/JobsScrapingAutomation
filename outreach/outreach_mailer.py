@@ -159,10 +159,10 @@ class Mailer:
                         self._ms_access_token = result["access_token"]
                         if cache.has_state_changed:
                             import fcntl as _fcntl
-                    with open(MS_TOKEN_FILE + ".lock", "w") as _lf:
-                        _fcntl.flock(_lf, _fcntl.LOCK_EX)
-                        open(MS_TOKEN_FILE, "w").write(cache.serialize())
-                        _fcntl.flock(_lf, _fcntl.LOCK_UN)
+                            with open(MS_TOKEN_FILE + ".lock", "w") as _lf:
+                                _fcntl.flock(_lf, _fcntl.LOCK_EX)
+                                open(MS_TOKEN_FILE, "w").write(cache.serialize())
+                                _fcntl.flock(_lf, _fcntl.LOCK_UN)
                         log.info("MS token refreshed via device flow")
                         return
             else:

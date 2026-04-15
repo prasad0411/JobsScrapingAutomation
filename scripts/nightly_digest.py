@@ -72,14 +72,15 @@ def _bounced_today():
 
 
 def _sent_today():
-    """Count emails sent today from sent_log.json."""
+    """Count emails sent today from send_scheduled.py SENT_LOG_FILE (sent_log.json)."""    # sent_log.json stores {"email||subject": "YYYY-MM-DD HH:MM:SS"}
+    # written by _save_sl() in send_scheduled.py
     f = os.path.join(_LOCAL, "sent_log.json")
     if not os.path.exists(f):
         return 0
     try:
         d = json.load(open(f))
         today = datetime.date.today().isoformat()
-        return sum(1 for v in d.values() if v[:10] == today)
+        return sum(1 for v in d.values() if isinstance(v, str) and v[:10] == today)
     except Exception:
         return 0
 

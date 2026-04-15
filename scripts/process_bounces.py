@@ -39,7 +39,6 @@ def _get_token():
             _fcntl.flock(_lf, _fcntl.LOCK_EX)
             open(MS_TOKEN_FILE, "w").write(cache.serialize())
             _fcntl.flock(_lf, _fcntl.LOCK_UN)
-            _fcntl.flock(_lf, _fcntl.LOCK_UN)
     return result["access_token"]
 
 # ── folder helpers ─────────────────────────────────────────────────────────────

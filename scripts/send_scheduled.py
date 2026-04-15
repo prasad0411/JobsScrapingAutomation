@@ -366,17 +366,6 @@ def main():
     if all_bounced:
         log.info(f"Bounce skip list: {len(all_bounced)} addresses loaded")
 
-    # Load bounce lists — skip addresses confirmed bounced via NDR processor
-    _BOUNCE_LOG  = os.path.join(_LOCAL, "bounce_log.json")
-    _BOUNCED_F   = os.path.join(_LOCAL, "bounced_emails.json")
-    try:
-        _bl = json.load(open(_BOUNCE_LOG)) if os.path.exists(_BOUNCE_LOG) else {}
-        _be = json.load(open(_BOUNCED_F))  if os.path.exists(_BOUNCED_F)  else {}
-    except Exception:
-        _bl, _be = {}, {}
-    all_bounced = set(list(_bl.keys()) + list(_be.keys()))
-    if all_bounced:
-        log.info(f"Bounce skip list: {len(all_bounced)} addresses loaded")
     ws    = None  # lazy — only loaded if we actually send
 
     scheduled_fid = _ensure_folder(token, SCHEDULED_FOLDER)

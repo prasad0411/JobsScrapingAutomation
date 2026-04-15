@@ -29,16 +29,18 @@ NOW=$(date +%s)
 FAILURES=0
 RESTARTS=0
 
-# Jobs: "health_name|launchd_label|max_age_sec"
+# Jobs: "health_name|cron_runner_module|max_age_sec"
+# No launchd labels — scheduler daemon owns all jobs now
+# Watchdog just re-runs via cron_runner.sh if stale/failed
 JOBS=(
-    "aggregator|com.prasad.jobtracker.aggregator.smart|28800"
-    "send_scheduled|com.prasad.jobtracker.send.smart|86400"
-    "process_bounces|com.prasad.jobtracker.bounceprocessor.smart|3600"
-    "nightly_digest|com.prasad.jobtracker.digest.smart|108000"
-    "outreach|com.prasad.jobtracker.outreach.smart|108000"
-    "cleanup_not_applied|com.prasad.jobtracker.cleanup.smart|108000"
-    "build_auto_blacklist|com.prasad.jobtracker.autoblacklist.smart|108000"
-    "retry_simplify|com.prasad.jobtracker.simplifyretry.smart|108000"
+    "aggregator|aggregator|28800"
+    "send_scheduled|scripts/send_scheduled|86400"
+    "process_bounces|scripts/process_bounces|3600"
+    "nightly_digest|scripts/nightly_digest|108000"
+    "outreach|outreach|108000"
+    "cleanup_not_applied|scripts/cleanup_not_applied|108000"
+    "build_auto_blacklist|scripts/build_auto_blacklist|108000"
+    "retry_simplify|scripts/retry_simplify|108000"
 )
 
 auto_fix_pycache() {
@@ -48,31 +50,14 @@ auto_fix_pycache() {
 }
 
 restart_agent() {
-    local label="$1"
-    local plist="$HOME/Library/LaunchAgents/${label}.plist"
-    if [[ -f "$plist" ]]; then
-        launchctl unload "$plist" 2>/dev/null
-        sleep 2
-        launchctl load "$plist"
-        sleep 1
-        # Verify it loaded correctly — exit 78 means config error, try once more
-        local exit_code=$(launchctl print gui/$(id -u)/${label} 2>/dev/null | grep "last exit code" | grep -o "[0-9]*" | head -1)
-        if [[ "$exit_code" == "78" ]]; then
-            log "  [restart] exit 78 detected — force reloading $label"
-            launchctl remove "$label" 2>/dev/null
-            sleep 2
-            launchctl load "$plist"
-        fi
-        log "  [restart] $label reloaded"
-        RESTARTS=$((RESTARTS + 1))
-    else
-        log "  [restart] FAILED — plist not found: $plist"
-    fi
+    # No-op: launchd labels no longer used.
+    # Jobs are re-run directly via cron_runner.sh below.
+    log "  [restart] (launchd restart disabled — scheduler daemon owns jobs)"
 }
 
 for JOB_DEF in "${JOBS[@]}"; do
     MODULE=$(echo "$JOB_DEF" | cut -d'|' -f1)
-    LABEL=$(echo "$JOB_DEF"  | cut -d'|' -f2)
+    MODULE=$(echo "$JOB_DEF" | cut -d'|' -f2)
     MAX_AGE=$(echo "$JOB_DEF"| cut -d'|' -f3)
     HEALTH_FILE="$LOCAL/health_${MODULE}.json"
 
