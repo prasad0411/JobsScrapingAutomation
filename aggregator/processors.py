@@ -1183,6 +1183,9 @@ class LocationProcessor:
     @staticmethod
     @lru_cache(maxsize=512)
     def format_location_clean(location):
+        # First pass: normalize WFH/venue names before further processing
+        location = ValidationHelper.normalize_location(location) if location else location
+
         """ORIGINAL + ENHANCED with suffix stripping, abbreviation expansion"""
         if not location or location == "Unknown":
             return "Unknown"
@@ -1333,6 +1336,35 @@ class LocationProcessor:
             return False
 
         return True
+
+    @staticmethod
+    @staticmethod
+    def normalize_location(location: str) -> str:
+        """Normalize messy location strings to clean values."""
+        if not location:
+            return "Unknown"
+        loc = location.strip()
+
+        # "Work from Home" variants → Remote
+        wfh_patterns = [
+            r"work\s+from\s+home", r"wfh", r"work\s+at\s+home",
+            r"telecommut", r"telework", r"virtual\s+location",
+            r"^remote\s+in\s+usa$", r"^in\s+usa$", r"^usa$",
+            r"^united\s+states$", r"^us$",
+        ]
+        for pat in wfh_patterns:
+            if re.search(pat, loc, re.I):
+                return "Remote"
+
+        # Strip venue/building names from Workday locations
+        # e.g. "Auburn Hills PHINIA WHQ, MI" → "Auburn Hills, MI"
+        loc = re.sub(r'[A-Z]{2,}\s+(?:WHQ|HQ|CORP|CTR|CAMPUS|BLDG|OFFICE)', '', loc, flags=re.I).strip()
+        loc = re.sub(r',\s*,', ',', loc).strip().strip(',').strip()
+
+        # "York, NY" → keep as-is (valid)
+        # "City, MO" is a known bad extraction — can't fix without re-fetch
+
+        return loc if loc else "Unknown"
 
     @staticmethod
     def extract_remote_status_enhanced(soup, location, url, description=""):
@@ -1732,6 +1764,7 @@ class LocationProcessor:
     @staticmethod
     def clean_location(location):
         """NEW: Comprehensive location cleaning and validation"""
+        location = ValidationHelper.normalize_location(location) if location else location
         if not location or location == "Unknown":
             return location
 
@@ -2369,6 +2402,10 @@ class ValidationHelper:
                 r"entering\s+(?:junior|senior)\s+year",
                 r"(?:sophomore|junior|senior)\s+standing",
                 r"currently\s+a\s+college\s+student",
+                r"phd\s+(?:students?\s+)?(?:preferred|required|only)",
+                r"3rd\s+year\s+phd\s+and\s+above",
+                r"doctoral\s+degree.*required",
+                r"must\s+be\s+pursuing\s+a\s+ph\.?d",
                 r"preferably\s+a\s+current\s+3rd\s+year",
                 r"must\s+be\s+currently\s+pursuing\s+a\s+bachelor",
                 r"not\s+open\s+to\s+candidates\s+on\s+opt",
@@ -2405,6 +2442,15 @@ class ValidationHelper:
                 r"currently\s+enrolled\s+in\s+a\s+bachelor'?s?\s+degree\s+program",
                 r"enrolled\s+in\s+(?:a\s+)?bachelor'?s?\s+degree\s+program",
                 r"(?:junior|senior)\s+year\s+standing",
+                r"rising\s+(?:sophomore|junior|senior)",
+                r"currently\s+enrolled\s+college\s+student",
+                r"currently\s+enrolled\s+(?:as\s+a\s+)?college\s+student",
+                r"enrolled\s+college\s+student",
+                r"intern\s+undergraduate",
+                r"undergraduate\s+intern",
+                r"applicants?\s+considered\s+for.*undergraduate\s+only",
+                r"undergraduate\s+students?\s+pursuing",
+                r"pursuing\s+(?:a\s+)?bachelor.*computer\s+(?:science|engineering)",
                 r"class\s+standing:\s*(?:junior|senior)",
                 r"enrolled\s+(?:as\s+a\s+)?(?:full.?time\s+)?student\s+at\s+(?:an?\s+)?accredited\s+(?:four.year|4.year)",
                 r"currently\s+enrolled\s+(?:as\s+a\s+)?(?:full.?time\s+)?student.*(?:four.year|4.year|college|university)",
@@ -2921,6 +2967,12 @@ class ValidationHelper:
             page_text = soup.get_text()[:15000].lower()
 
             clearance_patterns = [
+                r"export\s+administration\s+regulations",
+                r"ear\s+eligible",
+                r"must\s+be\s+ear\s+eligible",
+                r"eligible\s+under.*export",
+                r"us\s+export\s+control",
+                r"itar\s+(?:compliance|eligible|required)",
                 r"(?:security\s+)?clearance.*(?:required|preferred)",
                 r"must\s+(?:be\s+)?(?:able\s+to\s+)?(?:obtain|get|acquire).*clearance",
                 r"(?:eligible|eligibility)\s+for.*(?:security\s+)?clearance",

@@ -94,17 +94,14 @@ class CompanyNormalizer:
     }
 
     _ACRONYMS = {
-        "ibm",
-        "att",
-        "sap",
-        "hpe",
-        "aws",
-        "gcp",
-        "api",
-        "ai",
-        "ml",
-        "abb",
-        "asml",
+        "ibm", "att", "sap", "hpe", "aws", "gcp", "api", "ai", "ml",
+        "abb", "asml", "cmt", "atpco", "caci", "ptc", "nec", "sap",
+        "amd", "arm", "bae", "bmc", "cdk", "cgi", "csc", "dxc",
+        "efs", "ge", "gtl", "hcl", "hpe", "hrl", "ics", "idt",
+        "imc", "isc", "jpl", "kla", "lam", "lgc", "llc", "mit",
+        "mks", "nsa", "ntt", "osi", "pge", "qsr", "rga", "sci",
+        "sei", "sns", "sri", "tcs", "tmo", "tmx", "tpg", "ttec",
+        "ukg", "ups", "usaa", "vsp", "wex", "wpp", "wtw",
     }
 
     _SPECIAL_CAPS = {
@@ -145,6 +142,8 @@ class CompanyNormalizer:
                 name = name.replace(stopword, "")
 
             name = name.strip()
+            # Strip trailing " -" or " –" artifact (e.g. "PHINIA Inc. -")
+            name = re.sub(r'\s*[-–]+\s*$', '', name).strip()
             name_lower = name.lower()
 
             if name_lower in COMPANY_SLUG_MAPPING:
@@ -696,6 +695,10 @@ class DataSanitizer:
                     if text.startswith(prefix):
                         text = text[len(prefix) :].strip()
                         break
+
+            # Strip "CompanyName.ai " or "CompanyName.com " prefix from titles
+            # e.g. "WeRide.ai Technical Product Manager Intern" → "Technical Product Manager Intern"
+            text = re.sub(r'^[A-Za-z0-9]+\.[a-z]{2,4}\s+', '', text).strip()
 
             if DATA_SANITIZATION_PREFERENCES.get("trim_whitespace", True):
                 text = re.sub(r"\s+", " ", text).strip()
