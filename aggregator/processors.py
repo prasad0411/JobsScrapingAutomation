@@ -1184,7 +1184,7 @@ class LocationProcessor:
     @lru_cache(maxsize=512)
     def format_location_clean(location):
         # First pass: normalize WFH/venue names before further processing
-        location = ValidationHelper.normalize_location(location) if location else location
+        location = LocationProcessor.normalize_location(location) if location else location
 
         """ORIGINAL + ENHANCED with suffix stripping, abbreviation expansion"""
         if not location or location == "Unknown":
@@ -1764,7 +1764,7 @@ class LocationProcessor:
     @staticmethod
     def clean_location(location):
         """NEW: Comprehensive location cleaning and validation"""
-        location = ValidationHelper.normalize_location(location) if location else location
+        location = LocationProcessor.normalize_location(location) if location else location
         if not location or location == "Unknown":
             return location
 
