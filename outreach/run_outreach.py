@@ -126,6 +126,10 @@ def phase_draft_existing(sheets, mailer):
                 if result["success"]:
                     parts.append(f"HM draft created ({name.split()[0]})")
                     stats["drafts"] += 1
+                    try:
+                        from outreach.brain import Brain
+                        Brain.get().store_verified_contact(co, "hm", name, email, confidence=0.9)
+                    except Exception: pass
                 elif "Duplicate" not in result.get("error", ""):
                     parts.append(f"HM draft failed ({name.split()[0]})")
                     stats["draft_failed"] += 1
@@ -153,6 +157,10 @@ def phase_draft_existing(sheets, mailer):
                 if result["success"]:
                     parts.append(f"Rec draft created ({name.split()[0]})")
                     stats["drafts"] += 1
+                    try:
+                        from outreach.brain import Brain
+                        Brain.get().store_verified_contact(co, "rec", name, email, confidence=0.9)
+                    except Exception: pass
                 elif "Duplicate" not in result.get("error", ""):
                     parts.append(f"Rec draft failed ({name.split()[0]})")
                     stats["draft_failed"] += 1
@@ -264,7 +272,18 @@ def phase_extract_and_draft(sheets, finder, mailer):
             hm_emails = []
             hm_failed = False
             for hm_name in hm_names:
-                hm_res = finder.find(hm_name, row["co"], row["hli"], job_url_domain=jud)
+                # Brain pre-check: skip 8-layer discovery if we have a verified contact
+                _known_hm = None
+                try:
+                    from outreach.brain import Brain
+                    _known_hm = Brain.get().get_verified_contact(row["co"], "hm")
+                except Exception: pass
+                if _known_hm:
+                    hm_res = {"email": _known_hm["email"], "confidence": _known_hm["confidence"],
+                               "source": "brain_cache", "name": _known_hm.get("name","")}
+                    log.info(f"  Brain cache hit for {row['co']} HM: {_known_hm['email']}")
+                else:
+                    hm_res = finder.find(hm_name, row["co"], row["hli"], job_url_domain=jud)
                 if hm_res["email"]:
                     if _is_blocked(hm_res["email"]):
                         log.warning(f"Blocked pre-send: {hm_res['email']} for {row['co']}")

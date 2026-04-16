@@ -792,6 +792,21 @@ class JobrightRedirectResolver:
         """
         if "jobright.ai" not in jobright_url.lower():
             return jobright_url, False
+        # Freshness check: warn if cookies are > 30 days old
+        try:
+            import os as _os, time as _t
+            _cf = _os.path.join(_os.path.dirname(_os.path.dirname(
+                _os.path.abspath(__file__))), ".local", "jobright_cookies.json")
+            if _os.path.exists(_cf):
+                age_days = (_t.time() - _os.path.getmtime(_cf)) / 86400
+                if age_days > 30:
+                    logging.warning(
+                        f"⚠ Jobright cookies are {age_days:.0f} days old "
+                        f"(>30) — Jobright may fail silently. "
+                        f"Refresh by running: python3 -m aggregator --refresh-jobright"
+                    )
+        except Exception:
+            pass
 
         job_id = JobrightRedirectResolver._extract_job_id(jobright_url)
         if not job_id:
