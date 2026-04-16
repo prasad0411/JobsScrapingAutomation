@@ -133,11 +133,12 @@ class Brain:
         """Prune unbounded keys to prevent brain.json growing forever."""
         try:
             # simplify_retry_queue: remove exhausted entries older than 7 days
+            # exhausted_at is a float unix timestamp
             srq = self._data.get("simplify_retry_queue", {})
-            cutoff = (datetime.datetime.now() - datetime.timedelta(days=7)).isoformat()
+            cutoff_ts = (datetime.datetime.now() - datetime.timedelta(days=7)).timestamp()
             self._data["simplify_retry_queue"] = {
                 k: v for k, v in srq.items()
-                if not (v.get("status") == "exhausted" and v.get("exhausted_at", "9") < cutoff)
+                if not (v.get("exhausted", False) and float(v.get("exhausted_at", 9e12)) < cutoff_ts)
             }
             # job_id_registry: cap at 2000 most recent
             jir = self._data.get("job_id_registry", {})
