@@ -56,15 +56,14 @@ restart_agent() {
 }
 
 for JOB_DEF in "${JOBS[@]}"; do
-    MODULE=$(echo "$JOB_DEF" | cut -d'|' -f1)
-    MODULE=$(echo "$JOB_DEF" | cut -d'|' -f2)
+    HEALTH_NAME=$(echo "$JOB_DEF" | cut -d'|' -f1)
+    CRON_MODULE=$(echo "$JOB_DEF" | cut -d'|' -f2)
     MAX_AGE=$(echo "$JOB_DEF"| cut -d'|' -f3)
     # Strip scripts/ prefix for health file name (matches cron_runner.sh basename behavior)
-    HEALTH_SAFE=$(echo "$MODULE" | sed "s|scripts/||g" | sed "s|/|_|g")
-    HEALTH_FILE="$LOCAL/health_${HEALTH_SAFE}.json"
+    HEALTH_FILE="$LOCAL/health_${HEALTH_NAME}.json"
 
     if [[ ! -f "$HEALTH_FILE" ]]; then
-        log "[$MODULE] No health file yet"
+        log "[$HEALTH_NAME] No health file yet"
         continue
     fi
 
@@ -74,23 +73,22 @@ for JOB_DEF in "${JOBS[@]}"; do
     FILE_MOD=$(stat -f %m "$HEALTH_FILE" 2>/dev/null || echo 0)
     FILE_AGE=$(( NOW - FILE_MOD ))
 
-    log "[$MODULE] exit=$EXIT_CODE age=${FILE_AGE}s dur=${DURATION}s last=$LAST_RUN"
+    log "[$HEALTH_NAME] exit=$EXIT_CODE age=${FILE_AGE}s dur=${DURATION}s last=$LAST_RUN"
 
     if [[ "$EXIT_CODE" != "0" && "$EXIT_CODE" != "?" ]]; then
         FAILURES=$((FAILURES + 1))
         log "  ⚠ FAILED — auto-fixing and re-running job directly"
-        alert "$MODULE failed (exit $EXIT_CODE) — re-running"
+        alert "$HEALTH_NAME failed (exit $EXIT_CODE) — re-running"
         auto_fix_pycache
         sleep 2
-        bash "$SCRIPTS/cron_runner.sh" "$MODULE" >> "$LOG" 2>&1 &
+        bash "$SCRIPTS/cron_runner.sh" "$CRON_MODULE" >> "$LOG" 2>&1 &
     fi
 
     if [[ $FILE_AGE -gt $MAX_AGE ]]; then
-        log "  ⚠ STALE — ${FILE_AGE}s since last run"
-        if [[ "$MODULE" == "process_bounces" && $FILE_AGE -gt 7200 ]]; then
-            log "  [autorun] Running process_bounces immediately"
-            bash "$SCRIPTS/cron_runner.sh" scripts/process_bounces >> "$LOG" 2>&1 &
-        fi
+        log "  ⚠ STALE — ${FILE_AGE}s — re-running $HEALTH_NAME"
+        auto_fix_pycache
+        sleep 2
+        bash "$SCRIPTS/cron_runner.sh" "$CRON_MODULE" >> "$LOG" 2>&1 &
     fi
 done
 

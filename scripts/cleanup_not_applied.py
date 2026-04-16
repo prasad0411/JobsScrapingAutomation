@@ -688,6 +688,54 @@ if __name__ == "__main__":
 
 # ── Self-healing log rotation (runs daily via cleanup cron) ──
 def rotate_logs():
+    """Rotate logs, prune unbounded files, merge legacy bounce files."""
+    import json as _json, os as _os, datetime as _dt
+    LOCAL = _os.path.join(_os.path.dirname(__file__), "..", ".local")
+    LOCAL = _os.path.abspath(LOCAL)
+
+    # sent_log.json: prune entries older than 90 days
+    sl_f = _os.path.join(LOCAL, "sent_log.json")
+    if _os.path.exists(sl_f):
+        try:
+            sl = _json.load(open(sl_f))
+            cutoff = (_dt.date.today() - _dt.timedelta(days=90)).isoformat()
+            pruned = {k: v for k, v in sl.items() if isinstance(v, str) and v[:10] >= cutoff}
+            if len(pruned) < len(sl):
+                _json.dump(pruned, open(sl_f+".tmp","w"), indent=2)
+                _os.replace(sl_f+".tmp", sl_f)
+                print(f"  [rotate] sent_log.json: {len(sl)} -> {len(pruned)} entries")
+        except Exception: pass
+
+    # mx_cache.json: expire entries older than 30 days
+    mx_f = _os.path.join(LOCAL, "mx_cache.json")
+    if _os.path.exists(mx_f):
+        try:
+            mx = _json.load(open(mx_f))
+            cutoff_ts = (_dt.datetime.now() - _dt.timedelta(days=30)).timestamp()
+            pruned_mx = {k: v for k, v in mx.items()
+                         if not isinstance(v, dict) or v.get("ts", 9e9) > cutoff_ts}
+            if len(pruned_mx) < len(mx):
+                _json.dump(pruned_mx, open(mx_f+".tmp","w"), indent=2)
+                _os.replace(mx_f+".tmp", mx_f)
+                print(f"  [rotate] mx_cache.json: {len(mx)} -> {len(pruned_mx)} entries")
+        except Exception: pass
+
+    # bounced_emails.json: merge into bounce_log.json then delete
+    bl_f = _os.path.join(LOCAL, "bounce_log.json")
+    be_f = _os.path.join(LOCAL, "bounced_emails.json")
+    if _os.path.exists(bl_f) and _os.path.exists(be_f):
+        try:
+            bl = _json.load(open(bl_f))
+            be = _json.load(open(be_f))
+            added = sum(1 for e, d in be.items() if e not in bl and bl.update({e: d if isinstance(d,dict) else {"legacy":True}}) is None)
+            if added:
+                _json.dump(bl, open(bl_f+".tmp","w"), indent=2)
+                _os.replace(bl_f+".tmp", bl_f)
+                print(f"  [rotate] Merged {added} entries -> bounce_log.json")
+            _os.remove(be_f)
+            print(f"  [rotate] Deleted legacy bounced_emails.json")
+        except Exception: pass
+
 
     # Weekly backup of secrets (every Sunday)
     try:
