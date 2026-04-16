@@ -678,24 +678,31 @@ class SheetsManager:
     @staticmethod
     def _classify_resume(title):
         t = title.lower() if title else ''
-        # DA: Data Engineer, Data Analyst, Data Scientist, BI roles
-        for kw in ['data engineer', 'data analyst', 'data science', 'data scientist',
-                    'business intelligence', ' bi ', 'bi ', 'data anal',
-                    'data management', 'analytics intern', 'data intern',
-                    'etl', 'data pipeline', 'data warehouse', 'power bi',
-                    'tableau', 'reporting analyst', 'database engineer',
-                    'data visualization', 'data operations']:
-            if kw in t:
-                return 'DA'
-        # ML: Machine Learning, AI, NLP, Computer Vision
-        for kw in ['machine learning', ' ml ', 'ml ', ' ai ', 'ai ',
-                    'nlp', 'computer vision', 'deep learning', 'genai', 'neural',
-                    'llm', 'natural language', 'reinforcement learning',
-                    '/ml', 'ml/', 'cv/ml', 'ml/dl', 'ai/ml']:
-            if kw in t:
-                return 'ML'
+        # ML checked FIRST — strong signals override DA
+        ml_strong = [
+            'machine learning', 'deep learning', 'reinforcement learning',
+            'computer vision', 'natural language', 'generative ai', 'gen ai',
+            'genai', 'large language', 'llm', 'foundation model',
+            'agentic', 'ai agent', 'autonomous ai', 'multimodal',
+            'diffusion model', 'nlp', 'neural', '/ml', 'ml/', 'cv/ml', 'ml/dl', 'ai/ml',
+        ]
+        if any(kw in t for kw in ml_strong):
+            return 'ML'
+        if any(kw in t for kw in [' ml ', 'ml ', ' ai ', 'ai ']):
+            return 'ML'
+        # DA
+        da_kws = [
+            'data engineer', 'data analyst', 'data science', 'data scientist',
+            'business intelligence', ' bi ', 'bi ', 'data anal',
+            'data management', 'analytics intern', 'data intern',
+            'etl', 'data pipeline', 'data warehouse', 'power bi',
+            'tableau', 'reporting analyst', 'database engineer',
+            'data visualization', 'data operations', 'data governance',
+            'data quality', 'data steward',
+        ]
+        if any(kw in t for kw in da_kws):
+            return 'DA'
         return 'SDE'
-
     @staticmethod
     @lru_cache(maxsize=2048)
     def _normalize(text):
