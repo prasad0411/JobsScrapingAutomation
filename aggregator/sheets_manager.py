@@ -295,6 +295,22 @@ class SheetsManager:
         if not jobs:
             return 0
 
+        # Deduplicate within the batch itself before writing
+        # (aggregator may produce same job from two sources in one run)
+        seen_keys = set()
+        unique_jobs = []
+        for job in jobs:
+            key = self._normalize(f"{job.get('company','').strip()}|{job.get('title','').strip()}")
+            if key and key not in seen_keys:
+                seen_keys.add(key)
+                unique_jobs.append(job)
+        if len(unique_jobs) < len(jobs):
+            import logging as _l
+            _l.info(f"Deduped {len(jobs)-len(unique_jobs)} within-batch duplicates before write")
+        jobs = unique_jobs
+        if not jobs:
+            return 0
+
         self.ensure_sufficient_rows(self.valid_sheet)
 
         from aggregator.utils import DataSanitizer

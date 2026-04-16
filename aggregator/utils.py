@@ -125,11 +125,13 @@ class CompanyNormalizer:
         try:
             name = company_name.strip()
 
-            # FIX 4: strip leading ATS internal codes like "F1138 " or "C2024-"
+            # Strip leading ATS internal codes: "F1138 ", "C2024-", "Company 601 ", "1600 "
             import re as _re_co
             name = _re_co.sub(r"^[A-Z]\d{3,5}\s+", "", name).strip()
-            name = _re_co.sub(r"^\d{3,6}\s+", "", name).strip()
+            name = _re_co.sub(r"^\d{1,6}\s+", "", name).strip()   # "1600 NIO" → "NIO"
             name = _re_co.sub(r"^[A-Z]{1,3}-\d{3,6}\s+", "", name).strip()
+            name = _re_co.sub(r"^Company\s+\d+\s+", "", name, flags=_re_co.I).strip()  # "Company 601 X" → "X"
+            name = _re_co.sub(r"^Workable\s+", "", name, flags=_re_co.I).strip()  # "Workable CompanyName" → "CompanyName"
 
             name_lower = name.lower()
 
