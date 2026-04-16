@@ -7,7 +7,7 @@ and logs everything for self-learning.
 
 Run via launchd every 30 min after send windows.
 """
-import sys, os, re, json, datetime, logging
+import sys, os, re, json, datetime, logging, time
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from outreach.outreach_config import MS_SENDER_EMAIL, MS_CLIENT_ID, MS_AUTHORITY, MS_SCOPES, MS_TOKEN_FILE
