@@ -134,7 +134,7 @@ class Sheets:
                                         "startColumnIndex": 0,
                                         "endColumnIndex": len(O_HEADERS),
                                     },
-                                    "rule": None,
+                                    "rule": None,  # clear all first
                                 }
                             },
                 
@@ -439,6 +439,38 @@ class Sheets:
                         self._p()
                 except Exception as _le:
                     log.debug(f"LinkedIn hyperlink restore failed: {_le}")
+
+            # Apply Extract dropdown ONLY to populated rows (not empty rows)
+            if new_count > 0:
+                try:
+                    extract_col = C["extract"]
+                    extract_requests = [{
+                        "setDataValidation": {
+                            "range": {
+                                "sheetId": self.ws.id,
+                                "startRowIndex": row_i,  # 0-indexed
+                                "endRowIndex": row_i + 1,
+                                "startColumnIndex": extract_col,
+                                "endColumnIndex": extract_col + 1,
+                            },
+                            "rule": {
+                                "condition": {
+                                    "type": "ONE_OF_LIST",
+                                    "values": [
+                                        {"userEnteredValue": "yes"},
+                                        {"userEnteredValue": "Skip"},
+                                    ],
+                                },
+                                "showCustomUi": True,
+                                "strict": False,
+                            },
+                        }
+                    } for row_i in range(1, new_count + 1)]  # rows 2..N (0-indexed 1..N)
+                    for chunk_i in range(0, len(extract_requests), 100):
+                        self.ss.batch_update({"requests": extract_requests[chunk_i:chunk_i+100]})
+                        self._p()
+                except Exception as _dv:
+                    log.debug(f"Extract dropdown failed: {_dv}")
 
             removed = max(0, old_count - new_count)
             if added > 0:

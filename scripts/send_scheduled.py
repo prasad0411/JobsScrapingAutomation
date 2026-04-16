@@ -399,10 +399,21 @@ def main():
         if not to_email:
             skipped += 1; continue
 
-        send_at_iso = _header(msg, "X-Send-At")
-        company     = _header(msg, "X-Company")
-        title       = _header(msg, "X-Job-Title")
-        location    = _header(msg, "X-Location")
+        send_at_iso  = _header(msg, "X-Send-At")
+        company      = _header(msg, "X-Company")
+        title        = _header(msg, "X-Job-Title")
+        location     = _header(msg, "X-Location")
+        confidence   = _header(msg, "X-Confidence")
+
+        # Skip very low confidence emails (pattern guess, unverified)
+        try:
+            conf_val = float(confidence) if confidence else 100.0
+            if conf_val < 50:
+                log.info(f"Low confidence skip: {to_email} conf={conf_val}")
+                print(f"  ⊘ Skipped (low confidence {conf_val}): {to_email}")
+                skipped += 1; continue
+        except Exception:
+            pass
 
         if _is_dup(sl, to_email, subject):
             log.debug(f"Dup: {to_email}"); dedup += 1; continue
@@ -412,6 +423,17 @@ def main():
             log.info(f"Bounce skip: {to_email} (previously bounced)")
             print(f"  ⊘ Skipped (bounced): {to_email}")
             skipped += 1; continue
+
+        # Pre-send MX check: verify domain can still receive email
+        try:
+            import dns.resolver as _dns
+            _domain = to_email.split("@")[1]
+            _dns.resolve(_domain, "MX", lifetime=5)
+        except Exception as _mx_e:
+            log.warning(f"MX check failed for {to_email}: {_mx_e} — skipping")
+            print(f"  ⊘ Skipped (no MX): {to_email}")
+            skipped += 1; continue
+
         if not _should_send(send_at_iso):
             log.debug(f"Not yet: {company} | send_at={send_at_iso}"); skipped += 1; continue
 
