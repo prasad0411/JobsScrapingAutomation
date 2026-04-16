@@ -291,6 +291,43 @@ class SheetsManager:
         except Exception as e:
             print(f"  Warning: Could not check/expand {sheet.title}: {e}")
 
+    # Known H1B sponsors — auto-set sponsorship=Yes for these companies
+    _KNOWN_SPONSORS = {
+        'google','alphabet','microsoft','amazon','apple','meta','netflix',
+        'nvidia','intel','amd','qualcomm','broadcom','cisco','oracle',
+        'salesforce','adobe','servicenow','workday','splunk','palo alto',
+        'crowdstrike','fortinet','vmware','dell','hp','ibm','accenture',
+        'jpmorgan','goldman sachs','morgan stanley','bank of america',
+        'wells fargo','citibank','citi','capital one','american express',
+        'visa','mastercard','paypal','stripe','square','block','bloomberg',
+        'blackrock','fidelity','vanguard','charles schwab','td bank',
+        'barclays','deutsche bank','johnson & johnson','pfizer','merck',
+        'abbott','medtronic','boston scientific','becton dickinson','baxter',
+        'stryker','deloitte','mckinsey','bcg','bain','kpmg','pwc','ey',
+        'texas instruments','applied materials','lam research','kla','asml',
+        'marvell','micron','western digital','seagate','uber','lyft','airbnb',
+        'doordash','instacart','linkedin','spotify','snap','pinterest',
+        'dropbox','box','twilio','zendesk','hubspot','datadog','snowflake',
+        'databricks','confluent','mongodb','elastic','hashicorp','gitlab',
+        'github','atlassian','slack','verizon','at&t','t-mobile','comcast',
+        'disney','tesla','ford','gm','general motors','boeing','lockheed',
+        'raytheon','northrop','spacex','waymo','zoox','cruise','rivian',
+        'lucid','walmart','target','costco','home depot','best buy',
+        'two sigma','de shaw','jane street','citadel','jump trading',
+        'optiver','akuna','susquehanna','imc','hudson river',
+    }
+
+    @staticmethod
+    def _enrich_sponsorship(company: str, current: str) -> str:
+        """Auto-set sponsorship=Yes for known H1B sponsors if currently Unknown."""
+        if current and current.lower() not in ('unknown', ''):
+            return current
+        co = company.lower().strip()
+        for sponsor in SheetsManager._KNOWN_SPONSORS:
+            if sponsor in co:
+                return 'Yes'
+        return current or 'Unknown'
+
     def add_valid_jobs(self, jobs, start_row, start_sr_no):
         if not jobs:
             return 0
@@ -332,7 +369,7 @@ class SheetsManager:
                 job["remote"],
                 job["entry_date"],
                 job["source"],
-                job.get("sponsorship", "Unknown"),
+                self._enrich_sponsorship(job["company"], job.get("sponsorship", "Unknown")),
             ]
             for idx, job in enumerate(sanitized_jobs)
         ]
