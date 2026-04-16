@@ -39,13 +39,25 @@ def main():
                 b.mark_simplify_retry_success(jid)
                 resolved += 1
                 try:
-                    from aggregator.run_aggregator import UnifiedJobAggregator
-                    agg = UnifiedJobAggregator()
-                    agg._process_single_job_comprehensive(result_url, source="simplify_retry")
-                    if agg.valid_jobs:
-                        rows = agg.sheets.get_next_row_numbers()
-                        agg.sheets.add_valid_jobs(agg.valid_jobs, rows["valid"], rows["valid_sr_no"])
-                        log.info(f"  ✓ Added {len(agg.valid_jobs)} jobs from retry")
+                    # Lightweight: process URL then write directly — no full aggregator init
+                    from aggregator.extractors import PageFetcher, PageParser
+                    from aggregator.processors import ValidationHelper
+                    from aggregator.sheets_manager import SheetsManager
+                    import datetime
+                    fetched = PageFetcher.fetch(result_url)
+                    if fetched:
+                        parsed = PageParser.parse(fetched, result_url)
+                        if parsed and ValidationHelper.passes_all(parsed):
+                            sm = SheetsManager()
+                            rows = sm.get_next_row_numbers()
+                            parsed["entry_date"] = datetime.datetime.now().strftime("%d %B, %I:%M %p")
+                            parsed["source"] = "simplify_retry"
+                            sm.add_valid_jobs([parsed], rows["valid"], rows["valid_sr_no"])
+                            log.info(f"  ✓ Added job from retry: {parsed.get('company','?')}")
+                        else:
+                            log.debug(f"  Retry job failed validation: {result_url[:60]}")
+                    else:
+                        log.debug(f"  Retry fetch failed: {result_url[:60]}")
                 except Exception as _pe:
                     log.debug(f"Pipeline inject failed: {_pe}")
             else:

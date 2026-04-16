@@ -351,6 +351,12 @@ def phase_extract_and_draft(sheets, finder, mailer):
             if result["success"]:
                 draft_parts.append("HM draft created")
                 stats["drafts"] += 1
+                # Store verified contact so we never re-email same person
+                try:
+                    from outreach.brain import Brain
+                    Brain.get().store_verified_contact(
+                        row["co"], "hm", row.get("hn",""), hm_e, confidence=0.9)
+                except Exception: pass
             else:
                 if "Duplicate" not in result["error"]:
                     draft_parts.append("HM draft failed")
@@ -371,6 +377,11 @@ def phase_extract_and_draft(sheets, finder, mailer):
             if result["success"]:
                 draft_parts.append("Recruiter draft created")
                 stats["drafts"] += 1
+                try:
+                    from outreach.brain import Brain
+                    Brain.get().store_verified_contact(
+                        row["co"], "rec", row.get("rn",""), rec_e, confidence=0.9)
+                except Exception: pass
             else:
                 if "Duplicate" not in result["error"]:
                     draft_parts.append("Recruiter draft failed")

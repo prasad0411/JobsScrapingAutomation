@@ -188,14 +188,27 @@ def main():
             domain = bounced_email.split("@")[1]
             print(f"  ✗ Bounce: {bounced_email} | {original_subject[:50] if original_subject else subject[:50]}")
 
-            # Feed failure to Brain
+            # Feed failure to Brain — pattern + contact
             try:
-                pattern = brain._email_to_pattern(bounced_email) if hasattr(brain, '_email_to_pattern') else None
-                if pattern:
-                    brain.record_pattern_failure(domain, pattern)
-                    print(f"    → Brain updated: {domain} pattern '{pattern}' marked as failed")
+                from scripts.send_scheduled import _email_to_pattern
+                pattern = _email_to_pattern(bounced_email)
+                brain.record_pattern_failure(domain, pattern)
+                print(f"    → Brain: {domain} pattern '{pattern}' marked as failed")
             except Exception as be:
-                log.debug(f"Brain update failed: {be}")
+                log.debug(f"Brain pattern update failed: {be}")
+            # Mark contact as bounced in company_contacts
+            try:
+                # Try to find which company this email belongs to
+                # by checking domain against known company contacts
+                contacts = brain._data.get("company_contacts", {})
+                for co_key, roles in contacts.items():
+                    for role, info in roles.items():
+                        if info.get("email","").lower() == bounced_email.lower():
+                            brain.mark_contact_bounced(co_key, role, bounced_email)
+                            print(f"    → Brain: contact marked bounced for {co_key}")
+                            break
+            except Exception as ce:
+                log.debug(f"Brain contact bounce failed: {ce}")
 
             # Log the bounce
             bounce_log[bounced_email] = {
