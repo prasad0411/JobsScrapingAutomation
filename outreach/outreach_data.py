@@ -296,6 +296,7 @@ class Sheets:
             co = row[V_COMPANY].strip()
             ti = row[V_TITLE].strip() if len(row) > V_TITLE else ""
             jid = row[V_JOBID].strip() if len(row) > V_JOBID else ""
+            spon = row[13].strip() if len(row) > 13 else ""
             if not co:
                 continue
             jid_clean = jid.lower() if jid and jid.lower() != "n/a" else ""
@@ -365,6 +366,19 @@ class Sheets:
                         'de shaw','hudson river',
                     }
                     if any(s in co.lower() for s in _SPONSORS):
+                        _extract_yes = True
+
+                    # Signal 4: sponsorship=Yes in Valid Entries
+                    if spon.lower() == "yes":
+                        _extract_yes = True
+
+                    # Signal 5: high-value title keywords
+                    _HV_TITLE = [
+                        "llm", "large language", "foundation model", "agentic",
+                        "generative ai", "genai", "reinforcement learning",
+                        "computer vision", "autonomous", "multimodal",
+                    ]
+                    if any(kw in ti.lower() for kw in _HV_TITLE):
                         _extract_yes = True
 
                     if _extract_yes:
