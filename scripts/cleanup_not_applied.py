@@ -845,6 +845,58 @@ def rotate_logs():
         if os.path.exists(brain) and os.path.getsize(brain) > 2_000_000:
             print(f"  [warn] brain.json is {os.path.getsize(brain)//1024}KB — consider pruning old entries")
 
+    # failures.log: keep only last 30 days
+    fl = _os.path.join(LOCAL, "failures.log")
+    if _os.path.exists(fl):
+        try:
+            lines = open(fl).readlines()
+            cutoff = (_dt.date.today() - _dt.timedelta(days=30)).strftime("%Y-%m")
+            kept = [l for l in lines if len(l) < 5 or l[1:8] >= cutoff]
+            if len(kept) < len(lines):
+                open(fl, "w").writelines(kept)
+                print(f"  [rotate] failures.log: {len(lines)} -> {len(kept)} lines")
+        except Exception: pass
+
+    # watchdog_alerts.log: cap at 200 lines
+    wal = _os.path.join(LOCAL, "watchdog_alerts.log")
+    if _os.path.exists(wal):
+        try:
+            lines = open(wal).readlines()
+            if len(lines) > 200:
+                open(wal, "w").writelines(lines[-150:])
+                print(f"  [rotate] watchdog_alerts.log trimmed to 150 lines")
+        except Exception: pass
+
+    # skipped_jobs.log: cap at 1000 lines
+    sjl = _os.path.join(LOCAL, "skipped_jobs.log")
+    if _os.path.exists(sjl):
+        try:
+            lines = open(sjl).readlines()
+            if len(lines) > 1000:
+                open(sjl, "w").writelines(lines[-700:])
+                print(f"  [rotate] skipped_jobs.log trimmed to 700 lines")
+        except Exception: pass
+
+    # wakeup.log: cap at 300 lines
+    wl = _os.path.join(LOCAL, "wakeup.log")
+    if _os.path.exists(wl):
+        try:
+            lines = open(wl).readlines()
+            if len(lines) > 300:
+                open(wl, "w").writelines(lines[-200:])
+                print(f"  [rotate] wakeup.log trimmed to 200 lines")
+        except Exception: pass
+
+    # outreach.log: cap at 1000 lines
+    ol = _os.path.join(LOCAL, "outreach.log")
+    if _os.path.exists(ol):
+        try:
+            lines = open(ol).readlines()
+            if len(lines) > 1000:
+                open(ol, "w").writelines(lines[-700:])
+                print(f"  [rotate] outreach.log trimmed to 700 lines")
+        except Exception: pass
+
         # failed_simplify_urls.json: keep last 200 entries
         fsf = os.path.join(LOCAL, "failed_simplify_urls.json")
         if os.path.exists(fsf):
