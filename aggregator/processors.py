@@ -1361,7 +1361,9 @@ class LocationProcessor:
         # Strip ALL-CAPS venue tokens before state code: 'Auburn Hills PHINIA WHQ, MI' → 'Auburn Hills, MI'
         loc = re.sub(r'\b[A-Z]{3,}(?:\s+[A-Z]{2,})*(?=\s*,\s*[A-Z]{2}\b)', '', loc).strip()
         loc = re.sub(r',\s*,', ',', loc).strip().strip(',').strip()
+        loc = re.sub(r'\s+,', ',', loc).strip()  # remove space before comma
         loc = re.sub(r',\s*,', ',', loc).strip().strip(',').strip()
+        loc = re.sub(r'\s+,', ',', loc).strip()  # remove space before comma
 
         # "York, NY" → keep as-is (valid)
         # "City, MO" is a known bad extraction — can't fix without re-fetch
