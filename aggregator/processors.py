@@ -1358,7 +1358,9 @@ class LocationProcessor:
 
         # Strip venue/building names from Workday locations
         # e.g. "Auburn Hills PHINIA WHQ, MI" → "Auburn Hills, MI"
-        loc = re.sub(r'[A-Z]{2,}\s+(?:WHQ|HQ|CORP|CTR|CAMPUS|BLDG|OFFICE)', '', loc, flags=re.I).strip()
+        # Strip ALL-CAPS venue tokens before state code: 'Auburn Hills PHINIA WHQ, MI' → 'Auburn Hills, MI'
+        loc = re.sub(r'\b[A-Z]{3,}(?:\s+[A-Z]{2,})*(?=\s*,\s*[A-Z]{2}\b)', '', loc).strip()
+        loc = re.sub(r',\s*,', ',', loc).strip().strip(',').strip()
         loc = re.sub(r',\s*,', ',', loc).strip().strip(',').strip()
 
         # "York, NY" → keep as-is (valid)
