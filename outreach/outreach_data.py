@@ -334,27 +334,68 @@ class Sheets:
                 nr[C["extract"]] = "Skip"
                 nr[C["job_id"]] = jid
 
-                # AUTO-FILL: check Brain for verified contacts for this company
+                # ── Smart Extract=yes + contact auto-fill ──────────────────────
                 try:
+                    import re as _re
                     _b = Brain.get()
+                    _co_key = _re.sub(r"[^a-z0-9]", "", co.lower().strip())
+                    _extract_yes = False
+
+                    # Signal 1: verified contact exists for this company
+                    _all_contacts = _b._data.get("company_contacts", {})
+                    _co_contacts = _all_contacts.get(_co_key, {})
+                    if _co_contacts:
+                        _extract_yes = True
+
+                    # Signal 2: Brain domain has learned pattern with successes
+                    for _dom, _dv in _b._data.get("domains", {}).items():
+                        if isinstance(_dv, dict) and _dv.get("pattern_successes", 0) > 0:
+                            if _dom.split(".")[0].lower() in _co_key and len(_dom.split(".")[0]) > 3:
+                                _extract_yes = True
+                                break
+
+                    # Signal 3: known H1B sponsor
+                    _SPONSORS = {
+                        'google','alphabet','microsoft','amazon','apple','meta','nvidia',
+                        'intel','qualcomm','cisco','oracle','salesforce','adobe','servicenow',
+                        'workday','snowflake','databricks','jpmorgan','goldman','visa','stripe',
+                        'paypal','uber','airbnb','doordash','linkedin','spotify','tesla',
+                        'waymo','zoox','rivian','spacex','boeing','asml','amd','broadcom',
+                        'marvell','micron','kla','two sigma','citadel','jane street',
+                        'de shaw','hudson river',
+                    }
+                    if any(s in co.lower() for s in _SPONSORS):
+                        _extract_yes = True
+
+                    if _extract_yes:
+                        nr[C["extract"]] = "yes"
+
+                    # AUTO-FILL: exact role match first
                     for _role, _col_name, _col_email in [
-                        ("hm",  "hm_name",  "hm_email"),
+                        ("hm", "hm_name", "hm_email"),
                         ("rec", "rec_name", "rec_email"),
                     ]:
                         _contact = _b.get_verified_contact(co, _role)
-                        if _contact and _contact.get("name") and _contact.get("email"):
-                            nr[C[_col_name]]  = _contact["name"]
+                        if _contact and _contact.get("email"):
+                            nr[C[_col_name]] = _contact.get("name", "")
                             nr[C[_col_email]] = _contact["email"]
                             if _contact.get("linkedin"):
-                                _li_col = "hm_li" if _role == "hm" else "rec_li"
-                                nr[C[_li_col]] = _contact["linkedin"]
-                            log.info(
-                                f"pull: auto-filled {_role} contact for {co}: "
-                                f"{_contact['name']} <{_contact['email']}>"
-                            )
-                except Exception as _bce:
-                    log.debug(f"pull: Brain contact auto-fill failed for {co}: {_bce}")
+                                nr[C["hm_li" if _role == "hm" else "rec_li"]] = _contact["linkedin"]
+                            log.info(f"pull: auto-filled {_role} for {co}: {_contact['email']}")
 
+                    # AUTO-FILL: fallback — any non-bounced contact for this company by name
+                    if not nr[C["hm_email"]] and not nr[C["rec_email"]] and _co_contacts:
+                        for _rk, _cd in _co_contacts.items():
+                            if _cd.get("email") and not _cd.get("bounced"):
+                                _cn = "hm_name" if _rk == "hm" else "rec_name"
+                                _ce = "hm_email" if _rk == "hm" else "rec_email"
+                                nr[C[_cn]] = _cd.get("name", "")
+                                nr[C[_ce]] = _cd["email"]
+                                log.info(f"pull: company-cache fill for {co}: {_cd['email']}")
+                                break
+
+                except Exception as _bce:
+                    log.debug(f"pull: smart fill failed for {co}: {_bce}")
             result_rows.append(nr)
 
         # Assign sequential Sr. No.
