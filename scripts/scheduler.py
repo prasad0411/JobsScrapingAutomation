@@ -113,10 +113,31 @@ def run_job(job):
         with _running_lock:
             _running[name] = False
 
+_job_failures: dict = {}  # tracks consecutive failures per job
+
 def run_job_async(job, state):
     name = job["name"]
     def _run():
         run_job(job)
+        # Check if job actually succeeded by reading health file
+        health_f = f"{BASE}/.local/health_{name}.json"
+        try:
+            import json as _j
+            h = _j.load(open(health_f))
+            if h.get("exit_code", 1) != 0:
+                _job_failures[name] = _job_failures.get(name, 0) + 1
+                if _job_failures[name] == 1:
+                    log.warning(f"↻ {name} failed — will retry in 30 min")
+                    time.sleep(1800)
+                    log.info(f"↻ Retrying {name} (attempt 2)")
+                    run_job(job)
+                else:
+                    log.warning(f"✗ {name} failed twice — skipping until next window")
+                    _job_failures[name] = 0
+            else:
+                _job_failures[name] = 0
+        except Exception:
+            pass
         state[name] = datetime.datetime.now().isoformat()
         save_state(state)
     t = threading.Thread(target=_run, name=f"job-{name}", daemon=True)

@@ -205,8 +205,13 @@ def main():
                 new_val = "yes"
                 yes_count += 1
             else:
-                new_val = "Skip"
-                skip_count += 1
+                # Only Skip if sponsorship explicitly No — otherwise leave blank
+                # Don't silently skip targets we haven't evaluated yet
+                if spon.lower() == "no":
+                    new_val = "Skip"
+                    skip_count += 1
+                else:
+                    new_val = None  # leave blank — don't decide yet
 
         if new_val:
             col = _cl(C["extract"])

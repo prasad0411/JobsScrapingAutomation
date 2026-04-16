@@ -126,8 +126,24 @@ def main():
             config, count=1
         )
 
-    with open(config_path, "w", encoding="utf-8") as f:
+    # Backup before modifying, verify syntax after
+    import shutil as _sh
+    backup = config_path + f".bak_{__import__('datetime').date.today().isoformat()}"
+    _sh.copy2(config_path, backup)
+    tmp_path = config_path + ".tmp"
+    with open(tmp_path, "w", encoding="utf-8") as f:
         f.write(config)
+    # Syntax check before replacing
+    import ast as _ast
+    try:
+        _ast.parse(config)
+    except SyntaxError as _se:
+        os.remove(tmp_path)
+        print(f"  ✗ Config syntax error after edit — ABORTED: {_se}")
+        print(f"  Original config preserved. Backup at: {backup}")
+        return
+    os.replace(tmp_path, config_path)
+    os.remove(backup)  # clean up backup only after successful write
 
     print(f"\nAdded {len(new_companies)} companies to COMPANY_BLACKLIST:")
     for c in new_companies:

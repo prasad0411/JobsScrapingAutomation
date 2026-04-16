@@ -114,16 +114,32 @@ else
 fi
 
 # MS token check
-log "[token] Checking MS token..."
+log "[token] Checking MS token validity..."
 TOKEN_FILE="$LOCAL/ms_token.json"
 if [[ -f "$TOKEN_FILE" ]]; then
-    TOKEN_AGE=$(( NOW - $(stat -f %m "$TOKEN_FILE") ))
-    TOKEN_HOURS=$(( TOKEN_AGE / 3600 ))
-    if [[ $TOKEN_AGE -gt 72000 ]]; then
-        log "[token] ⚠ Token stale (${TOKEN_HOURS}h) — run test_ms_auth.py"
-        alert "MS token stale (${TOKEN_HOURS}h) — run test_ms_auth.py"
+    # Actually verify token is valid, not just file age (file updates every ~1hr on refresh)
+    TOKEN_VALID=$(python3 -c "
+import json, sys, os
+sys.path.insert(0, '$BASE_DIR')
+try:
+    import msal
+    from outreach.outreach_config import MS_CLIENT_ID, MS_AUTHORITY, MS_SCOPES, MS_TOKEN_FILE
+    cache = msal.SerializableTokenCache()
+    cache.deserialize(open(MS_TOKEN_FILE).read())
+    app = msal.PublicClientApplication(MS_CLIENT_ID, authority=MS_AUTHORITY, token_cache=cache)
+    accts = app.get_accounts()
+    result = app.acquire_token_silent(MS_SCOPES, account=accts[0]) if accts else None
+    print('valid' if result and 'access_token' in result else 'expired')
+except Exception as e:
+    print('error')
+" 2>/dev/null)
+    if [[ "$TOKEN_VALID" == "valid" ]]; then
+        log "[token] MS token ✓ valid"
+    elif [[ "$TOKEN_VALID" == "expired" ]]; then
+        log "[token] ⚠ MS token EXPIRED — run: python3 scripts/test_ms_auth.py"
+        alert "MS token expired — run test_ms_auth.py"
     else
-        log "[token] MS token age: ${TOKEN_HOURS}h ✓"
+        log "[token] ⚠ Could not verify MS token"
     fi
 else
     log "[token] ⚠ No MS token file found"

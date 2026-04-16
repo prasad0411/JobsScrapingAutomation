@@ -117,13 +117,42 @@ class Brain:
             return self._default()
 
     def save(self):
+        """Atomic write with exclusive lock. Also prunes stale data on save."""
         try:
-            with open(self._path, "w") as f:
+            self._prune_stale()
+            tmp = self._path + ".tmp"
+            with open(tmp, "w") as f:
                 fcntl.flock(f, fcntl.LOCK_EX)
                 json.dump(self._data, f, indent=2)
                 fcntl.flock(f, fcntl.LOCK_UN)
+            os.replace(tmp, self._path)
         except Exception as e:
             log.debug(f"Brain save failed: {e}")
+
+    def _prune_stale(self):
+        """Prune unbounded keys to prevent brain.json growing forever."""
+        try:
+            # simplify_retry_queue: remove exhausted entries older than 7 days
+            srq = self._data.get("simplify_retry_queue", {})
+            cutoff = (datetime.datetime.now() - datetime.timedelta(days=7)).isoformat()
+            self._data["simplify_retry_queue"] = {
+                k: v for k, v in srq.items()
+                if not (v.get("status") == "exhausted" and v.get("exhausted_at", "9") < cutoff)
+            }
+            # job_id_registry: cap at 2000 most recent
+            jir = self._data.get("job_id_registry", {})
+            if len(jir) > 2000:
+                self._data["job_id_registry"] = dict(list(jir.items())[-1500:])
+            # draft_history: cap at 500
+            dh = self._data.get("draft_history", [])
+            if len(dh) > 500:
+                self._data["draft_history"] = dh[-400:]
+            # run_history in brain: cap at 30 entries (SQLite is source of truth)
+            rh = self._data.get("run_history", {})
+            if len(rh) > 30:
+                self._data["run_history"] = dict(list(rh.items())[-20:])
+        except Exception as e:
+            log.debug(f"Brain prune failed: {e}")
 
     def _default(self) -> dict:
         return {

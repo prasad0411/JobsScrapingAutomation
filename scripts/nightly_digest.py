@@ -102,6 +102,38 @@ def _recent_errors():
         return []
 
 
+def _scheduler_health():
+    """Read scheduler_state.json and return health summary."""
+    f = os.path.join(_LOCAL, "scheduler_state.json")
+    if not os.path.exists(f):
+        return {}
+    try:
+        state = json.load(open(f))
+        now = datetime.datetime.now()
+        max_gaps = {
+            "aggregator": 8*3600, "send_scheduled": 24*3600,
+            "outreach": 30*3600, "nightly_digest": 30*3600,
+            "cleanup_not_applied": 30*3600, "build_auto_blacklist": 30*3600,
+            "retry_simplify": 30*3600, "process_bounces": 3600, "watchdog": 3600,
+        }
+        results = {}
+        for job, last_str in state.items():
+            try:
+                last = datetime.datetime.fromisoformat(last_str)
+                elapsed = (now - last).total_seconds()
+                max_gap = max_gaps.get(job, 30*3600)
+                results[job] = {
+                    "last_run": last.strftime("%b %d %H:%M"),
+                    "elapsed_h": round(elapsed/3600, 1),
+                    "stale": elapsed > max_gap,
+                }
+            except Exception:
+                pass
+        return results
+    except Exception:
+        return {}
+
+
 def _circuit_breaker_status():
     """Check circuit breaker state."""
     f = os.path.join(_LOCAL, "circuit_breaker.json")
@@ -137,7 +169,7 @@ def _outreach_queue_size():
         return -1
 
 
-def _build_html(stats, sent, bounced, errors, cb, pending, burn_alerts=None):
+def _build_html(stats, sent, bounced, errors, cb, pending, burn_alerts=None, sched_health=None):
     now = datetime.datetime.now().strftime("%b %d, %Y %I:%M %p")
     ok_color = "#2d8a4e"
     warn_color = "#b45309"
@@ -182,6 +214,10 @@ def _build_html(stats, sent, bounced, errors, cb, pending, burn_alerts=None):
       {errors_html}
 
       {f'<h3 style="color:#b45309;margin:20px 0 8px;">⚠ API Credit Warnings</h3><ul>' + ''.join(f'<li style="color:#b45309;font-size:12px;">{a}</li>' for a in burn_alerts) + '</ul>' if burn_alerts else ''}
+      {'<h3 style="color:#444;margin:20px 0 8px;">Scheduler Health</h3><table style="border-collapse:collapse;width:100%;">' + ''.join(
+        f'<tr><td style="padding:4px 12px;color:#666;font-size:12px;">{job}</td><td style="padding:4px 12px;font-size:12px;color:{"#b91c1c" if v["stale"] else "#2d8a4e"};">{v["last_run"]} ({v["elapsed_h"]}h ago){" ⚠ STALE" if v["stale"] else " ✓"}</td></tr>'
+        for job, v in (sched_health or {}).items()
+      ) + '</table>' if sched_health else ''}
       <p style="color:#999;font-size:11px;margin-top:20px;">
         Sent from your Job Hunt Pipeline · kanade.pra@northeastern.edu
       </p>
@@ -214,7 +250,8 @@ def main():
     if burn_alerts:
         subject = "💳 " + subject
 
-    html = _build_html(stats, sent, bounced, errors, cb, pending, burn_alerts)
+    sched_health = _scheduler_health()
+    html = _build_html(stats, sent, bounced, errors, cb, pending, burn_alerts, sched_health)
 
     try:
         import requests as _req

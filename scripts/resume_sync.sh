@@ -21,8 +21,12 @@ sync_resume() {
         else
             echo "  ℹ $label resume already up to date" >> "$LOG"
         fi
+    elif [ -f "$dst" ]; then
+        echo "  ⚠ $label resume not in Downloads — using existing .local copy" >> "$LOG"
     else
-        echo "  ⚠ $label resume not found in Downloads: $filename" >> "$LOG"
+        echo "  ✗ MISSING $label resume — not in Downloads AND not in .local!" >> "$LOG"
+        # Write to failures.log so watchdog/digest picks it up
+        echo "[$(date)] MISSING RESUME: $filename not found anywhere" >> "$LOCAL/../.local/failures.log" 2>/dev/null || true
     fi
 }
 

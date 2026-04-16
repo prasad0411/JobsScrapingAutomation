@@ -2373,10 +2373,16 @@ JOB_BOARD_DOMAINS = [
 ]
 
 STATUS_COLORS = {
-    "Not Applied": {"red": 1.0, "green": 1.0, "blue": 1.0},
-    "Applied": {"red": 1.0, "green": 0.9, "blue": 0.6},
-    "Interview Scheduled": {"red": 1.0, "green": 0.8, "blue": 0.4},
-    "Offer Received": {"red": 0.6, "green": 0.9, "blue": 0.6},
+    "Not Applied":  {"red": 0.6,  "green": 0.76, "blue": 1.0},
+    "Applied":      {"red": 0.58, "green": 0.93, "blue": 0.31},
+    "Rejected":     {"red": 0.97, "green": 0.42, "blue": 0.42},
+    "Screening":    {"red": 1.0,  "green": 0.85, "blue": 0.4},
+    "OA Round 1":   {"red": 1.0,  "green": 0.95, "blue": 0.4},
+    "OA Round 2":   {"red": 1.0,  "green": 0.95, "blue": 0.4},
+    "Interview 1":  {"red": 0.82, "green": 0.93, "blue": 0.94},
+    "Interview 2":  {"red": 0.6,  "green": 0.85, "blue": 0.95},
+    "Assessment":   {"red": 0.89, "green": 0.89, "blue": 0.89},
+    "Offer accepted": {"red": 0.16, "green": 0.65, "blue": 0.27},
 }
 
 
