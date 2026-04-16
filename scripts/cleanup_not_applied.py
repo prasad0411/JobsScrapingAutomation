@@ -496,7 +496,13 @@ class ManualCleanup:
             all_data = sheet.get_all_values()
             color_requests = []
 
-            for row_idx in range(start_row - 1, min(end_row, len(all_data))):
+            # Never color past last row that has actual data
+            last_data_idx = len(all_data) - 1
+            while last_data_idx > 0 and not any(c.strip() for c in all_data[last_data_idx][:4]):
+                last_data_idx -= 1
+            safe_end = min(end_row, last_data_idx + 1)
+
+            for row_idx in range(start_row - 1, min(safe_end, len(all_data))):
                 if row_idx < 1 or row_idx >= len(all_data):
                     continue
 
