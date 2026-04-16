@@ -325,7 +325,7 @@ class Mailer:
         self._svc = build("gmail", "v1", credentials=creds)
         return self._svc
 
-    def send(self, to_email, subject, body, resume_type="SDE", company="", title="", location="", send_at_iso=""):
+    def send(self, to_email, subject, body, resume_type="SDE", company="", title="", location="", send_at_iso="", confidence=100):
         result = {"success": False, "error": "", "timestamp": ""}
         if resume_type == "ML":
             resume_path = RESUME_ML
@@ -443,10 +443,11 @@ class Mailer:
             # ── Create draft with scheduling metadata ──────────────────────
             draft_payload = msg_payload["message"].copy()
             draft_payload["internetMessageHeaders"] = [
-                {"name": "X-Send-At",   "value": send_at_iso or ""},
-                {"name": "X-Company",   "value": company or ""},
-                {"name": "X-Job-Title", "value": title or ""},
-                {"name": "X-Location",  "value": location or ""},
+                {"name": "X-Send-At",    "value": send_at_iso or ""},
+                {"name": "X-Company",    "value": company or ""},
+                {"name": "X-Job-Title",  "value": title or ""},
+                {"name": "X-Location",   "value": location or ""},
+                {"name": "X-Confidence", "value": str(confidence)},
             ]
             create_resp = _req.post(
                 f"https://graph.microsoft.com/v1.0/users/{MS_SENDER_EMAIL}/messages",

@@ -389,9 +389,11 @@ def phase_extract_and_draft(sheets, finder, mailer):
             )
             _loc = sheets.get_location(row["co"], row["title"])
             _sa, _ = sheets.compute_send_at(_loc)
+            _rec_conf = int(round(float(rec_res.get("confidence", 100))))
             result = mailer.send(
                 rec_e, rec_draft["subject"], rec_draft["body"], resume_type,
                 company=row["co"], title=row["title"], location=_loc, send_at_iso=_sa,
+                confidence=_rec_conf,
             )
             if result["success"]:
                 draft_parts.append("Recruiter draft created")
