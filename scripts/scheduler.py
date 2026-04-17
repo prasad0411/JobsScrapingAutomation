@@ -148,7 +148,7 @@ def should_run_timed(job, state, now):
     last_run_str = state.get(name)
     for (h, m) in job["times"]:
         scheduled = now.replace(hour=h, minute=m, second=0, microsecond=0)
-        if abs((now - scheduled).total_seconds()) > 90:
+        if abs((now - scheduled).total_seconds()) > 180:  # 3-min window
             continue
         if last_run_str:
             last_run = datetime.datetime.fromisoformat(last_run_str)
