@@ -220,11 +220,11 @@ def main():
     while True:
         try:
             now = datetime.datetime.now()
+            loop_count += 1
+            if loop_count % 360 == 0:
+                rotate_log_if_needed()
             if now.minute == last_minute:
                 time.sleep(10)
-                loop_count += 1
-                if loop_count % 360 == 0:
-                    rotate_log_if_needed()
                 continue
             last_minute = now.minute
             state = load_state()
