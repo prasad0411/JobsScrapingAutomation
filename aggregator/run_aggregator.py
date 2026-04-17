@@ -1249,6 +1249,24 @@ class UnifiedJobAggregator:
             title_hint=_title_hint or "",
         )
         if result:
+            # Cross-validate: if extracted company doesn't match hint, use hint
+            # This catches SWE List URL/company mismatches
+            if _company_hint and result.get("company", "Unknown") not in ("Unknown", ""):
+                from aggregator.utils import CompanyNormalizer
+                _extracted_norm = re.sub(r"[^a-z0-9]", "", result["company"].lower())
+                _hint_norm = re.sub(r"[^a-z0-9]", "", _company_hint.lower())
+                # If extracted company shares <40% of chars with hint, prefer hint
+                _common = sum(1 for c in _hint_norm if c in _extracted_norm)
+                if _hint_norm and _common / len(_hint_norm) < 0.4:
+                    logging.info(
+                        f"SWE List company mismatch: extracted='{result['company']}' "
+                        f"hint='{_company_hint}' — using hint"
+                    )
+                    _cleaned_hint = CompanyNormalizer.normalize(_company_hint)
+                    if _cleaned_hint:
+                        result["company"] = _cleaned_hint
+            if _title_hint and result.get("title", "Unknown") == "Unknown":
+                result["title"] = _title_hint
             alert = RoleCategorizer.get_terminal_alert(result["title"])
             print(f"    {result['company'][:50]}: ✓ Valid {alert}")
             self.source_stats[sender]["valid"] += 1
