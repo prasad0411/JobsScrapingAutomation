@@ -1314,6 +1314,11 @@ class LocationProcessor:
             "per hour",
             "per year",
             "annually",
+            "multiple locations",
+            "see job description",
+            "various locations",
+            "to be determined",
+            "of the selected employee",
         ]
 
         text_lower = text.lower()
