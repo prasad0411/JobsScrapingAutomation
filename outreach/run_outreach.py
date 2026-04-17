@@ -363,7 +363,7 @@ def phase_extract_and_draft(sheets, finder, mailer):
             )
             _loc = sheets.get_location(row["co"], row["title"])
             _sa, _ = sheets.compute_send_at(_loc)
-            _hm_conf = int(round(float(hm_conf_val))) if hm_conf_val else 100
+            _hm_conf = int(round(float(hm_res.get("confidence", 100)))) if hm_res else 100
             result = mailer.send(
                 hm_e, hm_draft["subject"], hm_draft["body"], resume_type,
                 company=row["co"], title=row["title"], location=_loc, send_at_iso=_sa,
@@ -391,7 +391,7 @@ def phase_extract_and_draft(sheets, finder, mailer):
             )
             _loc = sheets.get_location(row["co"], row["title"])
             _sa, _ = sheets.compute_send_at(_loc)
-            _rec_conf = int(round(float(rec_res.get("confidence", 100))))
+            _rec_conf = int(round(float(rec_res.get("confidence", 100)))) if rec_res else 100
             result = mailer.send(
                 rec_e, rec_draft["subject"], rec_draft["body"], resume_type,
                 company=row["co"], title=row["title"], location=_loc, send_at_iso=_sa,
