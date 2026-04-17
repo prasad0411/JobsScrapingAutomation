@@ -1503,7 +1503,7 @@ class LocationProcessor:
                 return "Location: Canada"
 
             # Germany — including common OCR/parsing typos from Simplify
-            _germany_variants = ["germany", "geany", "germa", "deutschland",
+            _germany_variants = ["germany", "geany", "deutschland",
                                   "munich", "münchen", "berlin", "hamburg",
                                   "frankfurt", "stuttgart", "cologne", "köln",
                                   "düsseldorf", "dusseldorf"]
