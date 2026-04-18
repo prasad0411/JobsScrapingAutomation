@@ -111,6 +111,8 @@ class CompanyNormalizer:
         "paypal": "PayPal",
         "ebay": "eBay",
         "nuclearn-ai": "Nuclearn AI",
+        "tricentis americas": "Tricentis",
+        "tricentisamericas": "Tricentis",
         "nuclearnai": "Nuclearn AI",
         "nuclearn": "Nuclearn AI",
         "mhicareers": "MHI",
@@ -704,8 +706,19 @@ class DataSanitizer:
                         break
 
             # Strip "CompanyName.ai " or "CompanyName.com " prefix from titles
-            # e.g. "WeRide.ai Technical Product Manager Intern" → "Technical Product Manager Intern"
             text = re.sub(r'^[A-Za-z0-9]+\.[a-z]{2,4}\s+', '', text).strip()
+
+            # Strip trailing em-dash and en-dash artifacts: "Intern —" → "Intern"
+            text = re.sub(r'\s*[—–-]+\s*$', '', text).strip()
+
+            # Strip ATS location/division suffixes appended to titles:
+            # "AI/ML Modeling Engineer II- United States ENG/CPO/WTG ETR" → "AI/ML Modeling Engineer II"
+            # Pattern: "- <ALLCAPS or location words>" at end of title
+            text = re.sub(r'\s*-\s+(?:United States|US|USA)\s+[A-Z/]+$', '', text).strip()
+            text = re.sub(r'\s*[-–]\s+[A-Z]{2,}(?:[/\s][A-Z]{2,}){1,}$', '', text).strip()
+
+            # Fix missing space around dash: "Intern- AI" → "Intern - AI"
+            text = re.sub(r'(?<=[a-zA-Z])-(?=[A-Z])', ' - ', text).strip()
 
             if DATA_SANITIZATION_PREFERENCES.get("trim_whitespace", True):
                 text = re.sub(r"\s+", " ", text).strip()

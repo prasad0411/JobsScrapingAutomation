@@ -2442,6 +2442,11 @@ class ValidationHelper:
                 r"3rd\s+year\s+phd\s+and\s+above",
                 r"doctoral\s+degree.*required",
                 r"must\s+be\s+pursuing\s+a\s+ph\.?d",
+                r"\(ph\.?d\.?\)",
+                r"ph\.?d\.?\s+intern",
+                r"20\d\d\s+start\s+\(ph\.?d",
+                r"phd\s+internship",
+                r"currently\s+pursuing\s+ph\.?d",
                 r"preferably\s+a\s+current\s+3rd\s+year",
                 r"must\s+be\s+currently\s+pursuing\s+a\s+bachelor",
                 r"not\s+open\s+to\s+candidates\s+on\s+opt",
@@ -2696,6 +2701,14 @@ class ValidationHelper:
                 r"not\s+(?:now|currently).*require.*sponsorship.*future",
                 r"no\s+visa\s+sponsorship.*(?:now|future|available)",
                 r"students?\s+must\s+be\s+authorized\s+to\s+work\s+in\s+the\s+u\.?s\.?\s+without",
+                r"u\.?s\.?\s+citizen(?!\s+or\s+permanent)",  # "U.S. Citizen" alone
+                r"u\.?s\.?\s+citizenship",
+                r"must\s+be\s+a\s+u\.?s\.?\s+citizen",
+                r"candidates?\s+must\s+be\s+u\.?s\.?\s+citizens?",
+                r"this\s+role\s+is\s+not\s+eligible\s+for.*sponsor",
+                r"not\s+eligible\s+for\s+employer.sponsored\s+work\s+visa",
+                r"no\s+employment\s+sponsorship\s+(?:required|available).*(?:now|future)",
+                r"employment\s+sponsorship\s+(?:is\s+)?not\s+(?:required|available)",
             ]
 
             for pattern in citizenship_patterns:
