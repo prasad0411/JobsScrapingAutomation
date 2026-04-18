@@ -110,6 +110,13 @@ class CompanyNormalizer:
         "linkedin": "LinkedIn",
         "paypal": "PayPal",
         "ebay": "eBay",
+        "nuclearn-ai": "Nuclearn AI",
+        "nuclearnai": "Nuclearn AI",
+        "nuclearn": "Nuclearn AI",
+        "mhicareers": "MHI",
+        "queracomputing": "Quera Computing",
+        "verygoodsecurity": "Very Good Security",
+        "cinfin": "Cincinnati Financial",
         "tiktok": "TikTok",
     }
 

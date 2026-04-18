@@ -735,6 +735,10 @@ class JobIDExtractor:
     def _is_valid_id(job_id, url=''):
         if url and 'greenhouse.io' in url.lower():
             return False
+        # Strip trailing "Apply" suffix from TikTok/ByteDance job IDs
+        # e.g. "A112542AApply" → "A112542A", "A38740Apply" → "A38740"
+        if job_id and job_id.endswith("Apply"):
+            job_id = job_id[:-5].strip()
         if not job_id or not (4 <= len(job_id) <= 20):
             return False
         if not re.match(r"^[A-Z0-9\-_]+$", job_id, re.I):
@@ -1376,6 +1380,20 @@ class LocationProcessor:
         loc = re.sub(r'\b[A-Z]{3,}(?:\s+[A-Z]{2,})*(?=\s*,\s*[A-Z]{2}\b)', '', loc).strip()
         loc = re.sub(r',\s*,', ',', loc).strip().strip(',').strip()
         loc = re.sub(r'\s+,', ',', loc).strip()  # remove space before comma
+
+        # Normalize city abbreviations
+        _CITY_NORM = {
+            'nyc': 'New York, NY',
+            'new york city': 'New York, NY',
+            'sf': 'San Francisco, CA',
+            'la': 'Los Angeles, CA',
+            'dc': 'Washington, DC',
+            'washington dc': 'Washington, DC',
+        }
+        _loc_check = loc.strip().lower()
+        if _loc_check in _CITY_NORM:
+            return _CITY_NORM[_loc_check]
+
         loc = re.sub(r',\s*,', ',', loc).strip().strip(',').strip()
         loc = re.sub(r'\s+,', ',', loc).strip()  # remove space before comma
 

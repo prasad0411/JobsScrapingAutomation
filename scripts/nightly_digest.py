@@ -34,6 +34,28 @@ def _get_token():
     return result["access_token"]
 
 
+def _source_quality_stats():
+    """Get source quality rates from brain.json."""
+    try:
+        import json
+        brain_path = os.path.join(_LOCAL, "brain.json")
+        if not os.path.exists(brain_path):
+            return {}
+        b = json.load(open(brain_path))
+        sq = b.get("aggregator", {}).get("source_quality", {})
+        result = {}
+        for src, data in sq.items():
+            if isinstance(data, dict) and data.get("runs", 0) >= 2:
+                result[src] = {
+                    "rate": round(data.get("quality_rate", 0) * 100, 1),
+                    "valid": data.get("valid", 0),
+                    "fetched": data.get("fetched", 0),
+                    "runs": data.get("runs", 0),
+                }
+        return result
+    except Exception:
+        return {}
+
 def _latest_run_stats():
     """Get stats from SQLite run history."""
     db = os.path.join(_LOCAL, "run_history.db")

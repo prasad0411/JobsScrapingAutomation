@@ -126,8 +126,29 @@ class Brain:
                 json.dump(self._data, f, indent=2)
                 fcntl.flock(f, fcntl.LOCK_UN)
             os.replace(tmp, self._path)
+            # Daily backup — keep last 7 days
+            self._daily_backup()
         except Exception as e:
             log.debug(f"Brain save failed: {e}")
+
+    def _daily_backup(self):
+        """Write daily backup of brain.json, keep last 7."""
+        try:
+            today = datetime.datetime.now().strftime("%Y-%m-%d")
+            backup_path = self._path.replace("brain.json", f"brain_backup_{today}.json")
+            if not os.path.exists(backup_path):
+                import shutil
+                shutil.copy2(self._path, backup_path)
+                log.info(f"Brain backup: {backup_path}")
+            # Prune backups older than 7 days
+            import glob
+            backup_dir = os.path.dirname(self._path)
+            backups = sorted(glob.glob(os.path.join(backup_dir, "brain_backup_*.json")))
+            for old_backup in backups[:-7]:
+                os.remove(old_backup)
+                log.debug(f"Removed old brain backup: {old_backup}")
+        except Exception as e:
+            log.debug(f"Brain backup failed (non-fatal): {e}")
 
     def _prune_stale(self):
         """Prune unbounded keys to prevent brain.json growing forever."""

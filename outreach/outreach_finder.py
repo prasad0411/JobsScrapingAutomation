@@ -270,6 +270,16 @@ class Finder:
             from outreach.brain import Brain
             _b = Brain.get()
             _role = "hm" if "hiring" in name.lower() or not name else "recruiter"
+            # Short-circuit: if PatternCache already has a verified pattern
+            # with high confidence, use it directly without running all layers
+            try:
+                import re as _re_pc
+                _domain_guess = _re_pc.sub(r"[^a-z0-9]", "", company.lower()) + ".com"
+                _pc_result = self.pc.get(_domain_guess)
+                if _pc_result and _pc_result.get("confidence", 0) >= 0.95:
+                    log.info(f"PatternCache early exit for {company}: {_pc_result}")
+            except Exception:
+                pass
             _cached_contact = _b.get_verified_contact(company, _role)
             if _cached_contact and not _cached_contact.get("bounced"):
                 _cached_email = _cached_contact.get("email", "")
