@@ -189,6 +189,7 @@ PLATFORM_BLACKLIST_REASONS = {
     "Teledyne Technologies": "Always requires US citizenship",
     "Teledyne Scientific & Imaging": "Always requires US citizenship",
     "SAIC": "Company always requires security clearance",
+    "SAIC": "Company always requires security clearance",
     "Teledyne Scientific": "Always requires US citizenship",
     "Teledyne FLIR": "Always requires US citizenship",
     "Teledyne LeCroy": "Always requires US citizenship",
