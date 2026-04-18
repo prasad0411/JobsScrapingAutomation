@@ -159,8 +159,10 @@ def is_suspicious_email(email):
         if all(len(p) <= 1 for p in local_parts):
             log.info(f"All-initials email blocked: {email}")
             return True
-        # Single-char last part (e.g. muskaan.b@)
-        if len(local_parts[-1]) == 1:
+        # Single-char last part only blocks if first part is ALSO short
+        # e.g. j.s@ or p.t@ = initials → block
+        # e.g. sunny.p@ or muskaan.b@ = firstname.initial → allow
+        if len(local_parts[-1]) == 1 and len(local_parts[0]) <= 2:
             log.info(f"Single-char last part blocked: {email}")
             return True
 
