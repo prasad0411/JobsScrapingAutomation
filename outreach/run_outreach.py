@@ -292,6 +292,16 @@ def phase_extract_and_draft(sheets, finder, mailer):
                     else:
                         hm_emails.append(hm_res["email"])
                         stats["extracted"] += 1
+                        # Store in Brain immediately after discovery
+                        try:
+                            from outreach.brain import Brain
+                            Brain.get().store_verified_contact(
+                                row["co"], "hm",
+                                hm_res.get("name", hm_name or ""),
+                                hm_res["email"],
+                                confidence=hm_res.get("confidence", 0.7)
+                            )
+                        except Exception: pass
                 else:
                     hm_failed = True
                     stats["extract_failed"] += 1
@@ -324,6 +334,16 @@ def phase_extract_and_draft(sheets, finder, mailer):
                     else:
                         rec_emails.append(rec_res["email"])
                         stats["extracted"] += 1
+                        # Store in Brain immediately after discovery
+                        try:
+                            from outreach.brain import Brain
+                            Brain.get().store_verified_contact(
+                                row["co"], "rec",
+                                rec_res.get("name", rec_name or ""),
+                                rec_res["email"],
+                                confidence=rec_res.get("confidence", 0.7)
+                            )
+                        except Exception: pass
             if rec_emails:
                 sheets.write_email(rn, "rec", ", ".join(rec_emails), rec_res["source"])
                 # Write confidence (use lowest of HM and Rec — weakest link)
