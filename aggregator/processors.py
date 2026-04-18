@@ -1319,6 +1319,11 @@ class LocationProcessor:
             "various locations",
             "to be determined",
             "of the selected employee",
+            "offered for this role",
+            "show more options",
+            "loading...",
+            "other locations schedule",
+            "see posting",
         ]
 
         text_lower = text.lower()
