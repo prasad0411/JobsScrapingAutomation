@@ -1658,6 +1658,8 @@ URL_TO_COMPANY_MAPPING = {
     r"lifeattiktok\.com": "TikTok",
     r"jobs\.lever\.co/verygoodsecurity": "Very Good Security",
     r"job-boards\.greenhouse\.io/northspyre": "Northspyre",
+    r"job-boards\.greenhouse\.io/queracomputinginc": "Quera Computing",
+    r"job-boards\.greenhouse\.io/queracomputing": "Quera Computing",
     r"job-boards\.greenhouse\.io/trumid": "Trumid",
     r"abcfinancial\.wd\d+\.myworkdayjobs\.com": "ABC Financial Services",
     r"trimble\.wd\d+\.myworkdayjobs\.com": "Trimble",
