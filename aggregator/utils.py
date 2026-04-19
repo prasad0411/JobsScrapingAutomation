@@ -138,6 +138,7 @@ class CompanyNormalizer:
             name = _re_co.sub(r"^[A-Z]{1,3}-\d{3,6}\s+", "", name).strip()
             name = _re_co.sub(r"^Company\s+\d+\s+", "", name, flags=_re_co.I).strip()  # "Company 601 X" → "X"
             name = _re_co.sub(r"^Workable\s+", "", name, flags=_re_co.I).strip()  # "Workable CompanyName" → "CompanyName"
+            name = _re_co.sub(r"^[A-Z]{2,5}\d+\s+", "", name).strip()  # "USC0 Revvity" → "Revvity"
 
             name_lower = name.lower()
 
