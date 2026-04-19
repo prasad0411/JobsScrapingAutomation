@@ -697,6 +697,13 @@ def backup_to_private_repo():
 
 if __name__ == "__main__":
     cleaner = ManualCleanup()
+    # Auto-expand sheets if getting full
+    for _ws_name in ["Discarded Entries", "Reviewed - Not Applied", "Valid Entries"]:
+        try:
+            _ws = cleaner.ss.worksheet(_ws_name)
+            cleaner._ensure_sheet_capacity(_ws)
+        except Exception:
+            pass
 
     # Run expiry cleanup FIRST (blank status, 3+ days old)
     cleaner.cleanup_expired()

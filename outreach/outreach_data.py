@@ -355,6 +355,18 @@ class Sheets:
                                 _extract_yes = True
                                 break
 
+                    # Signal 2b: job is already Applied in Valid Entries
+                    _status = ""
+                    try:
+                        for _vr in vdata[1:]:
+                            if len(_vr) > 2 and _vr[2].strip().lower() == _co_key[:20]:
+                                _status = _vr[1].strip().lower() if len(_vr) > 1 else ""
+                                break
+                    except Exception:
+                        pass
+                    if _status == "applied":
+                        _extract_yes = True
+
                     # Signal 3: known H1B sponsor
                     _SPONSORS = {
                         'google','alphabet','microsoft','amazon','apple','meta','nvidia',
