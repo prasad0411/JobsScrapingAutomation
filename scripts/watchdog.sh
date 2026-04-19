@@ -113,6 +113,38 @@ else
     fi
 fi
 
+# ── Jobright cookie freshness check ──
+log "[jobright] Checking cookie freshness..."
+JOBRIGHT_COOKIES=$(python3 -c "
+import json, os, time
+f = os.path.join('.local', 'jobright_cookies.json')
+if not os.path.exists(f):
+    print('missing')
+else:
+    try:
+        data = json.load(open(f))
+        saved = data.get('saved_at', 0)
+        age_days = (time.time() - saved) / 86400
+        if age_days > 25:
+            print('stale:' + str(int(age_days)))
+        else:
+            print('ok:' + str(int(age_days)))
+    except Exception:
+        print('error')
+" 2>/dev/null)
+
+if [[ "$JOBRIGHT_COOKIES" == missing ]]; then
+    send_alert "Jobright cookies missing" "jobright_cookies.json not found — Jobright source will fail. Please log in and refresh cookies."
+    log "[jobright] ⚠ cookies MISSING"
+elif [[ "$JOBRIGHT_COOKIES" == stale:* ]]; then
+    AGE="${JOBRIGHT_COOKIES#stale:}"
+    send_alert "Jobright cookies stale (${AGE}d)" "Jobright cookies are ${AGE} days old. Please refresh them soon — it is your best source at 27% valid rate."
+    log "[jobright] ⚠ cookies STALE (${AGE}d)"
+elif [[ "$JOBRIGHT_COOKIES" == ok:* ]]; then
+    log "[jobright] ✓ cookies fresh (${JOBRIGHT_COOKIES#ok:}d)"
+fi
+
+# MS token check
 # MS token check
 log "[token] Checking MS token validity..."
 TOKEN_FILE="$LOCAL/ms_token.json"
