@@ -1116,7 +1116,12 @@ class UnifiedJobAggregator:
                     logging.info(f"Pre-parsed {unique} Jobright jobs from: {subject}")
 
             deduped_urls = []
-            for url in urls:
+            for url_entry in urls:
+                # SWE List returns (url, company_hint, title_hint) tuples
+                if isinstance(url_entry, tuple):
+                    url, _co_hint, _ti_hint = url_entry
+                else:
+                    url, _co_hint, _ti_hint = url_entry, "", ""
                 clean = re.sub(r"\?.*$", "", url).lower()
                 if "jobright.ai/jobs/info/" in clean:
                     if clean in seen_jobright_urls:
@@ -1137,7 +1142,7 @@ class UnifiedJobAggregator:
                             continue
                         seen_jobright_company_titles.add(ct_key)
 
-                deduped_urls.append(url)
+                deduped_urls.append(url_entry)  # preserve tuple for SWE List
 
             email_counter += 1
             pre_dedup = len(urls) - len(deduped_urls)
@@ -1153,10 +1158,19 @@ class UnifiedJobAggregator:
             # Process URLs in parallel (10 threads) for speed
             import concurrent.futures as _cf
             def _process_url(args):
-                idx, url = args
+                idx, url_entry = args
+                # Handle SWE List (url, company, title) tuples
+                if isinstance(url_entry, tuple):
+                    url, _swe_co, _swe_ti = url_entry
+                else:
+                    url, _swe_co, _swe_ti = url_entry, "", ""
+                # Build enhanced subject hint from SWE List structured data
+                _effective_subject = subject
+                if _swe_co and _swe_ti:
+                    _effective_subject = f"{_swe_ti} @ {_swe_co}"
                 try:
                     return self._process_single_email_url(
-                        url, sender, html_content, subject,
+                        url, sender, html_content, _effective_subject,
                         url_idx=idx + 1, url_total=len(deduped_urls),
                     )
                 except Exception as e:

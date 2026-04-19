@@ -1363,11 +1363,44 @@ class EmailExtractor:
 
     @staticmethod
     def _extract_job_urls(email_html):
+        """Extract job URLs from email HTML.
+
+        For SWE List emails (class="internship" paragraphs), extracts
+        (url, company, title) tuples to preserve context.
+        For all other emails, returns plain URL list.
+        """
         soup, _ = safe_parse_html(email_html)
         if not soup:
             return []
         seen = set()
         urls = []
+
+        # ── SWE List format: <p class="internship"><strong>Co:</strong><a>Title</a></p>
+        swe_paragraphs = soup.find_all("p", class_="internship")
+        if swe_paragraphs:
+            for p in swe_paragraphs:
+                link = p.find("a", href=True)
+                strong = p.find("strong")
+                if not link:
+                    continue
+                url = link.get("href", "")
+                if not url.startswith("http") or EmailExtractor._is_non_job_url(url):
+                    continue
+                if url in seen:
+                    continue
+                seen.add(url)
+                # Extract company from <strong> tag
+                company_hint = ""
+                title_hint = ""
+                if strong:
+                    company_hint = strong.get_text().strip().rstrip(":").strip()
+                title_hint = link.get_text().strip()
+                # Store as tuple (url, company_hint, title_hint) for SWE List
+                urls.append((url, company_hint, title_hint))
+            if urls:
+                return urls
+
+        # ── Standard format: extract all job URLs as plain strings
         for link in soup.find_all("a", href=True):
             url = link.get("href", "")
             if url.startswith("http") and url not in seen:
@@ -1375,7 +1408,6 @@ class EmailExtractor:
                     if not EmailExtractor._is_non_job_url(url):
                         urls.append(url)
                         seen.add(url)
-                # ZipRecruiter: extract tracking redirect links (/km/, /ekm/, /jobs/)
                 elif "ziprecruiter.com/" in url.lower():
                     url_path = url.lower()
                     if any(p in url_path for p in ["/km/", "/ekm/", "/jobs/", "/k/"]):
