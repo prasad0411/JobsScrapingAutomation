@@ -1632,6 +1632,8 @@ URL_TO_COMPANY_MAPPING = {
     r"careers-sri\.icims\.com": "SRI International",
     r"uscareers-waters\.icims\.com": "Waters Corporation",
     r"jobs\.paccar\.com": "Paccar",
+    r"jobs\.infineon\.com": "Infineon",
+    r"infineon\.com/careers": "Infineon",
     r"apply\.careers\.microsoft\.com": "Microsoft",
     r"3ds\.com/careers": "Dassault Systèmes",
     r"careers\.adobe\.com": "Adobe",

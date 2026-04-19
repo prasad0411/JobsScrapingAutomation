@@ -2402,7 +2402,7 @@ class ValidationHelper:
                         )
                     ]
                     if not any(
-                        any(re.search(rf"\\b{kw}\\b", context) for kw in ["master", "ms/phd", "graduate degree", "grad student", "graduate program"])
+                        any(re.search(rf"\\b{kw}\\b", context) for kw in ["master", "ms/phd", "graduate degree", "grad student", "graduate program", "bs/ms", "ms ", " ms", "ms degree", "pursuing.*ms", "pursuing.*master"])
                     ):
                         return "REJECT", "Bachelor's students only"
         except Exception as e:
