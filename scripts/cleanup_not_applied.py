@@ -74,6 +74,24 @@ class ManualCleanup:
         "Offer accepted",
     }
 
+    def _ensure_sheet_capacity(self, ws, min_buffer=300):
+        """Auto-expand sheet if within min_buffer rows of being full."""
+        try:
+            data_rows = len([r for r in ws.get_all_values() if any(c.strip() for c in r[:4])])
+            available = ws.row_count - data_rows
+            if available < min_buffer:
+                needed = min_buffer - available + 1000  # add 1000 extra
+                self.ss.batch_update({"requests": [{"appendDimension": {
+                    "sheetId": ws.id,
+                    "dimension": "ROWS",
+                    "length": needed
+                }}]})
+                import time; time.sleep(2)
+                log.info(f"Auto-expanded {ws.title}: +{needed} rows (was {available} buffer)")
+                print(f"  ✓ Auto-expanded {ws.title}: +{needed} rows")
+        except Exception as e:
+            log.debug(f"Sheet capacity check failed: {e}")
+
     def __init__(self):
         scope = [
             "https://spreadsheets.google.com/feeds",
