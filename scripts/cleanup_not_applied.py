@@ -77,7 +77,8 @@ class ManualCleanup:
     def _ensure_sheet_capacity(self, ws, min_buffer=300):
         """Auto-expand sheet if within min_buffer rows of being full."""
         try:
-            data_rows = len([r for r in ws.get_all_values() if any(c.strip() for c in r[:4])])
+            all_rows = ws.get_all_values()
+            data_rows = len([r for r in all_rows if any(c.strip() for c in r[:4])])
             available = ws.row_count - data_rows
             if available < min_buffer:
                 needed = min_buffer - available + 1000  # add 1000 extra
@@ -89,6 +90,40 @@ class ManualCleanup:
                 import time; time.sleep(2)
                 log.info(f"Auto-expanded {ws.title}: +{needed} rows (was {available} buffer)")
                 print(f"  ✓ Auto-expanded {ws.title}: +{needed} rows")
+
+            # Always clear formatting on empty buffer rows (prevents inherited green color)
+            last_data = data_rows + 1  # 1-indexed
+            if ws.row_count > last_data:
+                self.ss.batch_update({"requests": [
+                    {
+                        "repeatCell": {
+                            "range": {
+                                "sheetId": ws.id,
+                                "startRowIndex": last_data,
+                                "endRowIndex": min(ws.row_count, last_data + 500),
+                                "startColumnIndex": 0,
+                                "endColumnIndex": 16,
+                            },
+                            "cell": {"userEnteredFormat": {
+                                "backgroundColor": {"red": 1.0, "green": 1.0, "blue": 1.0},
+                            }},
+                            "fields": "userEnteredFormat.backgroundColor",
+                        }
+                    },
+                    {
+                        "setDataValidation": {
+                            "range": {
+                                "sheetId": ws.id,
+                                "startRowIndex": last_data,
+                                "endRowIndex": min(ws.row_count, last_data + 500),
+                                "startColumnIndex": 1,
+                                "endColumnIndex": 2,
+                            },
+                            "rule": None,
+                        }
+                    }
+                ]})
+                import time; time.sleep(1)
         except Exception as e:
             log.debug(f"Sheet capacity check failed: {e}")
 
