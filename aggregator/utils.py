@@ -112,6 +112,8 @@ class CompanyNormalizer:
         "ebay": "eBay",
         "nuclearn-ai": "Nuclearn AI",
         "newtonresearch": "Newton Research",
+        "axway software sa": "Axway",
+        "axwaysoftwaresa": "Axway",
         "newton research": "Newton Research",
         "tricentis americas": "Tricentis",
         "tricentisamericas": "Tricentis",
