@@ -1381,6 +1381,12 @@ class LocationProcessor:
         loc = re.sub(r',\s*,', ',', loc).strip().strip(',').strip()
         loc = re.sub(r'\s+,', ',', loc).strip()  # remove space before comma
 
+        # Normalize iCIMS state-coded locations: "US-AZ-Scottsdale" → "Scottsdale, AZ"
+        _icims_m = re.match(r'^US-([A-Z]{2})-(.+)$', loc.strip())
+        if _icims_m:
+            state, city = _icims_m.group(1), _icims_m.group(2).replace('-', ' ').strip()
+            return f"{city}, {state}"
+
         # Normalize city abbreviations
         _CITY_NORM = {
             'nyc': 'New York, NY',
@@ -2147,7 +2153,8 @@ class ValidationHelper:
             return None, None
         try:
             import re as _re
-            page_text = soup.get_text()[:5000]
+            # Scan full page — salary often appears at bottom of Workday pages
+            page_text = soup.get_text()[:15000]
             patterns = [
                 r'\$(\d+(?:\.\d+)?)\s*/\s*hr',
                 r'\$(\d+(?:\.\d+)?)\s*(?:per\s*hour|/hour)',
@@ -2445,6 +2452,10 @@ class ValidationHelper:
                 r"\(ph\.?d\.?\)",
                 r"ph\.?d\.?\s+intern",
                 r"20\d\d\s+start\s+\(ph\.?d",
+                r"summer\s+2027",
+                r"fall\s+2027",
+                r"2027\s+start",
+                r"start.*2027",
                 r"phd\s+internship",
                 r"currently\s+pursuing\s+ph\.?d",
                 r"preferably\s+a\s+current\s+3rd\s+year",

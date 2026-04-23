@@ -1638,6 +1638,7 @@ URL_TO_COMPANY_MAPPING = {
     r"jeffersonhealth\.wd\d+\.myworkdayjobs\.com": "Jefferson Health",
     r"arienscompany\.wd\d+\.myworkdayjobs\.com": "Ariens",
     r"ebcs\.fa\.em\d+\.oraclecloud\.com": "Moog",
+    r"edel\.fa\.us\d+\.oraclecloud\.com/hcmUI/CandidateExperience/en/sites/CX_2001": "Fortinet",
     r"edel\.fa\.us\d+\.oraclecloud\.com": "BXP",
     r"wacom\.applytojob\.com": "Wacom",
     r"cerence\.wd\d+\.myworkdayjobs\.com": "Cerence",
