@@ -111,6 +111,8 @@ class CompanyNormalizer:
         "paypal": "PayPal",
         "ebay": "eBay",
         "nuclearn-ai": "Nuclearn AI",
+        "newtonresearch": "Newton Research",
+        "newton research": "Newton Research",
         "tricentis americas": "Tricentis",
         "tricentisamericas": "Tricentis",
         "nuclearnai": "Nuclearn AI",
