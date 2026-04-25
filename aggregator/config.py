@@ -1661,6 +1661,8 @@ URL_TO_COMPANY_MAPPING = {
     r"jobs\.ashbyhq\.com/skydio": "Skydio",
     r"irhythmtech\.wd\d+\.myworkdayjobs\.com": "iRhythm Technologies",
     r"careers-ice\.icims\.com": "Intercontinental Exchange",
+    r"job-boards\.greenhouse\.io/billiontoone": "BillionToOne",
+    r"job-boards\.greenhouse\.io/spacekinetic": "Space Kinetic",
     r"careers-axway\.icims\.com": "Axway",
     r"careers-sig\.icims\.com": "Susquehanna International Group",
     r"careers-stifel\.icims\.com": "Stifel",
