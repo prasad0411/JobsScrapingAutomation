@@ -91,7 +91,7 @@ class ManualCleanup:
                 log.info(f"Auto-expanded {ws.title}: +{needed} rows (was {available} buffer)")
                 print(f"  ✓ Auto-expanded {ws.title}: +{needed} rows")
 
-            # Always clear formatting on empty buffer rows (prevents inherited green color)
+            # Always clear column B color+validation on empty buffer rows
             last_data = data_rows + 1  # 1-indexed
             if ws.row_count > last_data:
                 self.ss.batch_update({"requests": [
@@ -101,8 +101,8 @@ class ManualCleanup:
                                 "sheetId": ws.id,
                                 "startRowIndex": last_data,
                                 "endRowIndex": min(ws.row_count, last_data + 500),
-                                "startColumnIndex": 0,
-                                "endColumnIndex": 16,
+                                "startColumnIndex": 1,
+                                "endColumnIndex": 2,
                             },
                             "cell": {"userEnteredFormat": {
                                 "backgroundColor": {"red": 1.0, "green": 1.0, "blue": 1.0},

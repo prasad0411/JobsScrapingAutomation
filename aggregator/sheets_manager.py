@@ -520,19 +520,17 @@ class SheetsManager:
             self._add_status_dropdowns(sheet, start_row, len(rows_data))
             self._add_resume_dropdowns(sheet, start_row, len(rows_data))
             self._apply_status_colors(sheet, start_row, end_row)
-            # Clear formatting on buffer rows after last written row
-            # Prevents inherited color from bleeding into empty rows
+            # Clear column B color+validation on buffer rows after last written row
             try:
-                buffer_start = end_row  # 0-indexed = end_row (1-indexed end_row means next row)
                 self.spreadsheet.batch_update({"requests": [
                     {
                         "repeatCell": {
                             "range": {
                                 "sheetId": sheet.id,
                                 "startRowIndex": end_row,
-                                "endRowIndex": end_row + 50,
-                                "startColumnIndex": 0,
-                                "endColumnIndex": 16,
+                                "endRowIndex": end_row + 100,
+                                "startColumnIndex": 1,
+                                "endColumnIndex": 2,
                             },
                             "cell": {"userEnteredFormat": {
                                 "backgroundColor": {"red": 1.0, "green": 1.0, "blue": 1.0},
@@ -545,7 +543,7 @@ class SheetsManager:
                             "range": {
                                 "sheetId": sheet.id,
                                 "startRowIndex": end_row,
-                                "endRowIndex": end_row + 50,
+                                "endRowIndex": end_row + 100,
                                 "startColumnIndex": 1,
                                 "endColumnIndex": 2,
                             },
