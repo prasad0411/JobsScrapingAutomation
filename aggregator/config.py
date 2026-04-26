@@ -146,7 +146,9 @@ MAX_RETRIES = 3
 RETRY_DELAY_SECONDS = 2
 BACKOFF_MULTIPLIER = 2
 
-BLACKLIST_DOMAINS = ["workatastartup.com"]
+BLACKLIST_DOMAINS = ["workatastartup.com"    "youtube.com",
+    "youtu.be",
+]
 
 PLATFORM_BLACKLIST = [
     "Sierra Space",
@@ -1661,6 +1663,11 @@ URL_TO_COMPANY_MAPPING = {
     r"jobs\.ashbyhq\.com/skydio": "Skydio",
     r"irhythmtech\.wd\d+\.myworkdayjobs\.com": "iRhythm Technologies",
     r"careers-ice\.icims\.com": "Intercontinental Exchange",
+    r"statestreet\.wd\d+\.myworkdayjobs\.com": "State Street",
+    r"hntb\.wd\d+\.myworkdayjobs\.com": "HNTB",
+    r"compass\.wd\d+\.myworkdayjobs\.com": "Radian",
+    r"verdantas\.wd\d+\.myworkdayjobs\.com": "Verdantas",
+    r"moog\.wd\d+\.myworkdayjobs\.com": "Moog",
     r"job-boards\.greenhouse\.io/billiontoone": "BillionToOne",
     r"job-boards\.greenhouse\.io/spacekinetic": "Space Kinetic",
     r"careers-axway\.icims\.com": "Axway",
