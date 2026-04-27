@@ -38,26 +38,44 @@ def _parse_row(row, outcome: str, headers: list = None) -> JobRecord:
         return row[idx].strip() if idx < len(row) and row[idx] else default
 
     if outcome == "valid":
+        # [0]Sr [1]Status [2]Company [3]Title [4]DateApplied [5]URL [6]JobID
+        # [7]JobType [8]Location [9]Resume [10]Remote [11]EntryDate [12]Source [13]Sponsorship
         return JobRecord(
             url=g(5), company=g(2), title=g(3), location=g(8),
-            source=g(11), outcome="valid", resume_type=g(9, "SDE"),
+            source=g(12), outcome="valid", resume_type=g(9, "SDE"),
             job_type=g(7, "Internship"), job_id=g(6, "N/A"),
-            remote=g(10, "Unknown"), sponsorship=g(12, "Unknown"),
-            entry_date=g(4), processed_at=g(13) or datetime.now().isoformat(),
+            remote=g(10, "Unknown"), sponsorship=g(13, "Unknown"),
+            entry_date=g(4), processed_at=g(11) or datetime.now().isoformat(),
         )
     elif outcome == "discarded":
+        # [0]Sr [1]DiscardReason [2]Company [3]Title [4]DateApplied [5]URL [6]JobID
+        # [7]JobType [8]Location [9]Remote [10]EntryDate [11]Source [12]Sponsorship
         return JobRecord(
-            url=g(4), company=g(2), title=g(3), location=g(7),
-            source=g(10), outcome="discarded", rejection_reason=g(1),
-            job_type=g(6, "Internship"), job_id=g(5, "N/A"),
-            entry_date=g(8), processed_at=g(9) or datetime.now().isoformat(),
+            url=g(5), company=g(2), title=g(3), location=g(8),
+            source=g(11) if g(11) in {"SimplifyJobs", "Jobright", "SWE List", "speedyapply_swe",
+                         "vanshb03", "ZipRecruiter", "Email", "GitHub", "Manual",
+                         "LinkedIn", "SWE List Email", "NU Works", "Discord"} else "Unknown",
+            outcome="discarded", rejection_reason=g(1),
+            job_type=g(7, "Internship"), job_id=g(6, "N/A"),
+            remote=g(9, "Unknown"),
+            entry_date=g(4), processed_at=g(10) or datetime.now().isoformat(),
         )
     elif outcome == "reviewed":
+        # [0]Sr [1]Reason [2]Company [3]Title [4]URL [5]JobID
+        # [6]JobType [7]Location [8]Remote [9]MovedDate [10]Source [11]Sponsorship
+        # Smart source detection: if index 10 looks like a timestamp, it's not the source
+        raw_source = g(10)
+        known_sources = {"SimplifyJobs", "Jobright", "SWE List", "speedyapply_swe",
+                         "vanshb03", "ZipRecruiter", "Email", "GitHub", "Manual",
+                         "LinkedIn", "SWE List Email", "NU Works", "Discord"}
+        if raw_source not in known_sources:
+            raw_source = "Unknown"
         return JobRecord(
             url=g(4), company=g(2), title=g(3), location=g(7),
-            source=g(10), outcome="reviewed", rejection_reason=g(1),
-            job_type=g(6, "Internship"),
-            entry_date=g(8), processed_at=g(9) or datetime.now().isoformat(),
+            source=raw_source, outcome="reviewed", rejection_reason=g(1),
+            job_type=g(6, "Internship"), job_id=g(5, "N/A"),
+            remote=g(8, "Unknown"),
+            entry_date="", processed_at=g(9) or datetime.now().isoformat(),
         )
     return None
 
