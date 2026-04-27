@@ -152,3 +152,4 @@ class TestAnomalyAlert:
             message="Down", current_rate=0, baseline_rate=20
         )
         assert "🚨" in str(alert)
+

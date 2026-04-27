@@ -234,3 +234,4 @@ class TestDataContracts:
         d = job.to_dict()
         assert isinstance(d, dict)
         assert d["company"] == "X"
+

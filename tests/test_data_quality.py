@@ -145,3 +145,4 @@ class TestTitleSimilarity:
         assert "intern" in tokens
         # Stopwords removed
         assert "the" not in tokens
+

@@ -260,3 +260,4 @@ class AnomalyDetector:
 
     def close(self):
         self.store.close()
+

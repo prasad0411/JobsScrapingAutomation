@@ -176,3 +176,4 @@ class DataQualityScorer:
                 f"{s['salary_pct']:5.1f}%"
             )
         return "\n".join(lines)
+

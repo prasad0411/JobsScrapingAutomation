@@ -1722,3 +1722,4 @@ def _ascii(text):
         return a if a else text
     except:
         return text
+

@@ -149,3 +149,4 @@ class TestModels:
     def test_source_metric(self):
         m = SourceMetric(source="Test", date="2026-04-26", fetched=100, valid=20)
         assert m.valid_rate == 0.0  # not auto-calculated
+

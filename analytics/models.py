@@ -61,3 +61,4 @@ class SourceMetric:
 
     def to_dict(self) -> dict:
         return asdict(self)
+

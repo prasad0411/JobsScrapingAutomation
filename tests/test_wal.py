@@ -154,3 +154,4 @@ class TestTransaction:
         assert tx.status == "pending"
         assert tx.retries == 0
         assert tx.max_retries == 3
+

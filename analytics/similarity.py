@@ -205,3 +205,4 @@ class TitleSimilarity:
                 round(sum(len(d["tokens"]) for d in self._documents) / max(self.size, 1), 1)
             ),
         }
+

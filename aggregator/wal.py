@@ -241,3 +241,4 @@ class WriteAheadLog:
             log.error(f"WAL: failed to write {path}: {e}")
             if os.path.exists(tmp_path):
                 os.remove(tmp_path)
+

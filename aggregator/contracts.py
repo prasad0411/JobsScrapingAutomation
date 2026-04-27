@@ -153,3 +153,4 @@ class JobContract:
                 normalized[str_field] = str(normalized[str_field]).strip()
 
         return cls.from_dict(normalized)
+

@@ -88,3 +88,4 @@ class StructuredFormatter(logging.Formatter):
                 prefix += f"[{ctx.stage}]"
             return f"{prefix} {base}"
         return base
+

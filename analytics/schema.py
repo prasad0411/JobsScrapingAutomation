@@ -137,3 +137,4 @@ def initialize_db(db_path: str) -> sqlite3.Connection:
     conn.commit()
     log.info(f"Analytics DB initialized at {db_path} (v{SCHEMA_VERSION})")
     return conn
+

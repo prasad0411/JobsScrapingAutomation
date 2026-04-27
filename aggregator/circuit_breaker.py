@@ -125,3 +125,4 @@ class CircuitBreakerRegistry:
     @classmethod
     def any_open(cls) -> bool:
         return any(cb.is_open for cb in cls._breakers.values())
+

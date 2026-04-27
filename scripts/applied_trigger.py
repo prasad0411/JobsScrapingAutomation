@@ -101,3 +101,4 @@ def run():
 if __name__ == "__main__":
     count = run()
     print(f"\n✓ Applied trigger: {count} rows updated")
+

@@ -130,3 +130,4 @@ if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO)
     incremental = "--incremental" in sys.argv
     backfill(incremental=incremental)
+

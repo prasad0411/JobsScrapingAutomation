@@ -89,3 +89,4 @@ class ConfigWatcher:
                 self.on_change()
             return True
         return False
+

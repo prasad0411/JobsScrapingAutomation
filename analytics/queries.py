@@ -56,3 +56,4 @@ class AnalyticsQueries:
 
     def close(self):
         self.store.close()
+
