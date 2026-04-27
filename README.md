@@ -1,152 +1,150 @@
 # Automated Job Hunt Pipeline
 
-End-to-end system that aggregates 8,000+ weekly internship postings, validates eligibility, discovers hiring manager emails, and sends personalized outreach — fully automated from a Northeastern University email address.
+End-to-end system that aggregates 8,000+ weekly internship postings, validates eligibility through a 25-stage pipeline, discovers hiring manager emails, and sends personalized outreach — fully automated with crash recovery, anomaly detection, and real-time analytics.
 
 **Built by [Prasad Kanade](https://prasad0411.github.io/Prasad-Portfolio) · MS Computer Science @ Northeastern University**
 
----
-
-## What It Does
-
-**Module 1 — Job Aggregator** scrapes GitHub repositories and Gmail alerts, validates each posting against 25+ eligibility criteria, deduplicates across 1,500+ tracked entries, and writes qualified jobs to Google Sheets with resume classification (SDE / ML / DA).
-
-**Module 2 — Outreach Pipeline** discovers hiring manager and recruiter emails via an 8-layer verification system, sends personalized emails with the right resume from `kanade.pra@northeastern.edu` via Microsoft Graph API, schedules timezone-aware delivery at 9:30 AM local time, and auto-retries on bounce.
-
-**Module 3 — Scheduler Daemon** runs all jobs on a permanent KeepAlive launchd process — survives Mac sleep, shutdown, and restarts with automatic missed-job catchup on wake.
-
-**Impact:** 6 hours/week → 15 minutes/week · Zero duplicate applications · 98%+ classification accuracy
+[![CI](https://github.com/prasad0411/JobsScrapingAutomation/actions/workflows/ci.yml/badge.svg)](https://github.com/prasad0411/JobsScrapingAutomation/actions)
+[![Tests](https://img.shields.io/badge/tests-237%20passed-brightgreen)]()
+[![Python](https://img.shields.io/badge/python-3.14-blue)]()
+[![Dashboard](https://img.shields.io/badge/dashboard-live-orange)](https://job-scraping-analytics.streamlit.app/)
 
 ---
 
-## Screenshots
-
-| Aggregator Output | Valid Entries Sheet |
-|---|---|
-| ![Aggregator](docs/screenshots/aggregator.png) | ![Valid Entries](docs/screenshots/valid_entries.png) |
-
-| Outreach Tracker | Nightly Digest |
-|---|---|
-| ![Outreach](docs/screenshots/outreach.png) | ![Digest](docs/screenshots/digest.png) |
-
----
-
-## Performance
+## Impact
 
 | Metric | Value |
 |---|---|
-| Weekly manual work | 15 min (was 6 hours) |
-| Valid jobs processed (all-time) | 605+ |
-| Currently tracked entries | 890+ |
-| Outreach emails sent | 130+ |
-| Email extraction rate | ~95% automated |
-| Domains with learned patterns | 219 |
-| Companies tracked in Brain | 134 |
-| Classification accuracy | 98%+ |
-| Duplicate applications | 0 |
-| Codebase size | 16,000+ lines · 18 production modules |
+| Weekly manual work | **15 min** (was 6 hours) |
+| Total jobs processed | **6,120+** across 12 dimensions |
+| Valid jobs discovered | **870+** |
+| Outreach emails sent | **262** |
+| Companies reached | **132** (270 LinkedIn messages) |
+| Domains with learned patterns | **219** |
+| Classification accuracy | **98%+** |
+| Duplicate applications | **0** |
+| Codebase | **27,500+ lines · 237 automated tests** |
 
 ---
 
-## How It Works
-
-### Aggregation Pipeline
+## Architecture
 
 ```
-GitHub Repos + Gmail Alerts
+SCHEDULER DAEMON (KeepAlive launchd · survives sleep/reboot)
+├── Aggregator (3x/day) ──→ 6 Sources ──→ Validation Pipeline ──→ WAL ──→ Sheets + Analytics DB
+├── Outreach (midnight) ──→ Brain Cache ──→ 8-Layer Email Discovery ──→ MS Graph Send
+├── Send Scheduled (4x/day) ──→ TZ-Aware Delivery ──→ Applied Trigger
+├── Watchdog (30 min) ──→ Docker + Token + Health Check
+├── Digest (12:22 AM) ──→ Anomaly Alerts + Data Quality Report
+└── Cleanup (7:30 AM) ──→ Log Rotation + Sheet Formatting
+
+DATA LAYER
+├── Google Sheets (Valid · Discarded · Outreach · Reviewed)
+├── SQLite Analytics DB (star schema · 6,120 jobs · 12 dimensions)
+├── brain.json (219 domains · 255 companies · Bayesian pattern learning)
+└── Write-Ahead Log (.local/wal/ · crash-safe sheet mutations)
+```
+
+---
+
+## Engineering Highlights
+
+### Resilience Patterns
+- **Write-Ahead Log (WAL):** Every sheet mutation is journaled before execution. Uncommitted transactions auto-replay on next startup — zero data loss on crash, network drop, or Ctrl+C.
+- **Circuit Breaker:** Generalized CLOSED→OPEN→HALF_OPEN pattern across Google Sheets API, Selenium, and email discovery APIs. Graceful degradation with automatic recovery.
+- **Retry with Exponential Backoff + Jitter:** All external API calls use decorrelated jitter to prevent thundering herd. Configurable max retries with dead letter routing.
+
+### Observability
+- **Structured Logging with Correlation IDs:** Every aggregator run gets a `run_id`, every job gets a `job_trace_id`. End-to-end tracing from source ingestion through validation to outreach delivery.
+- **Statistical Anomaly Detection:** Rolling Z-scores and SPC bounds (UCL/LCL at ±2σ) monitor source quality. Alerts surface in the nightly digest — monitor-only, never throttles volume.
+- **Data Quality Scoring:** 8-dimension completeness scoring (company, title, location, URL, job ID, salary, sponsorship, remote) with A-F grading and source-level breakdowns.
+
+### Data Engineering
+- **Star Schema Analytics Store:** SQLite warehouse with `jobs` fact table and 4 dimension tables. WAL mode, indexed for common query patterns, real-time ingestion on every aggregator run.
+- **ETL Pipeline:** Backfills from Google Sheets, then incremental real-time recording. 6,120 jobs backfilled across 12 dimensions.
+- **Feature Store:** 8 engineered features per job posting (source reliability, company history, title similarity, location density) for future ML scoring.
+
+### ML / NLP
+- **TF-IDF Cosine Similarity Dedup:** Pure Python TF-IDF engine catches near-duplicates that exact match misses. Zero false positives at 0.90 threshold.
+- **Bayesian Email Pattern Learning:** Brain tracks pattern success/failure rates per domain with exponential moving average. Ranks candidate patterns by posterior probability.
+
+### Software Architecture
+- **Pluggable Validation Pipeline:** 6 composable stages loaded from YAML config. Add/remove rules without code changes.
+- **Data Contracts:** Typed dataclasses with runtime validation and legacy field coercion across 18+ modules.
+- **Configuration Hot-Reload:** File watcher detects config changes and reloads without daemon restart.
+
+---
+
+## Pipeline Details
+
+### Aggregation
+
+```
+GitHub Repos + Gmail Alerts + Jobright + SWE List + ZipRecruiter
   → Resolve redirects (Simplify, Jobright, ZipRecruiter)
   → Fetch career pages (Selenium + BeautifulSoup)
-  → 25-stage validation (visa, degree, geography, role, salary, age...)
-  → Deduplicate (URL + company|title + job ID)
-  → Company name normalization + auto-learning (brain.json)
+  → 6-stage validation pipeline (title → location → page → age → salary → sponsorship)
+  → Deduplicate (URL + company|title + job ID + TF-IDF fuzzy match)
+  → Company normalization + auto-learning (brain.json)
   → Resume classification (SDE / ML / DA)
-  → Google Sheets output + SQLite run history
+  → WAL-protected Google Sheets write
+  → Real-time analytics recording (SQLite)
 ```
 
-### Email Discovery Pipeline
+### Email Discovery (8 Layers)
 
 ```
 Company + Hiring Manager Name
-  → Layer 1: Seed pattern cache (125+ companies, instant)
+  → Layer 1: Brain contact cache (verified contacts — instant)
   → Layer 2: DomainHistory (proven patterns from past deliveries)
-  → Layer 3: Brain contact cache (verified contacts — skips all API calls)
+  → Layer 3: PatternCache (125+ companies, learned success rates)
   → Layer 4: Microsoft 365 verification (definitive yes/no)
   → Layer 5: Website pattern mining
-  → Layer 6-7: Reacher SMTP verification
+  → Layer 6-7: Reacher SMTP verification (Docker)
   → Layer 8: API cascade (Apollo → Hunter → Snov → Prospeo)
-  → Layer 9: Statistical inference (first.last)
   → Pre-send bounce check → MS Graph send → Bounce auto-retry
 ```
 
-### Timezone-Aware Scheduling
+### Scheduler
+
+| Job | Schedule | Protection |
+|---|---|---|
+| Aggregator | 8 AM, 3 PM, 9 PM | WAL + Circuit Breaker |
+| Outreach | Midnight | Brain Cache + Dead Letter |
+| Send Scheduled | 9, 10:30, 11:30, 12:30 | TZ-aware + Applied Trigger |
+| Nightly Digest | 12:22 AM | Anomaly Alerts + DQ Report |
+| Cleanup | 7:30 AM | Log Rotation + Sheet Format |
+| Process Bounces | Every 30 min | Pattern Failure Learning |
+| Watchdog | Every 30 min | Docker + Token + Health |
+
+---
+
+## Source Quality (Live)
 
 ```
-Outreach midnight → discovers emails → schedules Send At = next business day 9:30 AM local
-  9:00 AM ET  → Eastern companies
-  10:30 AM ET → Central companies
-  11:30 AM ET → Mountain companies
-  12:30 PM ET → Pacific companies
+Source               Valid%   Volume
+Discord              100.0%        1
+LinkedIn             100.0%       18
+Manual                83.3%        6
+GitHub                57.9%       19
+Jobright              27.9%       86
+SimplifyJobs          21.9%      686
+SWE List               9.9%      476
 ```
 
 ---
 
-## Key Features
+## Test Coverage
 
-### Aggregation
-- **Sources:** SimplifyJobs + vanshb03 GitHub repos, Jobright, SWE List, ZipRecruiter, company newsletters
-- **Simplify metadata extraction:** location, remote status, no_h1b flag (immediate reject)
-- **Selenium fallback** for JS-heavy pages (Workday, Oracle, Ashby)
-- **HTTP response cache** (6-hour TTL, 500 entries max)
+```
+237 tests · 15 test files · <1s execution
 
-### 25-Stage Validation
-- Security clearance, ITAR, US Person, citizenship requirements
-- Visa rejection ("unable to sponsor" in all variants)
-- Degree filtering: undergrad-only, PhD-only, associate's degree
-- Role filtering: hardware, optics, RF, robotics, military, non-CS
-- Salary filter: rejects if listed and under $25/hr
-- Geographic filter: 40+ countries, Canadian provinces
-- Posting age: 3-day default threshold
-- Season detection (ignores copyright years, rejects wrong semester)
-- Auto-learning company names: URL domain → company saved to brain.json
-
-### Outreach
-- **8-layer email discovery** with confidence scoring
-- **Brain contact cache:** if a verified contact exists for a company, skips all API calls entirely
-- **DomainHistory:** instant resolution for known domains, zero API calls
-- **PatternCache:** learns from every successful delivery — 219 domains learned
-- **Auto-Extract:** sets Extract=yes for tech hub locations, sponsorship=Yes, PatternCache hits
-- **Bounce recovery:** uses DomainHistory to generate domain-informed retry patterns
-- **Dead letter queue:** after 3 failed attempts, marks row permanently
-
-### Scheduler (Permanent Daemon)
-- Single Python scheduler daemon with `KeepAlive=true` — managed by launchd, auto-restarts on crash, reboot, or login
-- Missed-job catchup on every Mac wake or restart
-- Per-job timeout limits (aggregator: 15 min, outreach: 30 min)
-- Auto-retry: failed jobs retry once after 30 minutes before waiting for next window
-- Thread isolation: one failed job cannot affect others
-- Atomic state writes: no JSON corruption on crash
-
-| Job | Schedule |
-|---|---|
-| Aggregator | 8 AM, 3 PM, 9 PM |
-| Send Scheduled | 9 AM, 10:30, 11:30, 12:30 |
-| Outreach | Midnight |
-| Nightly Digest | 12:22 AM |
-| Cleanup | 7:30 AM |
-| Auto-Blacklist | 12:30 AM |
-| Retry Simplify | 6 AM |
-| Process Bounces | Every 30 min |
-| Watchdog | Every 30 min |
-
-### Self-Healing & Intelligence
-- **Scheduler daemon:** single KeepAlive process, launchd auto-restarts on crash
-- **Watchdog:** monitors all job health files, auto-reruns stale or failed jobs, verifies MS token validity, auto-restarts Docker/Reacher
-- **MS token:** silent refresh on every init, email alert if refresh token expires
-- **ChromeDriver:** webdriver_manager auto-updates on macOS updates
-- **Sheets quota:** exponential backoff retry (5s → 10s → 20s → 40s → 80s)
-- **Brain pruning:** simplify retry queue, job ID registry, draft history auto-pruned on every save
-- **Log rotation:** automatic caps on all log files, 7-day cron log retention, daily .pyc cleanup
-- **Auto-blacklist:** weekly build from Discarded Entries (3+ same-reason rejections), with backup + syntax check before config modification
-- **Nightly digest:** email summary with aggregator stats, outreach sent/bounced counts, circuit breaker status, scheduler health table, API credit warnings
+URL mappings (40) · Salary extraction (10) · Undergrad detection (11)
+Location parsing (13) · Company normalization (12) · Title validation (11)
+Dedup (5) · Brain patterns (10) · Date parsing (9)
+Validation pipeline (16) · Analytics store (20) · Anomaly detection (9)
+WAL transactions (16) · Engineering patterns (33) · Data quality + TF-IDF (22)
+```
 
 ---
 
@@ -156,123 +154,69 @@ Outreach midnight → discovers emails → schedules Send At = next business day
 |---|---|
 | Core | Python 3.14, Google Sheets API, Gmail API, Microsoft Graph API |
 | Scraping | Selenium, BeautifulSoup4, Requests, webdriver-manager |
-| Email | dnspython, Reacher (Docker SMTP), Apollo, Hunter, Snov, Prospeo, MSAL |
-| Infrastructure | Single Python daemon (KeepAlive), SQLite, Docker |
-| Intelligence | brain.json learning system, PatternCache, DomainHistory, company_contacts |
-| Codebase | 16,000+ lines across 18 production modules |
+| Email | dnspython, Reacher (Docker), Apollo, Hunter, Snov, Prospeo, MSAL |
+| Analytics | SQLite (WAL mode), star schema, TF-IDF, Z-score anomaly detection |
+| Infrastructure | KeepAlive daemon (launchd), Write-Ahead Log, Circuit Breakers |
+| Testing | pytest (237 tests), GitHub Actions CI/CD |
+| Dashboard | [Streamlit (live)](https://job-scraping-analytics.streamlit.app/) |
+| Intelligence | brain.json (Bayesian learning, contact cache, domain history) |
 
 ---
 
-## Architecture
+## Repository Structure
 
 ```
-Job Hunt Tracker/
+Job Hunt Tracker/                         27,500+ lines
 ├── aggregator/
-│   ├── config.py          # Patterns, blacklists, normalizations (3,200+ lines)
-│   ├── extractors.py      # Page fetching, Simplify resolution, GitHub scraper
-│   ├── processors.py      # Validation, extraction, location (3,600+ lines)
-│   ├── run_aggregator.py  # Pipeline orchestration
-│   ├── sheets_manager.py  # Google Sheets (with quota retry)
-│   └── utils.py           # HTTP retry, sanitization
+│   ├── config.py                         # 3,200+ patterns, blacklists, normalizations
+│   ├── processors.py                     # 3,600+ lines: validation, extraction, location
+│   ├── run_aggregator.py                 # Orchestration + WAL + analytics recording
+│   ├── validation/                       # Pluggable validation pipeline (YAML config)
+│   ├── wal.py                            # Write-Ahead Log
+│   ├── circuit_breaker.py                # Generalized circuit breaker
+│   ├── retry.py                          # Exponential backoff + jitter
+│   ├── correlation.py                    # Correlation IDs + structured logging
+│   ├── hot_reload.py                     # Config file watcher
+│   └── contracts.py                      # Typed data contracts
+├── analytics/
+│   ├── schema.py                         # Star schema DDL
+│   ├── store.py                          # Analytics read/write + feature vectors
+│   ├── anomaly.py                        # Rolling Z-scores + SPC bounds
+│   ├── data_quality.py                   # 8-dimension quality scoring
+│   └── similarity.py                     # TF-IDF cosine similarity engine
 ├── outreach/
-│   ├── brain.py              # Shared intelligence layer — learns patterns, contacts, domains
-│   ├── outreach_config.py    # Column mapping, templates, API keys
-│   ├── outreach_data.py      # Sheets sync, PatternCache, bounce handling
-│   ├── outreach_finder.py    # 8-layer email discovery
-│   ├── outreach_mailer.py    # MS Graph sending + token self-refresh
-│   ├── outreach_provider.py  # MX lookup, M365 verification, web mining
-│   ├── outreach_verifier.py  # Confidence scoring, CircuitBreaker
-│   ├── bounce_scanner.py     # Gmail bounce detection
-│   └── run_outreach.py       # Pipeline orchestration
+│   ├── brain.py                          # Intelligence layer (patterns, contacts)
+│   ├── outreach_finder.py                # 8-layer email discovery
+│   └── run_outreach.py                   # Orchestration + Brain auto-fill
 ├── scripts/
-│   ├── scheduler.py           # KeepAlive daemon — owns all scheduled jobs
-│   ├── run_scheduler.sh       # Wrapper for launchd bootstrap
-│   ├── cron_runner.sh         # Job runner (resume sync, module exec, health files)
-│   ├── send_scheduled.py      # Timezone-aware email sender (4×/day)
-│   ├── nightly_digest.py      # Nightly summary email with scheduler health
-│   ├── auto_extract.py        # Auto-sets Extract=yes based on smart signals
-│   ├── build_auto_blacklist.py# Learns from rejections, updates config safely
-│   ├── cleanup_not_applied.py # Moves stale jobs + log rotation + file hygiene
-│   ├── process_bounces.py     # NDR processor → Brain pattern failure learning
-│   ├── retry_simplify.py      # Retries failed Simplify URL resolutions
-│   ├── watchdog.sh            # Health monitor + auto-rerun + token check
-│   └── resume_sync.sh         # Syncs latest resumes from Downloads
-└── .local/                    # Credentials, caches, logs (gitignored)
-    ├── brain.json             # Learned: 219 domains, 134 companies, patterns, contacts
-    ├── scheduler_state.json   # Last run times for all 9 jobs
-    ├── run_history.db         # SQLite: per-run stats
-    └── cron_logs/             # 7-day rotating job logs
+│   ├── scheduler.py                      # KeepAlive daemon
+│   ├── nightly_digest.py                 # Anomaly alerts + DQ report
+│   ├── applied_trigger.py                # Applied → instant Extract=yes
+│   └── autocommit.sh                     # Auto-generated commit messages
+├── dashboard/app.py                      # Streamlit analytics dashboard
+├── tests/                                # 237 tests across 15 files
+├── .github/workflows/ci.yml              # GitHub Actions CI
+└── .local/                               # brain.json, analytics.db, WAL (gitignored)
 ```
 
 ---
 
 ## Quick Start
 
-### Prerequisites
-- Python 3.12+, Docker, ChromeDriver
-- Google Sheets service account, Gmail OAuth, Northeastern Microsoft account
-
-### Setup
-
 ```bash
 python3 -m venv venv && source venv/bin/activate
 pip install -r requirements.txt
 docker compose up -d  # Reacher SMTP verifier
+python3 scripts/test_ms_auth.py  # One-time MS Graph auth
 
-# One-time MS Graph auth
-python3 scripts/test_ms_auth.py
-
-# Place resumes in Downloads (auto-synced before each run):
-# "Prasad Kanade SWE Resume.pdf"
-# "Prasad Kanade ML Resume.pdf"
-# "Prasad Kanade Data Resume.pdf"
-```
-
-### Environment
-
-```bash
-# .env
-HUNTER_API_KEY=
-APOLLO_API_KEY=
-PROSPEO_API_KEY=
-SNOV_API_KEY=
-SNOV_USER_ID=
-ANTHROPIC_API_KEY=   # optional
-SLACK_WEBHOOK_URL=   # optional
-```
-
-### Start Scheduler
-
-```bash
-# Install and start the KeepAlive daemon
+# Start daemon
 launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.prasad.jobtracker.scheduler.plist
 
-# Verify it's running
-launchctl print gui/$(id -u)/com.prasad.jobtracker.scheduler | grep -E "state|pid"
-
-# Monitor
-tail -f .local/scheduler.log
-```
-
-### Manual Runs
-
-```bash
-python3 -m aggregator                        # Aggregate new jobs
-python3 -m outreach                          # Find emails + create drafts
-python3 scripts/send_scheduled.py            # Send due emails now
-python3 scripts/cleanup_not_applied.py       # Clean sheet + rotate logs
-python3 scripts/watchdog.sh                  # Run health check
-```
-
-### Check Run History
-
-```bash
-python3 -c "
-import sqlite3
-for r in sqlite3.connect('.local/run_history.db').execute(
-    'SELECT ts,valid,discarded,failed_http FROM runs ORDER BY ts DESC LIMIT 10'):
-    print(r)
-"
+# Manual runs
+python3 -m aggregator          # Aggregate new jobs
+python3 -m outreach            # Find emails + create drafts
+python3 -m analytics.etl       # Backfill analytics DB
+python3 -m pytest tests/ -v    # Run all tests
 ```
 
 ---

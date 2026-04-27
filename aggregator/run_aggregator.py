@@ -2326,6 +2326,24 @@ class UnifiedJobAggregator:
                 self.outcomes["skipped_duplicate_company_title"] += 1
                 logging.info(f"DUPLICATE (company+title) | {company} | {title}")
                 return True
+            # TF-IDF fuzzy dedup: catch near-duplicates like
+            # "Software Engineering Intern" vs "Software Engineer - Intern"
+            try:
+                if not hasattr(self, "_similarity_engine"):
+                    from analytics.similarity import TitleSimilarity
+                    self._similarity_engine = TitleSimilarity()
+                    for existing in self.existing_jobs:
+                        parts = existing.split("_", 1)
+                        if len(parts) == 2:
+                            self._similarity_engine.add(parts[1], company=parts[0])
+                match = self._similarity_engine.is_near_duplicate(title, company=company, threshold=0.90)
+                if match:
+                    self.outcomes["skipped_duplicate_fuzzy"] = self.outcomes.get("skipped_duplicate_fuzzy", 0) + 1
+                    logging.info(f"DUPLICATE (fuzzy) | {company} | {title} ≈ {match.title} ({match.score:.2f})")
+                    return True
+                self._similarity_engine.add(title, company=company)
+            except Exception:
+                pass
             # Add norm_key to processing_lock so parallel threads see it as duplicate
             self.processing_lock.add(norm_key)
             self.processing_lock.add(clean_url)

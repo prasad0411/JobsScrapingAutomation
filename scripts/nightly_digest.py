@@ -191,7 +191,7 @@ def _outreach_queue_size():
         return -1
 
 
-def _build_html(stats, sent, bounced, errors, cb, pending, burn_alerts=None, sched_health=None):
+def _build_html(stats, sent, bounced, errors, cb, pending, burn_alerts=None, sched_health=None, anomaly_alerts=None, dq_report=None):
     now = datetime.datetime.now().strftime("%b %d, %Y %I:%M %p")
     ok_color = "#2d8a4e"
     warn_color = "#b45309"
@@ -240,6 +240,8 @@ def _build_html(stats, sent, bounced, errors, cb, pending, burn_alerts=None, sch
         f'<tr><td style="padding:4px 12px;color:#666;font-size:12px;">{job}</td><td style="padding:4px 12px;font-size:12px;color:{"#b91c1c" if v["stale"] else "#2d8a4e"};">{v["last_run"]} ({v["elapsed_h"]}h ago){" ⚠ STALE" if v["stale"] else " ✓"}</td></tr>'
         for job, v in (sched_health or {}).items()
       ) + '</table>' if sched_health else ''}
+      {f'<h3 style="color:#b45309;margin:20px 0 8px;">📊 Source Anomalies</h3><ul>' + ''.join(f'<li style="color:{"#b91c1c" if a.severity == "critical" else "#b45309" if a.severity == "warning" else "#666"};font-size:12px;margin:4px 0;">{str(a)}</li>' for a in (anomaly_alerts or [])) + '</ul>' if anomaly_alerts else ''}
+      {f'<h3 style="color:#444;margin:20px 0 8px;">📈 Data Quality</h3><pre style="font-size:11px;color:#555;background:#f8f8f8;padding:10px;border-radius:4px;overflow-x:auto;">' + (dq_report or '') + '</pre>' if dq_report else ''}
       <p style="color:#999;font-size:11px;margin-top:20px;">
         Sent from your Job Hunt Pipeline · kanade.pra@northeastern.edu
       </p>
@@ -273,7 +275,29 @@ def main():
         subject = "💳 " + subject
 
     sched_health = _scheduler_health()
-    html = _build_html(stats, sent, bounced, errors, cb, pending, burn_alerts, sched_health)
+
+    # Anomaly detection alerts
+    anomaly_alerts = []
+    try:
+        from analytics.anomaly import AnomalyDetector
+        detector = AnomalyDetector()
+        anomaly_alerts = detector.check_all_sources()
+        detector.close()
+    except Exception:
+        pass
+
+    # Data quality report
+    dq_report = ""
+    try:
+        from analytics.data_quality import DataQualityScorer
+        from analytics.store import AnalyticsStore
+        _dq_store = AnalyticsStore()
+        dq_report = DataQualityScorer.quality_report_text(_dq_store)
+        _dq_store.close()
+    except Exception:
+        pass
+
+    html = _build_html(stats, sent, bounced, errors, cb, pending, burn_alerts, sched_health, anomaly_alerts, dq_report)
 
     try:
         import requests as _req
