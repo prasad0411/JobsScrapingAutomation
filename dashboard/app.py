@@ -1029,3 +1029,4 @@ if __name__ == "__main__":
         main()
     with tab2:
         brain_tab()
+
