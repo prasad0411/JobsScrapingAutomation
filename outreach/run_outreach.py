@@ -175,6 +175,22 @@ def phase_draft_existing(sheets, mailer):
 
 
 def phase_extract_and_draft(sheets, finder, mailer):
+    # Auto-fill emails from Brain contacts before extraction
+    try:
+        filled = sheets.auto_fill_from_brain()
+        if filled:
+            print(f"  Brain auto-fill: {filled} contacts pre-populated")
+    except Exception as _af_e:
+        log.debug(f"Brain auto-fill skipped: {_af_e}")
+
+    # Format sheet: green Extract=yes, LinkedIn search links
+    try:
+        formatted = sheets.format_outreach_sheet()
+        if formatted:
+            print(f"  Formatted {formatted} Extract cells + LinkedIn links")
+    except Exception as _fmt_e:
+        log.debug(f"Sheet formatting skipped: {_fmt_e}")
+
     rows = sheets.rows_for_extraction()
     if not rows:
         return {

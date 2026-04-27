@@ -355,13 +355,15 @@ class Sheets:
                                 _extract_yes = True
                                 break
 
-                    # Signal 2b: job is already Applied in Valid Entries
+                    # Signal 2b: job is Applied in Valid Entries → high priority outreach
                     _status = ""
                     try:
                         for _vr in vdata[1:]:
-                            if len(_vr) > 2 and _vr[2].strip().lower() == _co_key[:20]:
-                                _status = _vr[1].strip().lower() if len(_vr) > 1 else ""
-                                break
+                            if len(_vr) > 2:
+                                _vr_key = _re.sub(r"[^a-z0-9]", "", _vr[2].strip().lower())
+                                if _vr_key == _co_key:
+                                    _status = _vr[1].strip().lower() if len(_vr) > 1 else ""
+                                    break
                     except Exception:
                         pass
                     if _status == "applied":
@@ -551,6 +553,185 @@ class Sheets:
     def sync_with_valid(self):
         """No-op: pull() now handles full sync including deletions."""
         pass
+
+    def auto_fill_from_brain(self):
+        """Auto-fill HM/Recruiter names and emails from Brain contacts.
+        
+        For rows with Extract=yes but empty HM Name:
+        1. Check Brain company_contacts for stored contacts
+        2. Pre-fill name + email if found (skips all API calls at extraction time)
+        
+        Returns count of rows auto-filled.
+        """
+        try:
+            from outreach.brain import Brain
+            import re as _re
+            b = Brain.get()
+            contacts = b._data.get("company_contacts", {})
+            if not contacts:
+                return 0
+
+            data = self.ws.get_all_values()
+            updates = []
+            filled = 0
+
+            for i, r in enumerate(data[1:], start=2):
+                r = _pad(r)
+                co = r[C["company"]].strip()
+                if not co:
+                    continue
+                extract = r[C["extract"]].strip().lower()
+                if extract != "yes":
+                    continue
+
+                co_key = _re.sub(r"[^a-z0-9]", "", co.lower())
+                co_contacts = contacts.get(co_key, {})
+
+                for role, name_col, email_col in [
+                    ("hm", "hm_name", "hm_email"),
+                    ("rec", "rec_name", "rec_email"),
+                ]:
+                    current_name = r[C[name_col]].strip()
+                    current_email = r[C[email_col]].strip()
+
+                    if current_email:
+                        continue  # already has email
+
+                    contact = co_contacts.get(role, {})
+                    if contact and contact.get("email") and not contact.get("bounced"):
+                        name = contact.get("name", "")
+                        email = contact.get("email", "")
+                        # Column letters for batch update
+                        name_letter = chr(65 + C[name_col])  # A=0, B=1, ...
+                        email_letter = chr(65 + C[email_col])
+                        if name and not current_name:
+                            updates.append({"range": f"{name_letter}{i}", "values": [[name]]})
+                        updates.append({"range": f"{email_letter}{i}", "values": [[email]]})
+                        filled += 1
+                        log.info(f"Brain auto-fill: {co} [{role}] → {email}")
+
+            if updates:
+                import time
+                for chunk in range(0, len(updates), 20):
+                    self.ws.batch_update(updates[chunk:chunk+20], value_input_option="USER_ENTERED")
+                    time.sleep(1)
+                log.info(f"Auto-filled {filled} contacts from Brain")
+            return filled
+        except Exception as e:
+            log.warning(f"Brain auto-fill failed: {e}")
+            return 0
+
+    def format_outreach_sheet(self):
+        """
+        Format the Outreach Tracker for efficient manual work:
+        1. Color Extract=yes cells green
+        2. Add LinkedIn search links for companies without HM/Recruiter names
+        3. Add priority indicators
+        """
+        try:
+            import re as _re
+            data = self.ws.get_all_values()
+            if len(data) < 2:
+                return
+
+            ss = self.ws.spreadsheet
+            extract_col = C["extract"]  # Column D (index 3)
+
+            # ── 1. Color Extract=yes cells green ──────────────────────────
+            color_requests = []
+            for i, r in enumerate(data[1:], 1):  # 0-indexed for API
+                r = _pad(r)
+                extract_val = r[extract_col].strip().lower()
+                if extract_val == "yes":
+                    color_requests.append({
+                        "repeatCell": {
+                            "range": {
+                                "sheetId": self.ws.id,
+                                "startRowIndex": i,
+                                "endRowIndex": i + 1,
+                                "startColumnIndex": extract_col,
+                                "endColumnIndex": extract_col + 1,
+                            },
+                            "cell": {"userEnteredFormat": {
+                                "backgroundColor": {"red": 0.58, "green": 0.93, "blue": 0.31},
+                                "textFormat": {"bold": True},
+                            }},
+                            "fields": "userEnteredFormat.backgroundColor,userEnteredFormat.textFormat.bold",
+                        }
+                    })
+                elif extract_val == "skip":
+                    color_requests.append({
+                        "repeatCell": {
+                            "range": {
+                                "sheetId": self.ws.id,
+                                "startRowIndex": i,
+                                "endRowIndex": i + 1,
+                                "startColumnIndex": extract_col,
+                                "endColumnIndex": extract_col + 1,
+                            },
+                            "cell": {"userEnteredFormat": {
+                                "backgroundColor": {"red": 0.9, "green": 0.9, "blue": 0.9},
+                            }},
+                            "fields": "userEnteredFormat.backgroundColor",
+                        }
+                    })
+
+            if color_requests:
+                import time
+                for chunk in range(0, len(color_requests), 200):
+                    ss.batch_update({"requests": color_requests[chunk:chunk+200]})
+                    time.sleep(0.5)
+                log.info(f"Formatted {len(color_requests)} Extract cells")
+
+            # ── 2. Add LinkedIn search links for empty HM/Recruiter ───────
+            link_updates = []
+            for i, r in enumerate(data[1:], start=2):
+                r = _pad(r)
+                co = r[C["company"]].strip()
+                if not co:
+                    continue
+                extract_val = r[extract_col].strip().lower()
+                if extract_val != "yes":
+                    continue
+
+                hm_name = r[C["hm_name"]].strip()
+                hm_li = r[C["hm_linkedin"]].strip()
+                rec_name = r[C["rec_name"]].strip()
+                rec_li = r[C["rec_linkedin"]].strip()
+
+                # URL-encode company name for LinkedIn search
+                co_encoded = co.replace(" ", "%20")
+
+                # If HM LinkedIn is empty and no HM name, add a search link
+                if not hm_name and not hm_li:
+                    search_url = f"https://www.linkedin.com/search/results/people/?keywords={co_encoded}%20engineering%20manager&origin=GLOBAL_SEARCH_HEADER"
+                    hm_li_col = chr(65 + C["hm_linkedin"])
+                    link_updates.append({
+                        "range": f"{hm_li_col}{i}",
+                        "values": [[search_url]]
+                    })
+
+                # Same for Recruiter
+                if not rec_name and not rec_li:
+                    search_url = f"https://www.linkedin.com/search/results/people/?keywords={co_encoded}%20recruiter&origin=GLOBAL_SEARCH_HEADER"
+                    rec_li_col = chr(65 + C["rec_linkedin"])
+                    link_updates.append({
+                        "range": f"{rec_li_col}{i}",
+                        "values": [[search_url]]
+                    })
+
+            if link_updates:
+                import time
+                for chunk in range(0, len(link_updates), 20):
+                    self.ws.batch_update(link_updates[chunk:chunk+20], value_input_option="USER_ENTERED")
+                    time.sleep(1)
+                log.info(f"Added {len(link_updates)} LinkedIn search links")
+
+            return len(color_requests)
+
+        except Exception as e:
+            log.warning(f"Outreach formatting failed: {e}")
+            return 0
 
     def rows_for_extraction(self):
         data = self.ws.get_all_values()

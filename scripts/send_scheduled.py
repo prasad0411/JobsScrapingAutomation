@@ -337,6 +337,15 @@ def _rec_sent(sl, email, subj):
 # ── main ──────────────────────────────────────────────────────────────────────
 
 def main():
+    # Run applied trigger first — sets Extract=yes for newly Applied jobs
+    try:
+        from scripts.applied_trigger import run as _applied_trigger
+        _at_count = _applied_trigger()
+        if _at_count:
+            print(f"  Applied trigger: {_at_count} rows set to Extract=yes")
+    except Exception as _at_e:
+        pass  # non-critical, don't block sending
+
     try:
         from zoneinfo import ZoneInfo
     except ImportError:
