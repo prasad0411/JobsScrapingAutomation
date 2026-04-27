@@ -1,0 +1,11 @@
+# Validation Pipeline Configuration
+# Stages run in declared order. First rejection stops the pipeline.
+# Add/remove stages without code changes.
+
+stages:
+  - title_validation
+  - international_check
+  - page_restrictions
+  - name: age_check
+    max_age_days: 3
+  - salary_check
