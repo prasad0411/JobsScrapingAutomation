@@ -512,12 +512,114 @@ class UnifiedJobAggregator:
             pass
 
         rows = self.sheets.get_next_row_numbers()
+
+        # ── WAL: wrap sheet writes in transactions for crash safety ──
+        _wal = None
+        _tx_valid = None
+        _tx_discarded = None
+        try:
+            from aggregator.wal import WriteAheadLog
+            _wal = WriteAheadLog()
+            # Replay any pending transactions from previous crashed runs
+            _pending = _wal.get_pending()
+            if _pending:
+                logging.info(f"WAL: {len(_pending)} pending transactions from previous run")
+                _wal.replay_pending()
+        except Exception as _wal_e:
+            logging.debug(f"WAL init: {_wal_e}")
+
+        # Write valid jobs with WAL protection
+        try:
+            if _wal and self.valid_jobs:
+                _tx_valid = _wal.begin("add_valid_jobs", {
+                    "count": len(self.valid_jobs),
+                    "start_row": rows["valid"],
+                })
+        except Exception:
+            pass
+
         added_valid = self.sheets.add_valid_jobs(
             self.valid_jobs, rows["valid"], rows["valid_sr_no"]
         )
+
+        try:
+            if _wal and _tx_valid:
+                _wal.commit(_tx_valid)
+        except Exception:
+            pass
+
+        # Write discarded jobs with WAL protection
+        try:
+            if _wal and self.discarded_jobs:
+                _tx_discarded = _wal.begin("add_discarded_jobs", {
+                    "count": len(self.discarded_jobs),
+                    "start_row": rows["discarded"],
+                })
+        except Exception:
+            pass
+
         added_discarded = self.sheets.add_discarded_jobs(
             self.discarded_jobs, rows["discarded"], rows["discarded_sr_no"]
         )
+
+        try:
+            if _wal and _tx_discarded:
+                _wal.commit(_tx_discarded)
+        except Exception:
+            pass
+
+        # ── Analytics: record every processed job in real-time ──
+        try:
+            from analytics.store import AnalyticsStore
+            from analytics.models import JobRecord
+            from datetime import datetime
+            _astore = AnalyticsStore()
+            _run_id = datetime.now().strftime("run_%Y%m%d_%H%M%S")
+            _analytics_jobs = []
+
+            for j in self.valid_jobs:
+                _analytics_jobs.append(JobRecord(
+                    url=j.get("url", ""),
+                    company=j.get("company", "Unknown"),
+                    title=j.get("title", "Unknown"),
+                    location=j.get("location", "Unknown"),
+                    source=j.get("source", "Unknown"),
+                    outcome="valid",
+                    resume_type=j.get("resume_type", "SDE"),
+                    job_type=j.get("job_type", "Internship"),
+                    job_id=j.get("job_id", "N/A"),
+                    remote=j.get("remote", "Unknown"),
+                    sponsorship=j.get("sponsorship", "Unknown"),
+                    entry_date=j.get("entry_date", ""),
+                ))
+
+            for d in self.discarded_jobs:
+                _analytics_jobs.append(JobRecord(
+                    url=d.get("url", ""),
+                    company=d.get("company", "Unknown"),
+                    title=d.get("title", "Unknown"),
+                    location=d.get("location", "Unknown"),
+                    source=d.get("source", "Unknown"),
+                    outcome="discarded",
+                    rejection_reason=d.get("reason", ""),
+                    job_type=d.get("job_type", "Internship"),
+                    job_id=d.get("job_id", "N/A"),
+                    entry_date=d.get("entry_date", ""),
+                ))
+
+            if _analytics_jobs:
+                _astore.record_jobs_batch(_analytics_jobs, run_id=_run_id)
+                logging.info(f"Analytics: recorded {len(_analytics_jobs)} jobs (run={_run_id})")
+            _astore.close()
+        except Exception as _a_e:
+            logging.debug(f"Analytics recording skipped: {_a_e}")
+
+        # ── WAL cleanup: remove old committed transactions ──
+        try:
+            if _wal:
+                _wal.cleanup_committed(max_age_days=7)
+        except Exception:
+            pass
 
         self._print_summary()
         elapsed = time.time() - start_time
