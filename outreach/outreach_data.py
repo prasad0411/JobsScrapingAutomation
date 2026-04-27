@@ -683,50 +683,6 @@ class Sheets:
                     time.sleep(0.5)
                 log.info(f"Formatted {len(color_requests)} Extract cells")
 
-            # ── 2. Add LinkedIn search links for empty HM/Recruiter ───────
-            link_updates = []
-            for i, r in enumerate(data[1:], start=2):
-                r = _pad(r)
-                co = r[C["company"]].strip()
-                if not co:
-                    continue
-                extract_val = r[extract_col].strip().lower()
-                if extract_val != "yes":
-                    continue
-
-                hm_name = r[C["hm_name"]].strip()
-                hm_li = r[C["hm_linkedin"]].strip()
-                rec_name = r[C["rec_name"]].strip()
-                rec_li = r[C["rec_linkedin"]].strip()
-
-                # URL-encode company name for LinkedIn search
-                co_encoded = co.replace(" ", "%20")
-
-                # If HM LinkedIn is empty and no HM name, add a search link
-                if not hm_name and not hm_li:
-                    search_url = f"https://www.linkedin.com/search/results/people/?keywords={co_encoded}%20engineering%20manager&origin=GLOBAL_SEARCH_HEADER"
-                    hm_li_col = chr(65 + C["hm_linkedin"])
-                    link_updates.append({
-                        "range": f"{hm_li_col}{i}",
-                        "values": [[search_url]]
-                    })
-
-                # Same for Recruiter
-                if not rec_name and not rec_li:
-                    search_url = f"https://www.linkedin.com/search/results/people/?keywords={co_encoded}%20recruiter&origin=GLOBAL_SEARCH_HEADER"
-                    rec_li_col = chr(65 + C["rec_linkedin"])
-                    link_updates.append({
-                        "range": f"{rec_li_col}{i}",
-                        "values": [[search_url]]
-                    })
-
-            if link_updates:
-                import time
-                for chunk in range(0, len(link_updates), 20):
-                    self.ws.batch_update(link_updates[chunk:chunk+20], value_input_option="USER_ENTERED")
-                    time.sleep(1)
-                log.info(f"Added {len(link_updates)} LinkedIn search links")
-
             return len(color_requests)
 
         except Exception as e:
