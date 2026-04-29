@@ -1036,12 +1036,44 @@ class UnifiedJobAggregator:
                 "socure": "socure",
                 "dmatrix": "d-matrix",
                 "ashbyhq": None,  # ashby is an ATS, not a company
+                "kbr": "kbr",
+                "transunion": "transunion",
+                "ascendperformancematerials": "ascend performance materials",
+                "curtisswright": "curtiss-wright",
+                "haier": "haier",
+                "cambiumlearning": "cambium learning",
+                "salliemae": "sallie mae",
             }
             if _domain_slug in _known_workday_companies:
-                _expected = re.sub(r"[^a-z0-9]", "", _known_workday_companies[_domain_slug])
-                if _expected not in _company_norm and _company_norm not in _expected:
-                    # Log mismatch but continue — job still processed normally
-                    logging.info(f"URL-COMPANY MISMATCH (logged only) | {company_from_github} | URL domain: {_domain_slug}")
+                _expected_name = _known_workday_companies[_domain_slug]
+                if _expected_name:
+                    _expected = re.sub(r"[^a-z0-9]", "", _expected_name)
+                    if _expected not in _company_norm and _company_norm not in _expected:
+                        logging.info(f"URL-COMPANY MISMATCH: '{company_from_github}' → '{_expected_name}' (from URL domain: {_domain_slug})")
+                        company_from_github = _expected_name.title()
+
+            # General Workday mismatch: extract company from subdomain
+            elif "myworkdayjobs.com" in _url_domain:
+                _wd_slug = _url_domain.split(".")[0].lower()
+                _wd_norm = re.sub(r"[^a-z0-9]", "", _wd_slug)
+                if len(_wd_norm) > 3 and _wd_norm not in _company_norm and _company_norm not in _wd_norm:
+                    # URL domain company doesn't match GitHub company — use URL mapping
+                    _url_result = CompanyExtractor.extract_from_url_mapping(resolved_url)
+                    if _url_result and _url_result.value:
+                        logging.info(f"URL-COMPANY FIX: '{company_from_github}' → '{_url_result.value}' (from URL mapping)")
+                        company_from_github = _url_result.value
+                    else:
+                        logging.info(f"URL-COMPANY MISMATCH: '{company_from_github}' vs domain '{_wd_slug}' (no mapping, using URL domain)")
+                        company_from_github = _wd_slug.replace("-", " ").replace("_", " ").title()
+
+            # Greenhouse/Lever/Ashby/Workable: extract from URL path
+            elif any(ats in _url_domain for ats in ["greenhouse.io", "lever.co", "ashbyhq.com", "workable.com"]):
+                _url_result = CompanyExtractor.extract_from_url_mapping(resolved_url)
+                if _url_result and _url_result.value:
+                    _url_co_norm = re.sub(r"[^a-z0-9]", "", _url_result.value.lower())
+                    if _url_co_norm not in _company_norm and _company_norm not in _url_co_norm:
+                        logging.info(f"URL-COMPANY FIX: '{company_from_github}' → '{_url_result.value}' (from ATS URL)")
+                        company_from_github = _url_result.value
         except Exception:
             pass
 
