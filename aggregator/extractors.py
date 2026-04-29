@@ -595,6 +595,7 @@ class SimplifyRedirectResolver:
                     if "No H1B" in page_text[:3000] or "no h1b" in page_text[:3000].lower():
                         meta["no_h1b"] = True
 
+                            # WARNING: shared class state — unreliable with concurrent threads
                 SimplifyRedirectResolver._last_metadata = meta
                 if meta.get("location"):
                     logging.info(f"Simplify metadata: location={meta['location']}, remote={meta.get('remote','?')}, salary_min={meta.get('salary_min','?')}")
