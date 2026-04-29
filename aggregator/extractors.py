@@ -1394,6 +1394,17 @@ class EmailExtractor:
                 title_hint = ""
                 if strong:
                     company_hint = strong.get_text().strip().rstrip(":").strip()
+                    # Validate: reject if company looks like a date/season/title
+                    import re as _swe_re
+                    _bad_company = (
+                        _swe_re.match(r'^(?:Fall|Spring|Summer|Winter)\s+20\d{2}$', company_hint, _swe_re.I)
+                        or _swe_re.match(r'^(?:Visiting|Senior|Junior|Lead|Staff)\s+', company_hint, _swe_re.I)
+                        or _swe_re.match(r'^(?:Intern|Co-op|Engineer|Developer|Analyst)', company_hint, _swe_re.I)
+                        or len(company_hint) > 60
+                        or not company_hint
+                    )
+                    if _bad_company:
+                        company_hint = ""
                 title_hint = link.get_text().strip()
                 # Store as tuple (url, company_hint, title_hint) for SWE List
                 urls.append((url, company_hint, title_hint))

@@ -3588,6 +3588,10 @@ class CompanyExtractor:
         text_lower = text.lower()
         if any(p in text_lower for p in ["submit your", "sign in", "apply now"]):
             return True
+        # Reject page titles like "ICF Jobs", "RTS Careers", "Company - Careers"
+        import re as _tt_re
+        if _tt_re.match(r'^[A-Za-z\s]{2,20}\s+(?:Jobs|Careers|Openings|Positions)$', text.strip(), _tt_re.I):
+            return True
         return (
             sum(
                 1

@@ -2787,6 +2787,9 @@ COMPANY_HQ = {
 }
 
 GARBAGE_COMPANY_NAMES = {
+    "rts",
+    "rts careers",
+    "icf jobs",
     "myworkdayjobs",
     "www",
     "job-boards",
@@ -3264,6 +3267,7 @@ COMPANY_NAME_FIXES = {
 
 # City to state mapping for location normalization
 CITY_TO_STATE_EXTRA = {
+    "clearwater": "FL",
     "raleigh": "NC", "durham": "NC", "charlotte": "NC", "chapel hill": "NC",
     "san francisco": "CA", "san jose": "CA", "santa clara": "CA", "sunnyvale": "CA",
     "mountain view": "CA", "palo alto": "CA", "menlo park": "CA", "cupertino": "CA",
