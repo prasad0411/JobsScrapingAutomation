@@ -3690,3 +3690,49 @@ class QualityScorer:
     @staticmethod
     def is_acceptable_quality(score, min_score=4):
         return score >= min_score
+
+
+# ── Fuzzy City Correction ──────────────────────────────────────────────
+_COMMON_CITIES = {
+    "farmington": "Farmington", "clearwater": "Clearwater",
+    "springfield": "Springfield", "binghamton": "Binghamton",
+    "pittsburgh": "Pittsburgh", "indianapolis": "Indianapolis",
+    "minneapolis": "Minneapolis", "philadelphia": "Philadelphia",
+    "albuquerque": "Albuquerque", "sacramento": "Sacramento",
+    "jacksonville": "Jacksonville", "san francisco": "San Francisco",
+    "los angeles": "Los Angeles", "new york": "New York",
+}
+
+def _fuzzy_fix_city(city_str):
+    """Fix garbled city names using edit distance against known cities."""
+    if not city_str or len(city_str) < 4:
+        return city_str
+    city_lower = city_str.lower().strip()
+    # Direct match
+    if city_lower in _COMMON_CITIES:
+        return _COMMON_CITIES[city_lower]
+    # Edit distance check for short strings
+    best_match = None
+    best_dist = 3  # max 2 edits
+    for known in _COMMON_CITIES:
+        if abs(len(known) - len(city_lower)) > 2:
+            continue
+        dist = _levenshtein(city_lower, known)
+        if dist < best_dist:
+            best_dist = dist
+            best_match = _COMMON_CITIES[known]
+    return best_match if best_match else city_str
+
+def _levenshtein(s1, s2):
+    """Simple Levenshtein distance."""
+    if len(s1) < len(s2):
+        return _levenshtein(s2, s1)
+    if len(s2) == 0:
+        return len(s1)
+    prev = range(len(s2) + 1)
+    for i, c1 in enumerate(s1):
+        curr = [i + 1]
+        for j, c2 in enumerate(s2):
+            curr.append(min(prev[j + 1] + 1, curr[j] + 1, prev[j] + (c1 != c2)))
+        prev = curr
+    return prev[len(s2)]

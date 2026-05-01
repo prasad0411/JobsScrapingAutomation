@@ -11,6 +11,8 @@ import sqlite3
 from collections import defaultdict
 from bs4 import BeautifulSoup
 
+from aggregator.url_validator import validate_job, validate_job_integrity
+from aggregator.source_health import SourceHealthMonitor
 from aggregator.config import (
     SIMPLIFY_URL,
     VANSHB03_URL,
@@ -1076,6 +1078,15 @@ class UnifiedJobAggregator:
                         company_from_github = _url_result.value
         except Exception:
             pass
+
+        # ── URL-Company Validator (self-healing) ──
+        _vj = validate_job({"company": company_from_github, "title": title, "url": resolved_url})
+        company_from_github = _vj["company"]
+        title = _vj.get("title", title)
+        _ok, _why = validate_job_integrity(_vj)
+        if not _ok:
+            logging.info(f"INTEGRITY FAIL: {company_from_github} | {_why}")
+            return
 
         if self._is_duplicate(company_from_github, title, resolved_url):
             return
