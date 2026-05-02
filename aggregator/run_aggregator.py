@@ -1079,6 +1079,17 @@ class UnifiedJobAggregator:
         except Exception:
             pass
 
+        # ── Advanced degree filter (🎓 emoji from GitHub source) ──
+        if '🎓' in title or '🎓' in company_from_github:
+            logging.info(f"REJECT: Advanced degree role: {company_from_github} | {title}")
+            return
+
+        # ── MBA-only filter ──
+        import re as _re
+        if _re.search(r'\bmba\b', title, _re.I) and not _re.search(r'(?:software|swe|engineer|data|ml|ai)', title, _re.I):
+            logging.info(f"REJECT: MBA-only role: {company_from_github} | {title}")
+            return
+
         # ── URL-Company Validator (self-healing) ──
         _vj = validate_job({"company": company_from_github, "title": title, "url": resolved_url})
         company_from_github = _vj["company"]

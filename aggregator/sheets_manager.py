@@ -779,6 +779,10 @@ class SheetsManager:
             'genai', 'large language', 'llm', 'foundation model',
             'agentic', 'ai agent', 'autonomous ai', 'multimodal',
             'diffusion model', 'nlp', 'neural', '/ml', 'ml/', 'cv/ml', 'ml/dl', 'ai/ml',
+            'ai engineer', 'ai engineering', 'ai intern', 'ai research',
+            'applied ai', 'ai application', 'ai automation', 'ai operations',
+            'ai platform', 'ai retail', 'ai strategy', 'ai/data',
+            'research scientist', 'perception', 'robotics ai',
         ]
         if any(kw in t for kw in ml_strong):
             return 'ML'
