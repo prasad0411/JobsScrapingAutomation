@@ -603,16 +603,39 @@ class SheetsManager:
                 time.sleep(1)
 
     def _apply_status_colors(self, sheet, start_row, end_row):
+        """Color ALL status cells in the sheet, not just new rows.
+        Also clears color on empty rows."""
         try:
             all_data = sheet.get_all_values()
             color_requests = []
 
-            for row_idx in range(start_row - 1, min(end_row, len(all_data))):
-                if row_idx < 1 or len(all_data[row_idx]) < 2:
+            # Color ALL rows from row 2 to last data row
+            for row_idx in range(1, len(all_data)):
+                if len(all_data[row_idx]) < 2:
                     continue
 
                 status = all_data[row_idx][1].strip()
                 color = STATUS_COLORS.get(status)
+
+                # If row is empty (no company in col C), clear the color
+                company = all_data[row_idx][2].strip() if len(all_data[row_idx]) > 2 else ""
+                if not company and not status:
+                    color_requests.append({
+                        "repeatCell": {
+                            "range": {
+                                "sheetId": sheet.id,
+                                "startRowIndex": row_idx,
+                                "endRowIndex": row_idx + 1,
+                                "startColumnIndex": 1,
+                                "endColumnIndex": 2,
+                            },
+                            "cell": {"userEnteredFormat": {
+                                "backgroundColor": {"red": 1.0, "green": 1.0, "blue": 1.0},
+                            }},
+                            "fields": "userEnteredFormat.backgroundColor",
+                        }
+                    })
+                    continue
 
                 if color:
                     text_color = (
