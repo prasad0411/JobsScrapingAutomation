@@ -1825,6 +1825,15 @@ class UnifiedJobAggregator:
                 self.source_stats[sender]["rejected"] += 1
                 return
 
+            # ── URL-Company Validator (self-healing) ──
+            job_data = validate_job(job_data)
+            _ok, _why = validate_job_integrity(job_data)
+            if not _ok:
+                logging.info(f"INTEGRITY FAIL: {job_data.get('company', '?')} | {_why}")
+                return
+            company = job_data.get("company", company)
+            title = job_data.get("title", title)
+
             self.valid_jobs.append(job_data)
             self.outcomes["valid"] += 1
             self.existing_jobs.add(ct_key)
@@ -2333,6 +2342,15 @@ class UnifiedJobAggregator:
                 self._print_rejected(company, f"Low quality ({quality})")
                 logging.info(f"REJECTED | {company} | {title} | Low quality: {quality}")
                 return None
+
+            # ── URL-Company Validator (self-healing) ──
+            job_data = validate_job(job_data)
+            _ok, _why = validate_job_integrity(job_data)
+            if not _ok:
+                logging.info(f"INTEGRITY FAIL: {job_data.get('company', '?')} | {_why}")
+                return None
+            company = job_data.get("company", company)
+            title = job_data.get("title", title)
 
             with getattr(self, "_github_lock", _NOOP_LOCK):
                 self.valid_jobs.append(job_data)

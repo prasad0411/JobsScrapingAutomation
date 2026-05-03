@@ -48,6 +48,27 @@ _SLUG_NOISE = re.compile(
 )
 
 
+# Known Workday subdomain -> real company name
+_WORKDAY_COMPANY_MAP = {
+    "vst": "Vistra", "msigna": "MSIG USA", "haier": "GE Appliances",
+    "edel": "Oracle", "ulse": "UL Solutions", "kbr": "KBR",
+    "bloomenergy": "Bloom Energy", "thermofisher": "Thermo Fisher Scientific",
+    "radiancetech": "Radiance Technologies", "cambiumlearning": "Cambium Learning",
+    "geisinger": "Geisinger", "intel": "Intel", "cadence": "Cadence Design Systems",
+    "aero": "AeroVironment", "rbc": "RBC", "aptiv": "Aptiv",
+    "viavisolutions": "Viavi Solutions", "tutorperini": "Tutor Perini",
+    "nvidia": "Nvidia",
+}
+
+# Known custom career site domains
+_CUSTOM_CAREER_DOMAINS = {
+    "mhicareers.com": "Mitsubishi Heavy Industries",
+    "fahertybrand.com": "Faherty Brand",
+    "amazon.jobs": "Amazon",
+    "tesla.com": "Tesla",
+}
+
+
 def _load_url_cache():
     """Load URL-company cache from brain.json."""
     try:
@@ -84,16 +105,30 @@ def extract_company_from_url(url):
     except Exception:
         return None
 
-    # Check URL-company cache first
-    cache = _load_url_cache()
-    domain_key = domain.split(".")[0] if "myworkdayjobs" in domain else domain
-    if domain_key in cache:
-        return cache[domain_key]
+    # Check custom career domains first (highest priority)
+    for cd, cn in _CUSTOM_CAREER_DOMAINS.items():
+        if cd in domain:
+            return cn
 
-    # Workday: company is the subdomain
+    # Workday: check known company map BEFORE cache
     m = _WORKDAY_PATTERN.match(domain)
     if m:
         slug = m.group(1).lower()
+        if slug in _WORKDAY_COMPANY_MAP:
+            return _WORKDAY_COMPANY_MAP[slug]
+
+    # Check URL-company cache
+    cache = _load_url_cache()
+    if "myworkdayjobs" in domain or "myworkdaysite" in domain:
+        cache_key = domain.split(".")[0]
+    elif any(ats in domain for ats in ["greenhouse", "lever", "ashby", "workable", "icims"]):
+        path_parts = [p for p in path.split("/") if p and len(p) > 2]
+        slug = path_parts[0] if path_parts else ""
+        cache_key = f"{domain}/{slug}" if slug else None
+    else:
+        cache_key = domain
+    if cache_key and cache_key in cache:
+        return cache[cache_key]
         if slug not in _ATS_NAMES and len(slug) > 2:
             company = slug.replace("-", " ").replace("_", " ").strip().title()
             return company
@@ -120,17 +155,7 @@ def extract_company_from_url(url):
         if m and m.group(1) not in _ATS_NAMES:
             return m.group(1).replace("-", " ").title()
 
-    # Amazon
-    if "amazon.jobs" in domain:
-        return "Amazon"
-
-    # Tesla
-    if "tesla.com" in domain:
-        return "Tesla"
-
-    # NVIDIA
-    if "nvidia" in domain:
-        return "Nvidia"
+    # (Amazon, Tesla, NVIDIA handled by _CUSTOM_CAREER_DOMAINS above)
 
     return None
 
@@ -170,23 +195,94 @@ def extract_title_from_url(url):
     return None
 
 
+def _is_authoritative_match(url):
+    """Check if URL company comes from a KNOWN mapping (high confidence only).
+    Only returns True for Workday known map and custom career domains.
+    Path-based ATS (Greenhouse, Lever, Ashby) use fuzzy matching instead."""
+    try:
+        from urllib.parse import urlparse
+        parsed = urlparse(url)
+        domain = parsed.netloc.lower().replace("www.", "")
+        # Custom career domains — always authoritative
+        for cd in _CUSTOM_CAREER_DOMAINS:
+            if cd in domain:
+                return True
+        # Workday known map — always authoritative
+        m = _WORKDAY_PATTERN.match(domain)
+        if m and m.group(1).lower() in _WORKDAY_COMPANY_MAP:
+            return True
+    except Exception:
+        pass
+    return False
+
+
 def _normalize(s):
     """Normalize string for comparison."""
     return re.sub(r"[^a-z0-9]", "", s.lower()) if s else ""
 
 
 def _fuzzy_match(a, b):
-    """Simple fuzzy match: check if normalized strings share significant overlap."""
+    """Smart fuzzy match for company names.
+    
+    Key insight: URL slugs often append/prepend words to company names.
+    'gelbergroup' contains 'gelber', so they match.
+    'astranis' does NOT contain 'sieve', so they don't match.
+    """
     na, nb = _normalize(a), _normalize(b)
     if not na or not nb:
         return 0.0
     if na == nb:
         return 1.0
+    # Substring check: if one is fully contained in the other, it's a match
     if na in nb or nb in na:
-        return 0.8
-    # Character overlap
-    common = sum(1 for c in set(na) if c in nb)
-    return common / max(len(set(na)), len(set(nb)))
+        return 0.9
+    # Check if the shorter string is a prefix of the longer
+    shorter, longer = (na, nb) if len(na) <= len(nb) else (nb, na)
+    if longer.startswith(shorter):
+        return 0.85
+    # Levenshtein-based: for similar-length strings
+    if abs(len(na) - len(nb)) <= 2:
+        dist = _edit_distance(na, nb)
+        max_len = max(len(na), len(nb))
+        if max_len > 0:
+            ratio = 1.0 - (dist / max_len)
+            return ratio
+    # Low similarity for completely different strings
+    # Only count if significant character sequences overlap
+    common_len = _longest_common_substring_len(na, nb)
+    return common_len / max(len(na), len(nb))
+
+
+def _edit_distance(s1, s2):
+    """Levenshtein distance."""
+    if len(s1) < len(s2):
+        return _edit_distance(s2, s1)
+    if len(s2) == 0:
+        return len(s1)
+    prev = list(range(len(s2) + 1))
+    for i, c1 in enumerate(s1):
+        curr = [i + 1]
+        for j, c2 in enumerate(s2):
+            curr.append(min(prev[j + 1] + 1, curr[j] + 1, prev[j] + (c1 != c2)))
+        prev = curr
+    return prev[len(s2)]
+
+
+def _longest_common_substring_len(a, b):
+    """Length of longest common substring."""
+    if not a or not b:
+        return 0
+    m, n = len(a), len(b)
+    prev = [0] * (n + 1)
+    best = 0
+    for i in range(1, m + 1):
+        curr = [0] * (n + 1)
+        for j in range(1, n + 1):
+            if a[i-1] == b[j-1]:
+                curr[j] = prev[j-1] + 1
+                best = max(best, curr[j])
+        prev = curr
+    return best
 
 
 def validate_job(job):
@@ -209,10 +305,13 @@ def validate_job(job):
         hint_norm = _normalize(hint_company)
         url_norm = _normalize(url_company)
 
+        # Check if URL company is from an authoritative source (known map)
+        is_authoritative = _is_authoritative_match(url)
+
         # Check if they match
         similarity = _fuzzy_match(hint_company, url_company)
 
-        if similarity < 0.4 and url_norm not in _ATS_NAMES:
+        if (is_authoritative and hint_norm != url_norm) or (similarity < 0.4 and url_norm not in _ATS_NAMES):
             # Clear mismatch — URL company wins
             log.info(
                 f"URL-COMPANY FIX: '{hint_company}' -> '{url_company}' "
@@ -232,14 +331,23 @@ def validate_job(job):
                     job["title"] = url_title
                     job["_title_source"] = "url_validator"
 
-        # Self-learning: cache this domain -> company mapping
+        # Self-learning: cache this URL pattern -> company mapping
         try:
             cache = _load_url_cache()
             parsed = urlparse(url)
             domain = parsed.netloc.lower().replace("www.", "")
-            domain_key = domain.split(".")[0] if "myworkdayjobs" in domain else domain
-            if url_company and domain_key not in cache:
-                cache[domain_key] = url_company
+            # For Workday: use subdomain as key (unique per company)
+            if "myworkdayjobs" in domain or "myworkdaysite" in domain:
+                cache_key = domain.split(".")[0]
+            # For path-based ATS: use domain + company slug as key
+            elif any(ats in domain for ats in ["greenhouse", "lever", "ashby", "workable", "icims"]):
+                path_parts = [p for p in parsed.path.split("/") if p and len(p) > 2]
+                slug = path_parts[0] if path_parts else ""
+                cache_key = f"{domain}/{slug}" if slug else None
+            else:
+                cache_key = domain
+            if url_company and cache_key and cache_key not in cache:
+                cache[cache_key] = url_company
                 _save_url_cache(cache)
         except Exception:
             pass
