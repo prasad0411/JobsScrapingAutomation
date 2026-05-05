@@ -632,6 +632,24 @@ class UnifiedJobAggregator:
         logging.info(f"SUMMARY: {added_valid} valid, {added_discarded} discarded")
         self._log_run_to_db(added_valid, added_discarded, elapsed)
 
+        # ── Cumulative metrics tracking ──
+        try:
+            from aggregator.metrics import PipelineMetrics
+            _metrics = PipelineMetrics()
+            _url_corrections = sum(
+                1 for j in self.valid_jobs if j.get("_company_source") == "url_validator"
+            )
+            _metrics.record_run(
+                valid=added_valid,
+                discarded=added_discarded,
+                url_corrections=_url_corrections,
+                sources_active=len(self.source_stats),
+                time_sec=int(elapsed),
+            )
+            print(f"  📊 {_metrics.summary()}")
+        except Exception as _me:
+            logging.warning(f"Metrics recording failed: {_me}")
+
     def _log_run_to_db(self, valid, discarded, elapsed_seconds):
         """Append this run's stats to .local/run_history.db for trend analysis."""
         try:
