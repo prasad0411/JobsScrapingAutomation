@@ -58,6 +58,15 @@ _WORKDAY_COMPANY_MAP = {
     "aero": "AeroVironment", "rbc": "RBC", "aptiv": "Aptiv",
     "viavisolutions": "Viavi Solutions", "tutorperini": "Tutor Perini",
     "nvidia": "Nvidia",
+    "envista": "Envista",
+    "strideinc": "Stride",
+    "gfs": "Gordon Food Service",
+    "sharecare": "Sharecare",
+    "standoutforgood": "Stand Out For Good",
+    "expedia": "Expedia Group",
+    "copart": "Copart",
+    "snorkelai": "Snorkel AI",
+    "ipconfigure": "IPConfigure",
 }
 
 # Known custom career site domains

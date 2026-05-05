@@ -781,6 +781,7 @@ class SheetsManager:
             'diffusion model', 'nlp', 'neural', '/ml', 'ml/', 'cv/ml', 'ml/dl', 'ai/ml',
             'ai engineer', 'ai engineering', 'ai intern', 'ai research',
             'applied ai', 'ai application', 'ai automation', 'ai operations',
+            'artificial intelligence',
             'ai platform', 'ai retail', 'ai strategy', 'ai/data',
             'research scientist', 'perception', 'robotics ai',
         ]
