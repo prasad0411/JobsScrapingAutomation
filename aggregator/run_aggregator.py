@@ -1852,6 +1852,11 @@ class UnifiedJobAggregator:
             company = job_data.get("company", company)
             title = job_data.get("title", title)
 
+            # Re-classify resume if title was corrected by validator
+            if job_data.get("_was_mismatched"):
+                from aggregator.sheets_manager import SheetsManager
+                job_data["resume_type"] = SheetsManager._classify_resume(title)
+
             self.valid_jobs.append(job_data)
             self.outcomes["valid"] += 1
             self.existing_jobs.add(ct_key)
@@ -2369,6 +2374,11 @@ class UnifiedJobAggregator:
                 return None
             company = job_data.get("company", company)
             title = job_data.get("title", title)
+
+            # Re-classify resume if title was corrected by validator
+            if job_data.get("_was_mismatched"):
+                from aggregator.sheets_manager import SheetsManager
+                job_data["resume_type"] = SheetsManager._classify_resume(title)
 
             with getattr(self, "_github_lock", _NOOP_LOCK):
                 self.valid_jobs.append(job_data)

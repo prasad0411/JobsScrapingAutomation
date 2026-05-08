@@ -364,7 +364,7 @@ class SheetsManager:
                 job["url"],
                 job["job_id"],
                 job["job_type"],
-                job["location"],
+                self._clean_location(job["location"]),
                 self._classify_resume(job["title"]),
                 job["remote"],
                 job["entry_date"],
@@ -768,6 +768,27 @@ class SheetsManager:
         except:
             pass
 
+
+    @staticmethod
+    def _clean_location(location):
+        """Clean garbage locations before writing to sheet."""
+        if not location:
+            return "Unknown"
+        loc = location.strip()
+        # Garbage patterns
+        garbage = ["And Role", "and role", "Unknown", "", "N/A", "in USA", "in US"]
+        if loc in garbage:
+            return "Remote" if "usa" in loc.lower() or "us" in loc.lower() else "Unknown"
+        # Fix leading comma: ", MA" → "MA"
+        if loc.startswith(","):
+            loc = loc.lstrip(", ").strip()
+            if len(loc) == 2 and loc.isalpha():
+                return loc.upper()
+            return loc if loc else "Unknown"
+        # Fix "in USA" variants
+        if loc.lower() in ["in usa", "in us", "usa", "us", "united states"]:
+            return "Remote"
+        return loc
 
     @staticmethod
     def _classify_resume(title):
