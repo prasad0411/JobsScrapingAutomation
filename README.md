@@ -41,7 +41,9 @@ Microsoft Graph API"]
 Source health alerts
 Cumulative metrics
 SPC anomaly detection"]
-```# ✨ Key Features
+```
+
+# ✨ Key Features
 
 ### Self-Healing Data Pipeline
 - **URL-Company Validator**: Detects and auto-corrects company-URL mismatches using Levenshtein distance, longest-common-substring matching, and a self-learning cache. Handles Workday, Greenhouse, Lever, Ashby, and custom career domains.
