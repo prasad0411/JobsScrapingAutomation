@@ -17,6 +17,12 @@ from aggregator.config import (
     SIMPLIFY_URL,
     VANSHB03_URL,
     SPEEDYAPPLY_SWE_URL,
+    SPEEDYAPPLY_AI_URL,
+    ZAPPLYJOBS_URL,
+    JOBRIGHT_GITHUB_URL,
+    SIMPLIFY_OFFSEASON_URL,
+    VANSHB03_OFFSEASON_URL,
+    NEWGRAD_SIMPLIFY_URL,
     MAX_JOB_AGE_DAYS,
     PAGE_AGE_THRESHOLD_DAYS,
     MIN_QUALITY_SCORE,
@@ -808,17 +814,40 @@ class UnifiedJobAggregator:
 
     def _scrape_simplify_github(self):
         import concurrent.futures
-        with concurrent.futures.ThreadPoolExecutor(max_workers=3) as ex:
-            f1 = ex.submit(self._safe_scrape, SIMPLIFY_URL, "SimplifyJobs")
-            f2 = ex.submit(self._safe_scrape, VANSHB03_URL, "vanshb03")
-            f3 = ex.submit(self._safe_scrape, SPEEDYAPPLY_SWE_URL, "speedyapply_swe")
-            simplify_jobs = f1.result()
-            vanshb03_jobs = f2.result()
-            speedyapply_jobs = f3.result()
+
+        _all_sources = [
+            (SIMPLIFY_URL, "SimplifyJobs"),
+            (VANSHB03_URL, "vanshb03"),
+            (SPEEDYAPPLY_SWE_URL, "speedyapply_swe"),
+            (SPEEDYAPPLY_AI_URL, "speedyapply_ai"),
+            (ZAPPLYJOBS_URL, "zapplyjobs"),
+            (JOBRIGHT_GITHUB_URL, "jobright_github"),
+            (SIMPLIFY_OFFSEASON_URL, "simplify_offseason"),
+            (VANSHB03_OFFSEASON_URL, "vanshb03_offseason"),
+            (NEWGRAD_SIMPLIFY_URL, "simplify_newgrad"),
+        ]
+
+        _results = {}
+        with concurrent.futures.ThreadPoolExecutor(max_workers=5) as ex:
+            _futures = {
+                ex.submit(self._safe_scrape, url, name): name
+                for url, name in _all_sources
+            }
+            for fut in concurrent.futures.as_completed(_futures):
+                name = _futures[fut]
+                _results[name] = fut.result()
+
+        simplify_jobs = _results.get("SimplifyJobs", [])
+        vanshb03_jobs = _results.get("vanshb03", [])
+        speedyapply_jobs = _results.get("speedyapply_swe", [])
+
         self._github_mode = True
 
+        _new_total = sum(len(v) for k, v in _results.items()
+                         if k not in ("SimplifyJobs", "vanshb03", "speedyapply_swe"))
         logging.info(
             f"GitHub: {len(simplify_jobs)} SimplifyJobs + {len(vanshb03_jobs)} vanshb03"
+            f" + {len(speedyapply_jobs)} speedyapply + {_new_total} new sources"
         )
 
         import concurrent.futures
@@ -850,6 +879,14 @@ class UnifiedJobAggregator:
         _process_github_batch(vanshb03_jobs, "vanshb03")
         print(f"\n  Processing SpeedyApply SWE repository...")
         _process_github_batch(speedyapply_jobs, "speedyapply_swe")
+
+        # ── New sources (fault-isolated: each source independent) ──
+        for _src_name in ["speedyapply_ai", "zapplyjobs", "jobright_github",
+                          "simplify_offseason", "vanshb03_offseason", "simplify_newgrad"]:
+            _src_jobs = _results.get(_src_name, [])
+            if _src_jobs:
+                print(f"\n  Processing {_src_name} ({len(_src_jobs)} listings)...")
+                _process_github_batch(_src_jobs, _src_name)
 
         self._github_mode = False
 

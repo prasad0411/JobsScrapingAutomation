@@ -131,6 +131,26 @@ SPEEDYAPPLY_SWE_URL = (
     "https://raw.githubusercontent.com/speedyapply/2026-SWE-College-Jobs/main/README.md"
 )
 
+# ── New GitHub Sources (Fall 2026 / Spring 2027 / New Grad 2027) ──
+SPEEDYAPPLY_AI_URL = (
+    "https://raw.githubusercontent.com/speedyapply/2026-AI-College-Jobs/main/README.md"
+)
+ZAPPLYJOBS_URL = (
+    "https://raw.githubusercontent.com/zapplyjobs/Internships-2026/main/README.md"
+)
+JOBRIGHT_GITHUB_URL = (
+    "https://raw.githubusercontent.com/jobright-ai/2026-Engineer-Internship/main/README.md"
+)
+SIMPLIFY_OFFSEASON_URL = (
+    "https://raw.githubusercontent.com/SimplifyJobs/Summer2026-Internships/master/README-Off-Season.md"
+)
+VANSHB03_OFFSEASON_URL = (
+    "https://raw.githubusercontent.com/vanshb03/Summer2027-Internships/dev/OFFSEASON_README.md"
+)
+NEWGRAD_SIMPLIFY_URL = (
+    "https://raw.githubusercontent.com/SimplifyJobs/New-Grad-Positions/master/README.md"
+)
+
 
 MAX_JOB_AGE_DAYS = 3
 MAX_REASONABLE_AGE_DAYS = 365
