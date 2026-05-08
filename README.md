@@ -12,65 +12,36 @@ A production-grade, self-healing data aggregation platform that autonomously col
 
 ## 🏗️ Architecture
 
-```
-┌─────────────────────────────────────────────────────────────────┐
-│                        DATA SOURCES (12+)                       │
-│  SimplifyJobs · vanshb03 · SpeedyApply · SWE List · Jobright   │
-│  LinkedIn · ZipRecruiter · Greenhouse · Lever · Ashby · Workday │
-└──────────────────────────┬──────────────────────────────────────┘
-                           │
-                    ┌──────▼──────┐
-                    │   Scraper   │  GitHub API + Gmail API + RSS
-                    └──────┬──────┘
-                           │
-              ┌────────────▼────────────────┐
-              │    Deduplication Engine      │  TF-IDF cosine similarity (0.90)
-              │    URL normalization + ID    │  + job_id registry
-              └────────────┬────────────────┘
-                           │
-         ┌─────────────────▼──────────────────┐
-         │    URL-Company Validator            │  Self-healing: extracts real
-         │    (Levenshtein + LCS matching)     │  company from URL domain
-         │    + Self-learning brain.json cache │  219+ domains cached
-         └─────────────────┬──────────────────┘
-                           │
-         ┌─────────────────▼──────────────────┐
-         │    Validation Pipeline              │
-         │    Title · Location · Sponsorship   │  MBA/PhD/🎓 filter
-         │    Salary · Degree · Clearance      │  Undergrad-only detection
-         └─────────────────┬──────────────────┘
-                           │
-         ┌─────────────────▼──────────────────┐
-         │    Quality Scorer                   │  8-dimension scoring
-         │    Company · Title · URL · Location │  SPC anomaly bounds
-         │    Salary · Sponsorship · Remote    │
-         └──────────┬──────────────┬──────────┘
-                    │              │
-            ┌───────▼───┐  ┌──────▼──────┐
-            │  Valid ✓   │  │ Discarded ✗ │
-            └───────┬───┘  └─────────────┘
-                    │
-    ┌───────────────▼────────────────┐
-    │    Google Sheets Writer         │  Write-ahead log (WAL)
-    │    Crash-safe atomic writes     │  for crash recovery
-    └───────────────┬────────────────┘
-                    │
-    ┌───────────────▼────────────────┐
-    │    Outreach Engine              │
-    │    Email discovery (DNS/MX)     │  247+ companies
-    │    Circuit breaker (15%/30%)    │  Bounce-rate adaptive
-    │    Microsoft Graph API drafts   │  Auto-scheduled
-    └───────────────┬────────────────┘
-                    │
-    ┌───────────────▼────────────────┐
-    │    Monitoring & Observability   │
-    │    Source health alerts          │  7-run rolling avg
-    │    Cumulative metrics tracker    │  SPC anomaly detection
-    │    Pipeline reliability stats    │
-    └─────────────────────────────────┘
-```
-
-## ✨ Key Features
+```mermaid
+flowchart TD
+    A["DATA SOURCES 12+
+SimplifyJobs · vanshb03 · SpeedyApply
+SWE List · Jobright · ZipRecruiter"] --> B["Scraper
+GitHub API + Gmail API"]
+    B --> C["Deduplication Engine
+TF-IDF cosine 0.90 + URL + job_id"]
+    C --> D["URL-Company Validator
+Levenshtein + LCS matching
+Self-learning brain.json cache"]
+    D --> E["Validation Pipeline
+Title · Location · Sponsorship
+Salary · Degree · Clearance"]
+    E --> F["Quality Scorer
+8-dimension scoring · SPC bounds"]
+    F --> G["Valid"]
+    F --> H["Discarded"]
+    G --> I["Google Sheets Writer
+Write-ahead log WAL
+Crash-safe atomic writes"]
+    I --> J["Outreach Engine
+DNS/MX email discovery
+Circuit breaker 15%/30%
+Microsoft Graph API"]
+    J --> K["Monitoring
+Source health alerts
+Cumulative metrics
+SPC anomaly detection"]
+```# ✨ Key Features
 
 ### Self-Healing Data Pipeline
 - **URL-Company Validator**: Detects and auto-corrects company-URL mismatches using Levenshtein distance, longest-common-substring matching, and a self-learning cache. Handles Workday, Greenhouse, Lever, Ashby, and custom career domains.
