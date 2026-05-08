@@ -859,6 +859,7 @@ class UnifiedJobAggregator:
                 if age_days is not None and age_days > MAX_JOB_AGE_DAYS:
                     skipped_old += 1
                 else:
+                    job["_source_name"] = source_name
                     fresh.append(job)
             print(f"  {source_name}: {len(fresh)} fresh, {skipped_old} too old")
             errors = 0
@@ -1158,8 +1159,12 @@ class UnifiedJobAggregator:
             return
         # Thread safety ensured via _github_lock for all shared state below
 
+        # Skip internship check for new-grad sources
+        _src = job.get("_source_name", "")
+        _is_newgrad_source = "newgrad" in _src or "new_grad" in _src
+
         is_internship, intern_reason = TitleProcessor.is_internship_role(title, github_category="Software Engineering Internship")
-        if not is_internship:
+        if not is_internship and not _is_newgrad_source:
             self.outcomes["skipped_senior_role"] += 1
             self.source_stats[source]["rejected"] += 1
             self._print_rejected(company_from_github, intern_reason)
@@ -2154,7 +2159,7 @@ class UnifiedJobAggregator:
             is_internship, intern_reason = TitleProcessor.is_internship_role(
                 title, page_text=soup.get_text()[:5000] if soup else ""
             )
-            if not is_internship:
+            if not is_internship and not job.get("_source_name", "").startswith("simplify_newgrad"):
                 self.outcomes["skipped_senior_role"] += 1
                 self._add_discarded(
                     company,
@@ -2390,7 +2395,7 @@ class UnifiedJobAggregator:
                 "remote": remote,
                 "url": _store_url,
                 "job_id": "N/A" if _store_url and "greenhouse.io" in _store_url.lower() else (job_id if job_id else "N/A"),
-                "job_type": "Internship",
+                "job_type": self._detect_job_type(title, job.get("_source_name", "")),
                 "sponsorship": sponsorship,
                 "entry_date": self._format_date(),
                 "source": source,
@@ -2693,6 +2698,35 @@ class UnifiedJobAggregator:
                 days_ago = (today - candidate).days
                 return days_ago
         return DateParser.extract_days_ago(age_str)
+
+    @staticmethod
+    def _detect_job_type(title, source_name=""):
+        """Smart job type detection from title and source name."""
+        tl = title.lower() if title else ""
+        sl = source_name.lower() if source_name else ""
+
+        # New grad sources
+        if "newgrad" in sl or "new_grad" in sl or "new-grad" in sl:
+            return "Full Time"
+
+        # Title-based detection
+        if any(kw in tl for kw in ["new grad", "new-grad", "entry level", "entry-level",
+                                     "full time", "full-time", "junior engineer",
+                                     "associate engineer", "sde i ", "sde 1 ",
+                                     "software engineer i ", "engineer i "]):
+            return "Full Time"
+
+        if any(kw in tl for kw in ["co-op", "coop", "co op"]):
+            return "Co-op"
+
+        if any(kw in tl for kw in ["intern", "internship"]):
+            return "Internship"
+
+        # Off-season sources default to internship/co-op
+        if "offseason" in sl or "off_season" in sl:
+            return "Internship"
+
+        return "Internship"
 
     @staticmethod
     def _format_date():

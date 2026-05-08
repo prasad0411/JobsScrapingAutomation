@@ -59,6 +59,8 @@ _WORKDAY_COMPANY_MAP = {
     "viavisolutions": "Viavi Solutions", "tutorperini": "Tutor Perini",
     "nvidia": "Nvidia",
     "novanta": "Novanta",
+    "ensemblehp": "Ensemble Health Partners",
+    "veeamsoftware": "Veeam Software",
     "thales": "Thales",
     "bdx": "Becton Dickinson",
     "philips": "Philips",
@@ -394,6 +396,26 @@ def validate_job(job):
                 if job_id not in url:
                     log.info(f"URL-JOBID CLEAR: '{job_id}' not in URL, clearing")
                     job["job_id"] = "N/A"
+
+        # Self-learning: save correction to log for transparency
+        if job.get("_was_mismatched"):
+            try:
+                import json as _json
+                _log_path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+                                          ".local", "correction_log.json")
+                _corrections = []
+                if os.path.exists(_log_path):
+                    _corrections = _json.load(open(_log_path))
+                _corrections.append({
+                    "ts": __import__("datetime").datetime.now().isoformat(),
+                    "from": hint_company,
+                    "to": url_company,
+                    "url": url[:100],
+                })
+                _corrections = _corrections[-200:]  # Keep last 200
+                _json.dump(_corrections, open(_log_path, "w"), indent=2)
+            except Exception:
+                pass
 
         # Self-learning: cache this URL pattern -> company mapping
         try:
