@@ -138,7 +138,7 @@ def extract_company_from_url(url):
     cache = _load_url_cache()
     if "myworkdayjobs" in domain or "myworkdaysite" in domain:
         cache_key = domain.split(".")[0]
-    elif any(ats in domain for ats in ["greenhouse", "lever", "ashby", "workable", "icims"]):
+    elif any(ats in domain for ats in ["greenhouse", "lever", "ashby", "workable", "icims", "smartrecruiters"]):
         path_parts = [p for p in path.split("/") if p and len(p) > 2]
         slug = path_parts[0] if path_parts else ""
         cache_key = f"{domain}/{slug}" if slug else None
@@ -404,7 +404,7 @@ def validate_job(job):
             if "myworkdayjobs" in domain or "myworkdaysite" in domain:
                 cache_key = domain.split(".")[0]
             # For path-based ATS: use domain + company slug as key
-            elif any(ats in domain for ats in ["greenhouse", "lever", "ashby", "workable", "icims"]):
+            elif any(ats in domain for ats in ["greenhouse", "lever", "ashby", "workable", "icims", "smartrecruiters"]):
                 path_parts = [p for p in parsed.path.split("/") if p and len(p) > 2]
                 slug = path_parts[0] if path_parts else ""
                 cache_key = f"{domain}/{slug}" if slug else None
