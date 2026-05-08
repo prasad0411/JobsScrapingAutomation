@@ -169,6 +169,36 @@ def extract_company_from_url(url):
     return None
 
 
+def _extract_location_from_url(url):
+    """Extract location from URL path (Workday URLs often have city-state in path)."""
+    if not url:
+        return None
+    try:
+        from urllib.parse import urlparse, unquote
+        path = unquote(urlparse(url).path)
+        # Workday pattern: /job/City-State/Title_ID
+        import re
+        m = re.search(r"/job/([A-Z][a-z]+-[A-Z][a-z]+(?:-[A-Z][a-z]+)*(?:-[A-Z]{2})?)(?:/|-)", path)
+        if m:
+            loc = m.group(1)
+            parts = loc.split("-")
+            if len(parts) >= 2:
+                state = parts[-1]
+                if len(state) == 2 and state.isalpha():
+                    city = " ".join(parts[:-1])
+                    return f"{city}, {state.upper()}"
+        # Workday pattern with state code: /City-State-Zipcode/
+        m2 = re.search(r"/([A-Z][a-z]+-(?:[A-Z][a-z]+-)?[A-Z]{2})-\d{5}", path)
+        if m2:
+            loc = m2.group(1)
+            parts = loc.rsplit("-", 1)
+            if len(parts) == 2:
+                return f"{parts[0].replace('-', ' ')}, {parts[1]}"
+    except Exception:
+        pass
+    return None
+
+
 def extract_title_from_url(url):
     """Extract job title from URL path slug."""
     if not url:
@@ -328,17 +358,34 @@ def validate_job(job):
             )
             job["company"] = url_company
             job["_company_source"] = "url_validator"
+            job["_was_mismatched"] = True
 
-            # Also re-extract title from URL if available
+            # When company mismatches, ALL hint data is suspect (row-shift bug)
+            # Re-extract title from URL
             url_title = extract_title_from_url(url)
             if url_title and len(url_title) > 8:
                 old_title = job.get("title", "")
-                # Only override if current title also seems wrong
                 title_sim = _fuzzy_match(old_title, url_title)
                 if title_sim < 0.3:
                     log.info(f"URL-TITLE FIX: '{old_title}' -> '{url_title}'")
                     job["title"] = url_title
                     job["_title_source"] = "url_validator"
+
+            # Extract location from URL if possible (Workday URLs have city in path)
+            url_location = _extract_location_from_url(url)
+            if url_location:
+                old_loc = job.get("location", "Unknown")
+                if old_loc != url_location:
+                    log.info(f"URL-LOCATION FIX: '{old_loc}' -> '{url_location}'")
+                    job["location"] = url_location
+
+            # Clear job_id if it came from a shifted row
+            job_id = job.get("job_id", "N/A")
+            if job_id and job_id != "N/A":
+                # Check if job_id appears in the URL — if not, it's from wrong row
+                if job_id not in url:
+                    log.info(f"URL-JOBID CLEAR: '{job_id}' not in URL, clearing")
+                    job["job_id"] = "N/A"
 
         # Self-learning: cache this URL pattern -> company mapping
         try:

@@ -565,6 +565,11 @@ PREFERRED_DEGREE_MISMATCH_PATTERNS = [
 INVALID_TITLE_KEYWORDS = [
     # MBA-only roles
     r"\bmba\b(?!.*(?:software|swe|engineer|data|ml|ai))",
+    # Non-CS engineering roles
+    r"project\s+engineer\s+intern",
+    r"process\s+engineer\s+intern",
+    r"product\s+engineer\s+intern(?!.*software)",
+    r"yard\s+engineer",
     r"\bmba\s+(?:intern|summer|associate|fellow)",
     r"\bmba\s+candidate",
     r"solidworks?",
