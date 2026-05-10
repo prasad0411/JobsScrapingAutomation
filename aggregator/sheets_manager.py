@@ -528,7 +528,7 @@ class SheetsManager:
                             "range": {
                                 "sheetId": sheet.id,
                                 "startRowIndex": end_row,
-                                "endRowIndex": end_row + 100,
+                                "endRowIndex": end_row + 500,
                                 "startColumnIndex": 1,
                                 "endColumnIndex": 2,
                             },
@@ -543,7 +543,7 @@ class SheetsManager:
                             "range": {
                                 "sheetId": sheet.id,
                                 "startRowIndex": end_row,
-                                "endRowIndex": end_row + 100,
+                                "endRowIndex": end_row + 500,
                                 "startColumnIndex": 1,
                                 "endColumnIndex": 2,
                             },
