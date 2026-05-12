@@ -197,6 +197,13 @@ class TitleProcessor:
         except (ImportError, AttributeError):
             INVALID_TITLE_KEYWORDS = []
 
+        # Reject hex/alphanumeric job IDs used as titles (e.g. "F70F3473E7")
+        if re.match(r'^[0-9a-fA-F]{6,}$', title.strip()):
+            return False, "Title is hex/job ID"
+        _alpha_only = re.sub(r'[^a-zA-Z ]', '', title).strip()
+        if len(_alpha_only) < 4:
+            return False, "Title too short/no alpha content"
+
         for pattern in INVALID_TITLE_KEYWORDS:
             if re.search(pattern, title_lower):
                 return False, "PhD, military, hardware or non-CS role (not eligible)"

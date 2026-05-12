@@ -3010,6 +3010,9 @@ COMPANY_NAME_FIXES = {
     "exl": "EXL",
     "bmo": "BMO",
     "rtx": "RTX",
+    "energyhub": "EnergyHub",
+    "premierautomation": "Premier Automation",
+    "veeamsoftware": "Veeam Software",
     "nxp": "NXP",
     "impinjexternal": "Impinj",
     "abacusinsights": "Abacus Insights",
@@ -3063,6 +3066,9 @@ COMPANY_NAME_FIXES = {
 
     # Capitalization fixes
     "rtx": "RTX",
+    "energyhub": "EnergyHub",
+    "premierautomation": "Premier Automation",
+    "veeamsoftware": "Veeam Software",
     "cae": "CAE",
     "ibm": "IBM",
     "aecom": "AECOM",
