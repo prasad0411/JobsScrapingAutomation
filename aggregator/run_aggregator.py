@@ -2159,7 +2159,7 @@ class UnifiedJobAggregator:
             is_internship, intern_reason = TitleProcessor.is_internship_role(
                 title, page_text=soup.get_text()[:5000] if soup else ""
             )
-            if not is_internship and not job.get("_source_name", "").startswith("simplify_newgrad"):
+            if not is_internship and not source.startswith("simplify_newgrad"):
                 self.outcomes["skipped_senior_role"] += 1
                 self._add_discarded(
                     company,
