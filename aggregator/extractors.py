@@ -2468,6 +2468,7 @@ class SimplifyGitHubScraper:
                 continue
             # Strip HTML tags from company cell (SpeedyApply wraps in <a><strong>)
             _co_cell = re.sub(r"<[^>]+>", "", parts[0])
+            _co_cell = re.sub(r"\*\*", "", _co_cell)  # Strip markdown bold
             raw_company = _EMOJI_PATTERN.sub("", _co_cell).strip()
             if raw_company and "↳" not in raw_company:
                 company = raw_company
