@@ -1170,7 +1170,8 @@ class UnifiedJobAggregator:
         if _true_original_company.lower().strip() != company_from_github.lower().strip():
             _hint_norm = re.sub(r"[^a-z0-9]", "", _true_original_company.lower())
             _url_norm = re.sub(r"[^a-z0-9]", "", company_from_github.lower())
-            if _hint_norm != _url_norm and len(_true_original_company) > 2:
+            if (_hint_norm != _url_norm and len(_true_original_company) > 1
+                    and _true_original_company not in ("Unknown", "unknown", "N/A", "")):
                 # Save the original hint as a separate entry (URL unknown due to shift)
                 _hint_job = {
                     "company": _true_original_company,
