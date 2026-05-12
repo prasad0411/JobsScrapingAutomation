@@ -2395,7 +2395,7 @@ class UnifiedJobAggregator:
                 "remote": remote,
                 "url": _store_url,
                 "job_id": "N/A" if _store_url and "greenhouse.io" in _store_url.lower() else (job_id if job_id else "N/A"),
-                "job_type": self._detect_job_type(title, job.get("_source_name", "")),
+                "job_type": self._detect_job_type(title, source),
                 "sponsorship": sponsorship,
                 "entry_date": self._format_date(),
                 "source": source,
