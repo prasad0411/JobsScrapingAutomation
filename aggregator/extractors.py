@@ -170,7 +170,7 @@ _EMOJI_PATTERN = re.compile(
     re.UNICODE,
 )
 _HEADER_PATTERN = re.compile(
-    r"Company.*(?:Role|Position).*Location.*(?:Application|Link|Posting|Date|Age)", re.I
+    r"Company.*(?:Role|Position|Job.?Title).*Location.*(?:Application|Link|Posting|Posted|Date|Age|Apply|Model)", re.I
 )
 _HTML_LINK_PATTERN = re.compile(r'<a\s+href="(https?://[^"]+)"')
 _MD_LINK_PATTERN = re.compile(r"\[.*?\]\((https?://[^\)]+)\)")

@@ -139,7 +139,7 @@ ZAPPLYJOBS_URL = (
     "https://raw.githubusercontent.com/zapplyjobs/Internships-2026/main/README.md"
 )
 JOBRIGHT_GITHUB_URL = (
-    "https://raw.githubusercontent.com/jobright-ai/2026-Engineer-Internship/main/README.md"
+    "https://raw.githubusercontent.com/jobright-ai/2026-Engineer-Internship/master/README.md"
 )
 SIMPLIFY_OFFSEASON_URL = (
     "https://raw.githubusercontent.com/SimplifyJobs/Summer2026-Internships/master/README-Off-Season.md"

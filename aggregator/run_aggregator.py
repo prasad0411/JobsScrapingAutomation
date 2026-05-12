@@ -2748,10 +2748,187 @@ class UnifiedJobAggregator:
     @staticmethod
     def _safe_scrape(url, source_name):
         try:
+            # Source-specific preprocessing for non-standard markdown formats
+            if source_name == "zapplyjobs":
+                return _scrape_zapplyjobs(url, source_name)
+            elif source_name == "jobright_github":
+                return _scrape_jobright_github(url, source_name)
+            elif source_name == "simplify_offseason":
+                return _scrape_simplify_offseason(url, source_name)
             return SimplifyGitHubScraper.scrape(url, source_name=source_name)
         except Exception as e:
             print(f"  ✗ {source_name} error: {e}")
             logging.error(f"{source_name} scraping failed: {e}")
+            return []
+
+    @staticmethod
+    def _scrape_zapplyjobs(url, source_name):
+        """Zapplyjobs: Company | Role | Location | Posted | Visa | Apply(url)"""
+        try:
+            resp = retry_request(url)
+            if not resp or resp.status_code != 200:
+                return []
+            import re as _zre
+            text = resp.text
+            text = _zre.sub(r'🏢\s*', '', text)
+            text = _zre.sub(r'\*\*', '', text)
+            jobs = []
+            lines = text.split("\n")
+            in_table = False
+            last_company = ""
+            for line in lines:
+                if "Company" in line and "Role" in line and "|" in line:
+                    in_table = True
+                    continue
+                if in_table and line.strip().startswith("|--"):
+                    continue
+                if not in_table or "|" not in line:
+                    continue
+                parts = [p.strip() for p in line.split("|") if p.strip() != ""]
+                if len(parts) < 4:
+                    continue
+                if "🔒" in line:
+                    continue
+                company = parts[0].strip()
+                if company and "↳" not in company:
+                    last_company = company
+                else:
+                    company = last_company
+                title = parts[1].strip() if len(parts) > 1 else ""
+                location = parts[2].strip() if len(parts) > 2 else "Unknown"
+                age = parts[3].strip() if len(parts) > 3 else "0d"
+                # URL is in the last part: Apply(https://...) or [Apply](https://...)
+                url_cell = parts[-1] if len(parts) > 4 else ""
+                url_match = _zre.search(r'\((https?://[^)]+)\)', url_cell)
+                if not url_match:
+                    url_match = _zre.search(r'(https?://[^\s)]+)', url_cell)
+                job_url = url_match.group(1) if url_match else ""
+                if company and title and job_url:
+                    jobs.append({
+                        "company": company,
+                        "title": title,
+                        "url": job_url,
+                        "location": location,
+                        "age": age,
+                        "is_closed": False,
+                        "source": source_name,
+                        "github_category": "",
+                    })
+            logging.info(f"{source_name}: Parsed {len(jobs)} jobs")
+            return jobs
+        except Exception as e:
+            logging.error(f"zapplyjobs scrape failed: {e}")
+            return []
+
+    @staticmethod
+    def _scrape_jobright_github(url, source_name):
+        """Jobright uses **[Company](url)** | **[Title](url)** format."""
+        try:
+            resp = retry_request(url)
+            if not resp or resp.status_code != 200:
+                return []
+            import re as _jre
+            text = resp.text
+            jobs = []
+            lines = text.split("\n")
+            header_idx = -1
+            for i, line in enumerate(lines):
+                if "Company" in line and "Job Title" in line and "|" in line:
+                    header_idx = i
+                    break
+            if header_idx == -1:
+                return []
+            for line in lines[header_idx + 2:]:
+                if not line.strip() or "|" not in line:
+                    continue
+                parts = [p.strip() for p in line.split("|") if p.strip()]
+                if len(parts) < 5:
+                    continue
+                # Extract company: **[Name](url)** → Name
+                company_match = _jre.search(r'\[([^\]]+)\]', parts[0])
+                company = company_match.group(1) if company_match else parts[0]
+                company = _jre.sub(r'\*+', '', company).strip()
+                # Extract title: **[Title](url)** → Title
+                title_match = _jre.search(r'\[([^\]]+)\]', parts[1])
+                title = title_match.group(1) if title_match else parts[1]
+                title = _jre.sub(r'\*+', '', title).strip()
+                # Extract URL from title link
+                url_match = _jre.search(r'\(([^)]+)\)', parts[1])
+                job_url = url_match.group(1) if url_match else ""
+                location = parts[2] if len(parts) > 2 else "Unknown"
+                location = _jre.sub(r'\*+', '', location).strip()
+                work_model = parts[3] if len(parts) > 3 else "Unknown"
+                age = parts[4] if len(parts) > 4 else "0d"
+                if company and title and job_url:
+                    jobs.append({
+                        "company": company,
+                        "title": title,
+                        "url": job_url,
+                        "location": location,
+                        "age": age,
+                        "is_closed": False,
+                        "source": source_name,
+                        "github_category": "",
+                    })
+            logging.info(f"{source_name}: Parsed {len(jobs)} jobs")
+            return jobs
+        except Exception as e:
+            logging.error(f"jobright_github scrape failed: {e}")
+            return []
+
+    @staticmethod
+    def _scrape_simplify_offseason(url, source_name):
+        """SimplifyJobs off-season uses HTML tables with <tr><td> format."""
+        try:
+            resp = retry_request(url)
+            if not resp or resp.status_code != 200:
+                return []
+            import re as _ore
+            text = resp.text
+            jobs = []
+            tr_blocks = _ore.findall(r'<tr>(.*?)</tr>', text, _ore.S)
+            for tr in tr_blocks:
+                if '🔒' in tr:
+                    continue
+                # Extract company
+                co_match = _ore.search(r'<strong><a[^>]*>([^<]+)</a></strong>', tr)
+                if not co_match:
+                    continue
+                company = co_match.group(1).strip()
+                # Extract all <td> contents
+                tds = _ore.findall(r'<td[^>]*>(.*?)</td>', tr, _ore.S)
+                if len(tds) < 3:
+                    continue
+                # td[0] = company, td[1] = title, td[2] = location
+                title_raw = tds[1] if len(tds) > 1 else ""
+                title = _ore.sub(r'<[^>]+>', '', title_raw).strip()
+                location = _ore.sub(r'<[^>]+>', '', tds[2]).strip() if len(tds) > 2 else "Unknown"
+                # Extract URL from Apply link
+                url_match = _ore.search(r'href="(https://[^"]+)"', tr)
+                job_url = url_match.group(1) if url_match else ""
+                # Extract season/date
+                season = ""
+                for td in tds:
+                    s_match = _ore.search(r'(Fall|Spring|Winter|Summer)\s+(\d{4})', td)
+                    if s_match:
+                        season = f"{s_match.group(1)} {s_match.group(2)}"
+                        break
+                if company and title and job_url:
+                    jobs.append({
+                        "company": company,
+                        "title": title,
+                        "url": job_url,
+                        "location": location,
+                        "age": "0d",
+                        "is_closed": False,
+                        "source": source_name,
+                        "github_category": "",
+                        "_season": season,
+                    })
+            logging.info(f"{source_name}: Parsed {len(jobs)} jobs ({len([j for j in jobs if 'Fall 2026' in j.get('_season', '')])} Fall 2026)")
+            return jobs
+        except Exception as e:
+            logging.error(f"simplify_offseason scrape failed: {e}")
             return []
 
 
