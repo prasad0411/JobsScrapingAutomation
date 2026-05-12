@@ -776,9 +776,12 @@ class SheetsManager:
             return "Unknown"
         loc = location.strip()
         # Garbage patterns
-        garbage = ["And Role", "and role", "Unknown", "", "N/A", "in USA", "in US", "Business, Economics", "Business Economics"]
+        garbage = ["And Role", "and role", "Unknown", "", "N/A", "Business, Economics", "Business Economics"]
         if loc in garbage:
-            return "Remote" if "usa" in loc.lower() or "us" in loc.lower() else "Unknown"
+            return "Unknown"
+        # Separate check for USA variants
+        if loc.lower() in ["in usa", "in us", "usa", "us", "united states"]:
+            return "Remote"
         # Fix leading comma: ", MA" → "MA"
         if loc.startswith(","):
             loc = loc.lstrip(", ").strip()
