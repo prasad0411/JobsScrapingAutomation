@@ -358,7 +358,7 @@ class SheetsManager:
             [
                 start_sr_no + idx,
                 "Not Applied",
-                job["company"],
+                self._clean_company(job["company"]),
                 job["title"],
                 "N/A",
                 job["url"],
@@ -392,7 +392,7 @@ class SheetsManager:
             [
                 start_sr_no + idx,
                 job.get("reason", "Filtered"),
-                job["company"],
+                self._clean_company(job["company"]),
                 job["title"],
                 "N/A",
                 job["url"],
@@ -768,6 +768,54 @@ class SheetsManager:
         except:
             pass
 
+
+    @staticmethod
+    def _clean_company(company):
+        """Clean and normalize company names."""
+        if not company:
+            return "Unknown"
+        c = company.strip()
+
+        # Known acronym companies (should be ALL CAPS)
+        _ACRONYMS = {
+            "cmt": "CMT", "abb": "ABB", "bmo": "BMO", "ibm": "IBM",
+            "sap": "SAP", "hpe": "HPE", "rtx": "RTX", "nxp": "NXP",
+            "kbr": "KBR", "dxc": "DXC", "sgs": "SGS", "uhg": "UHG",
+            "ey": "EY", "pwc": "PwC", "kpmg": "KPMG", "att": "AT&T",
+            "ge": "GE", "gm": "GM", "hp": "HP", "lg": "LG",
+            "lmi": "LMI", "ias": "IAS", "mhi": "MHI", "idex": "IDEX",
+            "caci": "CACI", "aecom": "AECOM", "nvidia": "NVIDIA",
+            "amd": "AMD", "tsmc": "TSMC", "asml": "ASML",
+        }
+        if c.lower() in _ACRONYMS:
+            return _ACRONYMS[c.lower()]
+
+        # Strip markdown bold markers
+        import re as _co_re
+        c = _co_re.sub(r'\*\*', '', c).strip()
+
+        # Check COMPANY_NAME_FIXES map first
+        try:
+            from aggregator.config import COMPANY_NAME_FIXES
+            _fixed = COMPANY_NAME_FIXES.get(c.lower().strip())
+            if _fixed and _fixed != 'Unknown':
+                return _fixed
+        except ImportError:
+            pass
+
+        # Fix Greenhouse/Lever slugs: "premierautomation" → "Premier Automation"
+        # If company is all lowercase and > 10 chars, probably a slug
+        if c.islower() and len(c) > 8:
+            # Try splitting on common word boundaries
+            # camelCase or concatenated: "energyhub" → "Energy Hub"
+            spaced = _co_re.sub(r'([a-z])([A-Z])', r'\1 \2', c)
+            if spaced == c:
+                # Still no spaces — just title case it
+                c = c.replace('-', ' ').replace('_', ' ').title()
+            else:
+                c = spaced.title()
+
+        return c
 
     @staticmethod
     def _clean_location(location):

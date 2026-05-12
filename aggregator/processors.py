@@ -146,6 +146,13 @@ class TitleProcessor:
             if any(w in _remainder.lower() for w in _job_words):
                 title = _remainder
 
+        # Strip duration suffixes: "- 4 months", "- 12 weeks", "(8 months)"
+        import re as _dur_re
+        title = _dur_re.sub(r'\s*[-–—]\s*\d+\s*(?:months?|weeks?|mos?)\s*$', '', title, flags=_dur_re.I).strip()
+        title = _dur_re.sub(r'\s*\(\d+\s*(?:months?|weeks?|mos?)\)\s*$', '', title, flags=_dur_re.I).strip()
+        # Strip "Fall 2026" / "Summer 2026" season suffixes
+        title = _dur_re.sub(r'\s*[-–—]\s*(?:Fall|Spring|Summer|Winter)\s+20\d{2}\s*$', '', title, flags=_dur_re.I).strip()
+
         # FIX 1: Strip email subject line prefixes like "Company is looking for X"
         import re as _re_title
         title = _re_title.sub(
