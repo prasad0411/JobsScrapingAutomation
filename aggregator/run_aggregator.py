@@ -23,6 +23,7 @@ from aggregator.config import (
     SIMPLIFY_OFFSEASON_URL,
     VANSHB03_OFFSEASON_URL,
     NEWGRAD_SIMPLIFY_URL,
+    NEWGRAD_CVRVE_URL,
     MAX_JOB_AGE_DAYS,
     PAGE_AGE_THRESHOLD_DAYS,
     MIN_QUALITY_SCORE,
@@ -825,6 +826,7 @@ class UnifiedJobAggregator:
             (SIMPLIFY_OFFSEASON_URL, "simplify_offseason"),
             (VANSHB03_OFFSEASON_URL, "vanshb03_offseason"),
             (NEWGRAD_SIMPLIFY_URL, "simplify_newgrad"),
+            (NEWGRAD_CVRVE_URL, "cvrve_newgrad"),
         ]
 
         _results = {}
@@ -883,7 +885,8 @@ class UnifiedJobAggregator:
 
         # ── New sources (fault-isolated: each source independent) ──
         for _src_name in ["speedyapply_ai", "zapplyjobs", "jobright_github",
-                          "simplify_offseason", "vanshb03_offseason", "simplify_newgrad"]:
+                          "simplify_offseason", "vanshb03_offseason", "simplify_newgrad",
+                          "cvrve_newgrad"]:
             _src_jobs = _results.get(_src_name, [])
             if _src_jobs:
                 print(f"\n  Processing {_src_name} ({len(_src_jobs)} listings)...")

@@ -150,6 +150,9 @@ VANSHB03_OFFSEASON_URL = (
 NEWGRAD_SIMPLIFY_URL = (
     "https://raw.githubusercontent.com/SimplifyJobs/New-Grad-Positions/master/README.md"
 )
+NEWGRAD_CVRVE_URL = (
+    "https://raw.githubusercontent.com/cvrve/New-Grad/main/README.md"
+)
 
 
 MAX_JOB_AGE_DAYS = 3
