@@ -135,6 +135,17 @@ class TitleProcessor:
 
         original = title
 
+        # Strip company name prefix from title: "Company - Title" or "Company: Title"
+        import re as _prefix_re
+        _prefix_match = _prefix_re.match(r"^[A-Z][A-Za-z\s&.,'-]{2,30}\s*[-–—:]\s*(.+)$", title)
+        if _prefix_match:
+            _remainder = _prefix_match.group(1).strip()
+            # Only strip if remainder looks like a job title (has job words)
+            _job_words = {"intern", "engineer", "developer", "analyst", "scientist", "manager",
+                          "designer", "architect", "specialist", "associate", "coordinator"}
+            if any(w in _remainder.lower() for w in _job_words):
+                title = _remainder
+
         # FIX 1: Strip email subject line prefixes like "Company is looking for X"
         import re as _re_title
         title = _re_title.sub(

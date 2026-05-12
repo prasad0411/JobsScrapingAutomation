@@ -775,6 +775,85 @@ class SheetsManager:
         if not location:
             return "Unknown"
         loc = location.strip()
+
+        # ── Smart Location Corrector ──
+        # Static shortcuts (abbreviations)
+        _ABBREV = {
+            "NYC": "New York, NY", "SF": "San Francisco, CA",
+            "LA": "Los Angeles, CA", "NY, NY": "New York, NY",
+            "DC": "Washington, DC", "ATL": "Atlanta, GA",
+            "BOS": "Boston, MA", "CHI": "Chicago, IL",
+        }
+        if loc in _ABBREV:
+            return _ABBREV[loc]
+
+        # Known US cities for fuzzy matching (top 500 tech hub cities)
+        _KNOWN_CITIES = [
+            "Farmington Hills, MI", "Foster City, CA", "Mountain View, CA",
+            "San Francisco, CA", "San Jose, CA", "Sunnyvale, CA",
+            "Santa Clara, CA", "Palo Alto, CA", "Menlo Park, CA",
+            "Redwood City, CA", "San Mateo, CA", "Burlingame, CA",
+            "San Carlos, CA", "Berkeley, CA", "Oakland, CA",
+            "Cupertino, CA", "Milpitas, CA", "Fremont, CA",
+            "Irvine, CA", "Los Angeles, CA", "San Diego, CA",
+            "Seattle, WA", "Bellevue, WA", "Redmond, WA",
+            "New York, NY", "Brooklyn, NY", "Manhattan, NY",
+            "Boston, MA", "Cambridge, MA", "Somerville, MA",
+            "Waltham, MA", "Burlington, MA", "Framingham, MA",
+            "Chicago, IL", "Austin, TX", "Dallas, TX", "Houston, TX",
+            "Denver, CO", "Boulder, CO", "Atlanta, GA", "Raleigh, NC",
+            "Charlotte, NC", "Durham, NC", "Pittsburgh, PA",
+            "Philadelphia, PA", "Washington, DC", "Arlington, VA",
+            "Reston, VA", "McLean, VA", "Portland, OR", "Phoenix, AZ",
+            "Scottsdale, AZ", "Salt Lake City, UT", "Minneapolis, MN",
+            "Detroit, MI", "Ann Arbor, MI", "Columbus, OH",
+            "Indianapolis, IN", "Nashville, TN", "Miami, FL",
+            "Tampa, FL", "Orlando, FL", "Jacksonville, FL",
+            "Longwood, FL", "Altamonte Springs, FL",
+            "St. Louis, MO", "Kansas City, MO", "Milwaukee, WI",
+            "La Crosse, WI", "Madison, WI", "Boise, ID",
+            "Richmond, VA", "Baltimore, MD", "Springfield, IL",
+            "Celebration, FL", "Long Beach, CA", "Plymouth, MI",
+            "Grand Rapids, MI", "El Segundo, CA", "Hawthorne, CA",
+            "Monroeville, PA", "Alpharetta, GA", "Suwanee, GA",
+        ]
+
+        # Fuzzy match: find closest city using Levenshtein distance
+        def _edit_dist(a, b):
+            if len(a) < len(b): return _edit_dist(b, a)
+            if len(b) == 0: return len(a)
+            prev = list(range(len(b) + 1))
+            for i, ca in enumerate(a):
+                curr = [i + 1]
+                for j, cb in enumerate(b):
+                    curr.append(min(prev[j+1]+1, curr[j]+1, prev[j]+(ca!=cb)))
+                prev = curr
+            return prev[len(b)]
+
+        # Only fuzzy match if location has a comma (city, state format)
+        if "," in loc and len(loc) > 4:
+            city_part = loc.split(",")[0].strip()
+            state_part = loc.split(",")[1].strip()[:2].upper() if "," in loc else ""
+            best_match = None
+            best_dist = 999
+
+            for known in _KNOWN_CITIES:
+                known_city = known.split(",")[0].strip()
+                known_state = known.split(",")[1].strip()[:2].upper() if "," in known else ""
+
+                # State must match if both have states
+                if state_part and known_state and state_part != known_state:
+                    continue
+
+                dist = _edit_dist(city_part.lower(), known_city.lower())
+                # Allow up to 3 char edits for cities > 5 chars
+                max_dist = 3 if len(city_part) > 5 else 2 if len(city_part) > 3 else 1
+                if dist <= max_dist and dist < best_dist:
+                    best_dist = dist
+                    best_match = known
+
+            if best_match and best_dist > 0:
+                return best_match
         # Garbage patterns
         garbage = ["And Role", "and role", "Unknown", "", "N/A", "Business, Economics", "Business Economics"]
         if loc in garbage:

@@ -3013,6 +3013,8 @@ COMPANY_NAME_FIXES = {
     "exl": "EXL",
     "bmo": "BMO",
     "rtx": "RTX",
+    "months": "Unknown",
+    "cmt": "CMT Digital",
     "energyhub": "EnergyHub",
     "premierautomation": "Premier Automation",
     "veeamsoftware": "Veeam Software",
@@ -3069,6 +3071,8 @@ COMPANY_NAME_FIXES = {
 
     # Capitalization fixes
     "rtx": "RTX",
+    "months": "Unknown",
+    "cmt": "CMT Digital",
     "energyhub": "EnergyHub",
     "premierautomation": "Premier Automation",
     "veeamsoftware": "Veeam Software",
