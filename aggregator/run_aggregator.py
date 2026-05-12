@@ -907,6 +907,11 @@ class UnifiedJobAggregator:
         company_from_github = job.get("company", "Unknown")
         location_from_github = job.get("location", "Unknown")
 
+        # Capture TRUE originals before any modification for hint preservation
+        _true_original_company = company_from_github
+        _true_original_title = job.get("title", "").strip()
+        _true_original_location = location_from_github
+
         # Normalize company name
         company_from_github_lower = company_from_github.lower().strip()
         if company_from_github_lower in COMPANY_NAME_FIXES:
@@ -1150,6 +1155,8 @@ class UnifiedJobAggregator:
             return
 
         # ── URL-Company Validator (self-healing) ──
+        # _true_original captured at top of function before any modifications
+
         _vj = validate_job({"company": company_from_github, "title": title, "url": resolved_url})
         company_from_github = _vj["company"]
         title = _vj.get("title", title)
@@ -1157,6 +1164,34 @@ class UnifiedJobAggregator:
         if not _ok:
             logging.info(f"INTEGRITY FAIL: {company_from_github} | {_why}")
             return
+
+        # If mismatch detected, the URL company is different from the hint company
+        # The hint data (original company/title) is a REAL job — queue it separately
+        if _true_original_company.lower().strip() != company_from_github.lower().strip():
+            _hint_norm = re.sub(r"[^a-z0-9]", "", _true_original_company.lower())
+            _url_norm = re.sub(r"[^a-z0-9]", "", company_from_github.lower())
+            if _hint_norm != _url_norm and len(_true_original_company) > 2:
+                # Save the original hint as a separate entry (URL unknown due to shift)
+                _hint_job = {
+                    "company": _true_original_company,
+                    "title": _true_original_title,
+                    "location": _true_original_location,
+                    "remote": "Unknown",
+                    "url": "URL_SHIFTED",
+                    "job_id": "N/A",
+                    "job_type": self._detect_job_type(_true_original_title, job.get("_source_name", "")),
+                    "sponsorship": "Unknown",
+                    "entry_date": self._format_date(),
+                    "source": source + " (hint-preserved)",
+                    "_hint_preserved": True,
+                }
+                # Only add if not already in existing jobs
+                _hint_key = re.sub(r"[^a-z0-9]", "", f"{_true_original_company}_{_true_original_title}".lower())
+                if _hint_key not in self.existing_jobs:
+                    with self._github_lock:
+                        self.valid_jobs.append(_hint_job)
+                        self.existing_jobs.add(_hint_key)
+                    logging.info(f"HINT PRESERVED: {_true_original_company} | {_true_original_title} (URL shifted, original data saved)")
 
         if self._is_duplicate(company_from_github, title, resolved_url):
             return
