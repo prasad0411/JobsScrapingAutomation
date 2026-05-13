@@ -1189,10 +1189,38 @@ class UnifiedJobAggregator:
                 # Only add if not already in existing jobs
                 _hint_key = re.sub(r"[^a-z0-9]", "", f"{_true_original_company}_{_true_original_title}".lower())
                 if _hint_key not in self.existing_jobs:
-                    with self._github_lock:
-                        self.valid_jobs.append(_hint_job)
-                        self.existing_jobs.add(_hint_key)
-                    logging.info(f"HINT PRESERVED: {_true_original_company} | {_true_original_title} (URL shifted, original data saved)")
+                    # Filter hints: reject international, non-tech, garbage titles
+                    _hint_valid = True
+                    # International check
+                    _hint_loc = _true_original_location or ""
+                    _intl_keywords = ["uk", "canada", "india", "germany", "france", "japan",
+                                      "australia", "brazil", "mexico", "china", "singapore",
+                                      "ireland", "netherlands", "sweden", "denmark", "norway",
+                                      "switzerland", "israel", "korea", "taiwan", "hong kong"]
+                    if any(kw in _hint_loc.lower() for kw in _intl_keywords):
+                        _hint_valid = False
+                        logging.info(f"HINT REJECTED (international): {_true_original_company} | {_hint_loc}")
+                    # Non-tech check
+                    if _hint_valid:
+                        _is_tech = TitleProcessor.is_cs_engineering_role(_true_original_title)
+                        if not _is_tech:
+                            _hint_valid = False
+                            logging.info(f"HINT REJECTED (non-tech): {_true_original_company} | {_true_original_title}")
+                    # Garbage title check
+                    if _hint_valid:
+                        _title_ok, _title_reason = TitleProcessor.is_valid_job_title(_true_original_title)
+                        if not _title_ok:
+                            _hint_valid = False
+                            logging.info(f"HINT REJECTED (invalid title): {_true_original_company} | {_true_original_title}")
+                    # XMLNAME / garbage check
+                    if _hint_valid and "xmlname" in _true_original_title.lower():
+                        _hint_valid = False
+                        logging.info(f"HINT REJECTED (XMLNAME garbage): {_true_original_company} | {_true_original_title}")
+                    if _hint_valid:
+                        with self._github_lock:
+                            self.valid_jobs.append(_hint_job)
+                            self.existing_jobs.add(_hint_key)
+                        logging.info(f"HINT PRESERVED: {_true_original_company} | {_true_original_title} (URL shifted, original data saved)")
 
         if self._is_duplicate(company_from_github, title, resolved_url):
             return

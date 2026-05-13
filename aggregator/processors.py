@@ -215,6 +215,9 @@ class TitleProcessor:
         except (ImportError, AttributeError):
             INVALID_TITLE_KEYWORDS = []
 
+        # Reject XMLNAME garbage from Workday
+        if "xmlname" in title.lower():
+            return False, "XMLNAME garbage title"
         # Reject hex/alphanumeric job IDs used as titles (e.g. "F70F3473E7")
         if re.match(r'^[0-9a-fA-F]{6,}$', title.strip()):
             return False, "Title is hex/job ID"
