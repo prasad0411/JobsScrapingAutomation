@@ -183,8 +183,8 @@ def extract_company_from_url(url):
         m = re.match(r"([a-z0-9-]+)\.fa\.", domain)
         if m and m.group(1) not in _ATS_NAMES:
             _oc_slug = m.group(1).lower()
-            if _oc_slug in _KNOWN_WORKDAY:
-                return _KNOWN_WORKDAY[_oc_slug]
+            if _oc_slug in _WORKDAY_COMPANY_MAP:
+                return _WORKDAY_COMPANY_MAP[_oc_slug]
             return _oc_slug.replace("-", " ").title()
 
     # (Amazon, Tesla, NVIDIA handled by _CUSTOM_CAREER_DOMAINS above)
