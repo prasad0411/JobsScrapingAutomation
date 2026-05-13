@@ -361,7 +361,7 @@ class SheetsManager:
                 self._clean_company(job["company"]),
                 job["title"],
                 "N/A",
-                job["url"],
+                self._smart_url(job),
                 job["job_id"],
                 job["job_type"],
                 self._clean_location(job["location"]),
@@ -768,6 +768,20 @@ class SheetsManager:
         except:
             pass
 
+
+    @staticmethod
+    def _smart_url(job):
+        """Convert URL_CONFLICT/URL_SHIFTED to clickable Google Search link."""
+        url = job.get("url", "")
+        if url in ("URL_CONFLICT", "URL_SHIFTED"):
+            company = job.get("company", "")
+            title = job.get("title", "")
+            search_query = f"{company} {title} careers apply"
+            # Return Google Sheets HYPERLINK formula
+            import urllib.parse
+            encoded = urllib.parse.quote(search_query)
+            return f'=HYPERLINK("https://www.google.com/search?q={encoded}", "🔍 Search")'
+        return url
 
     @staticmethod
     def _clean_company(company):
