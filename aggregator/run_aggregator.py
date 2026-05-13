@@ -1143,6 +1143,13 @@ class UnifiedJobAggregator:
         except Exception:
             pass
 
+        # GitHub sources: undo URL-domain override — source pairing is correct
+        _GITHUB_SOURCES = {"SimplifyJobs", "vanshb03", "speedyapply_swe",
+            "speedyapply_ai", "zapplyjobs", "jobright_github", "simplify_offseason",
+            "vanshb03_offseason", "simplify_newgrad", "cvrve_newgrad"}
+        if source in _GITHUB_SOURCES:
+            company_from_github = _true_original_company
+
         # ── Advanced degree filter (🎓 emoji from GitHub source) ──
         if '🎓' in title or '🎓' in company_from_github:
             logging.info(f"REJECT: Advanced degree role: {company_from_github} | {title}")
@@ -1158,8 +1165,9 @@ class UnifiedJobAggregator:
         # _true_original captured at top of function before any modifications
 
         _vj = validate_job({"company": company_from_github, "title": title, "url": resolved_url})
-        company_from_github = _vj["company"]
-        title = _vj.get("title", title)
+        if source not in _GITHUB_SOURCES:
+            company_from_github = _vj["company"]
+            title = _vj.get("title", title)
         _ok, _why = validate_job_integrity(_vj)
         if not _ok:
             logging.info(f"INTEGRITY FAIL: {company_from_github} | {_why}")
@@ -1167,7 +1175,7 @@ class UnifiedJobAggregator:
 
         # If mismatch detected, the URL company is different from the hint company
         # The hint data (original company/title) is a REAL job — queue it separately
-        if _true_original_company.lower().strip() != company_from_github.lower().strip():
+        if source not in _GITHUB_SOURCES and _true_original_company.lower().strip() != company_from_github.lower().strip():
             _hint_norm = re.sub(r"[^a-z0-9]", "", _true_original_company.lower())
             _url_norm = re.sub(r"[^a-z0-9]", "", company_from_github.lower())
             if (_hint_norm != _url_norm and len(_true_original_company) > 1
@@ -1347,6 +1355,10 @@ class UnifiedJobAggregator:
             )
             return
 
+        # Pre-fetch: save source data for conflict detection after page fetch
+        _pre_fetch_company = company_from_github
+        _pre_fetch_title = title
+
         result = self._process_single_job_comprehensive(
             resolved_url,
             company_hint=company_from_github,
@@ -1365,6 +1377,52 @@ class UnifiedJobAggregator:
             with self._github_lock:
                 self.source_stats[source]["rejected"] += 1
             logging.info(f"REJECTED (comprehensive) | {company_from_github} | {title} | url={resolved_url[:60]}")
+
+        # Conflict detection: if page extracted a different company than source,
+        # the source's job is a SEPARATE real job — preserve it
+        if source in _GITHUB_SOURCES:
+            _page_co_name = result["company"] if result else ""
+            _src_co = re.sub(r"[^a-z0-9]", "", _true_original_company.lower())
+            _page_co = re.sub(r"[^a-z0-9]", "", _page_co_name.lower()) if _page_co_name else ""
+            # Conflict if: page showed different company, OR page rejected but URL domain != source company
+            _has_conflict = False
+            if _page_co and _src_co and _page_co != _src_co and _src_co not in _page_co and _page_co not in _src_co:
+                _has_conflict = True
+            elif not result:
+                # Page rejected — check if URL domain suggests a different company
+                try:
+                    from urllib.parse import urlparse as _cf_urlp
+                    _cf_domain = _cf_urlp(resolved_url).netloc.lower().split(".")[0]
+                    _cf_domain_norm = re.sub(r"[^a-z0-9]", "", _cf_domain)
+                    if _cf_domain_norm and _src_co and _cf_domain_norm not in _src_co and _src_co not in _cf_domain_norm:
+                        _has_conflict = True
+                except Exception:
+                    pass
+            if _has_conflict:
+                _conflict_key = re.sub(r"[^a-z0-9]", "", f"{_true_original_company}_{_true_original_title}".lower())
+                if _conflict_key not in self.existing_jobs:
+                    _intl_kw = ["uk", "canada", "india", "germany", "france", "japan",
+                                "australia", "brazil", "mexico", "china", "singapore"]
+                    _loc_ok = not any(kw in _true_original_location.lower() for kw in _intl_kw)
+                    _tech_ok = TitleProcessor.is_cs_engineering_role(_true_original_title)
+                    _title_ok, _ = TitleProcessor.is_valid_job_title(_true_original_title)
+                    if _loc_ok and _tech_ok and _title_ok:
+                        _conflict_hint = {
+                            "company": _true_original_company,
+                            "title": _true_original_title,
+                            "location": _true_original_location,
+                            "remote": "Unknown",
+                            "url": "URL_CONFLICT",
+                            "job_id": "N/A",
+                            "job_type": self._detect_job_type(_true_original_title, job.get("_source_name", "")),
+                            "sponsorship": "Unknown",
+                            "entry_date": self._format_date(),
+                            "source": source,
+                        }
+                        with self._github_lock:
+                            self.valid_jobs.append(_conflict_hint)
+                            self.existing_jobs.add(_conflict_key)
+                        logging.info(f"CONFLICT PRESERVED: {_true_original_company} | {_true_original_title}")
 
     def _process_emails_grouped(self, emails_data):
         processed_emails = ProcessedEmailTracker.load()
