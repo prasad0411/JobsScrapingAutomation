@@ -1183,7 +1183,7 @@ class UnifiedJobAggregator:
                     "job_type": self._detect_job_type(_true_original_title, job.get("_source_name", "")),
                     "sponsorship": "Unknown",
                     "entry_date": self._format_date(),
-                    "source": source + " (hint-preserved)",
+                    "source": source,
                     "_hint_preserved": True,
                 }
                 # Only add if not already in existing jobs
