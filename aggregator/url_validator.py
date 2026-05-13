@@ -59,6 +59,7 @@ _WORKDAY_COMPANY_MAP = {
     "viavisolutions": "Viavi Solutions", "tutorperini": "Tutor Perini",
     "nvidia": "Nvidia",
     "novanta": "Novanta",
+    "emit": "WSP",
     "formlabs": "Formlabs",
     "talentmanagementsolution": "Jonas Software",
     "bmo": "BMO",
@@ -181,7 +182,10 @@ def extract_company_from_url(url):
     if "oraclecloud.com" in domain:
         m = re.match(r"([a-z0-9-]+)\.fa\.", domain)
         if m and m.group(1) not in _ATS_NAMES:
-            return m.group(1).replace("-", " ").title()
+            _oc_slug = m.group(1).lower()
+            if _oc_slug in _KNOWN_WORKDAY:
+                return _KNOWN_WORKDAY[_oc_slug]
+            return _oc_slug.replace("-", " ").title()
 
     # (Amazon, Tesla, NVIDIA handled by _CUSTOM_CAREER_DOMAINS above)
 
