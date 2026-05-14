@@ -852,6 +852,13 @@ class SheetsManager:
         # Garbage location strings from page parsing
         _GARBAGE_LOCS = {"Assistance To Interns", "Business, Economics", "And Role",
             "and role", "N/A", "Unknown", ""}
+        # Fix "US, Remote" → "Remote"
+        if loc.startswith("US,") or loc.startswith("USA,"):
+            loc = "Remote"
+        # Fix lone state prefix: "CA New York" → "New York, NY"
+        _lone_state = _loc_re.match(r'^[A-Z]{2}\s+(.+)$', loc)
+        if _lone_state and ',' not in loc:
+            loc = _lone_state.group(1)
         if loc in _GARBAGE_LOCS:
             return "Unknown"
 

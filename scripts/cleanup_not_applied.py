@@ -28,7 +28,7 @@ BACKUP_TRACKING_FILE = os.path.join(
 )
 BACKUP_INTERVAL_DAYS = 7
 
-EXPIRY_DAYS = 1  # Jobs older than this with no status get moved
+EXPIRY_DAYS = 2  # Jobs older than this with no status get moved
 
 FILES_TO_BACKUP = [
     "credentials.json",
@@ -351,13 +351,26 @@ class ManualCleanup:
                 print("No jobs to clean")
                 return
 
-            not_applied_rows = [
-                row for row in all_data[1:] if self._get_cell(row, 1) == "Not Applied"
-            ]
+            # Only move "Not Applied" jobs older than 48 hours
+            now = datetime.datetime.now()
+            not_applied_rows = []
+            for row in all_data[1:]:
+                if self._get_cell(row, 1) != "Not Applied":
+                    continue
+                entry_date_str = self._get_cell(row, 11)
+                entry_date = self._parse_entry_date(entry_date_str)
+                if not entry_date:
+                    continue  # Skip rows with no parseable date
+                entry_date = entry_date.replace(year=now.year)
+                age_hours = (now - entry_date).total_seconds() / 3600
+                if age_hours >= 48:
+                    not_applied_rows.append(row)
+                # Jobs < 48 hours old are kept in Valid Entries
+            # Keep: all non-"Not Applied" rows + fresh "Not Applied" rows (< 48 hours)
+            moved_set = set(id(row) for row in not_applied_rows)
             remaining_rows = [
-                row
-                for row in all_data[1:]
-                if self._get_cell(row, 1) and self._get_cell(row, 1) != "Not Applied"
+                row for row in all_data[1:]
+                if self._get_cell(row, 0) and id(row) not in moved_set
             ]
 
             if not_applied_rows:
