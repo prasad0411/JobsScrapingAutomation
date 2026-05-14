@@ -2575,13 +2575,13 @@ class ValidationHelper:
                 match = re.search(pattern, page_text, re.I)
                 if match:
                     # Check context for flexibility (MS/graduate also acceptable)
-                    context_start = max(0, match.start() - 200)
-                    context_end = min(len(page_text), match.end() + 200)
+                    context_start = max(0, match.start() - 500)
+                    context_end = min(len(page_text), match.end() + 500)
                     context = page_text[context_start:context_end]
 
                     # If context mentions graduate/master's, it's flexible
                     if any(
-                        bool(re.search(rf"\b{kw}\b", context))
+                        bool(re.search(rf"\b{kw}\b", context, re.I))
                         for kw in [
                             "master",
                             "masters",
@@ -2597,6 +2597,12 @@ class ValidationHelper:
                             r"m\.s\.",
                             "grad student",
                             "graduate student",
+                            "bachelor.*or higher degree",  # "bachelor or higher" means MS accepted
+                            "bachelor.*or.*master.*degree",  # explicit bachelor+master
+                            "bachelor.*or.*master",
+                            "bachelor.*master",
+                            "pursuing.*master",
+                            "advanced degree",
                         ]
                     ):
                         logging.debug(

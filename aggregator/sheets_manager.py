@@ -840,8 +840,14 @@ class SheetsManager:
 
         # ── Smart Location Corrector ──
         # Static shortcuts (abbreviations)
+        # Garbage location strings from page parsing
+        _GARBAGE_LOCS = {"Assistance To Interns", "Business, Economics", "And Role",
+            "and role", "N/A", "Unknown", ""}
+        if loc in _GARBAGE_LOCS:
+            return "Unknown"
+
         _ABBREV = {
-            "NYC": "New York, NY", "SF": "San Francisco, CA",
+            "NYC": "New York, NY", "York, NY": "New York, NY", "SF": "San Francisco, CA",
             "LA": "Los Angeles, CA", "NY, NY": "New York, NY",
             "DC": "Washington, DC", "ATL": "Atlanta, GA",
             "BOS": "Boston, MA", "CHI": "Chicago, IL",
