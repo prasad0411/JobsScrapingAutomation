@@ -411,7 +411,7 @@ class SheetsManager:
         self.discarded_entries.update(
             values=rows,
             range_name=f"A{start_row}:M{end_row}",
-            value_input_option="RAW",
+            value_input_option="USER_ENTERED",
         )
         import time; time.sleep(1)
         self.discarded_entries.format(
@@ -468,7 +468,7 @@ class SheetsManager:
         sheet.update(
             values=rows_data,
             range_name=f"A{start_row}:N{end_row}",
-            value_input_option="RAW",
+            value_input_option="USER_ENTERED",
         )
         time.sleep(1)
 
@@ -840,11 +840,29 @@ class SheetsManager:
 
         # ── Smart Location Corrector ──
         # Static shortcuts (abbreviations)
+        # Strip HTML tags from location
+        import re as _loc_re
+        loc = _loc_re.sub(r'<[^>]+>', ' ', loc).strip()
+        loc = _loc_re.sub(r'\s+', ' ', loc).strip()
+
+        # If location has multiple cities separated by space (from HTML), take the first
+        if ' Remote' in loc and ',' in loc:
+            loc = loc.split(' Remote')[0].strip()
+
         # Garbage location strings from page parsing
         _GARBAGE_LOCS = {"Assistance To Interns", "Business, Economics", "And Role",
             "and role", "N/A", "Unknown", ""}
         if loc in _GARBAGE_LOCS:
             return "Unknown"
+
+        # Fix state code garbage: "Seattle, WASF" → "Seattle, WA", "CTSt Paul, MN" → "St Paul, MN"
+        _state_fix = _loc_re.match(r'^(.+),\s*([A-Z]{2})[A-Z]+$', loc)
+        if _state_fix:
+            loc = f"{_state_fix.group(1)}, {_state_fix.group(2)}"
+        # Fix prefix garbage: "CTSt Paul, MN" → "St. Paul, MN"
+        _prefix_fix = _loc_re.match(r'^[A-Z]{2,3}([A-Z][a-z].+)$', loc)
+        if _prefix_fix:
+            loc = _prefix_fix.group(1)
 
         _ABBREV = {
             "NYC": "New York, NY", "York, NY": "New York, NY", "SF": "San Francisco, CA",

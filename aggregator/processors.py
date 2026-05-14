@@ -152,6 +152,8 @@ class TitleProcessor:
         title = _dur_re.sub(r'\s*\(\d+\s*(?:months?|weeks?|mos?)\)\s*$', '', title, flags=_dur_re.I).strip()
         # Strip "Fall 2026" / "Summer 2026" season suffixes
         title = _dur_re.sub(r'\s*[-–—]\s*(?:Fall|Spring|Summer|Winter)\s+20\d{2}\s*$', '', title, flags=_dur_re.I).strip()
+        # Strip trailing garbage words: "Intern Start", "Apply Now"
+        title = _dur_re.sub(r'\s+(?:Start|Apply|Now|Click|Here)\s*$', '', title, flags=_dur_re.I).strip()
 
         # FIX 1: Strip email subject line prefixes like "Company is looking for X"
         import re as _re_title
@@ -214,6 +216,12 @@ class TitleProcessor:
             from aggregator.config import INVALID_TITLE_KEYWORDS
         except (ImportError, AttributeError):
             INVALID_TITLE_KEYWORDS = []
+
+        # Reject standalone generic titles like "Internship", "Co-op", "Intern"
+        _standalone_garbage = {"internship", "intern", "co-op", "coop", "fellowship",
+            "apprenticeship", "job", "position", "role", "opening", "opportunity"}
+        if title.strip().lower() in _standalone_garbage:
+            return False, "Standalone generic title"
 
         # Reject XMLNAME garbage from Workday
         if "xmlname" in title.lower():
