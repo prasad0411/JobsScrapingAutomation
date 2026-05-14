@@ -2098,9 +2098,9 @@ class ValidationHelper:
                         "computer science",
                         "software engineering",
                         "computer engineering",
-                        "cs",
-                        " or ms",
-                        "or master",
+                        "information technology",
+                        "data science",
+                        "information systems",
                     ]
                     if any(kw in context for kw in cs_keywords):
                         logging.debug(
