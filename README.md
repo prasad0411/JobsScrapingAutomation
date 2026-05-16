@@ -6,7 +6,7 @@
 [![Docker](https://img.shields.io/badge/Docker-Containerized-2496ED?logo=docker)](docker-compose.yml)
 [![License](https://img.shields.io/badge/License-Private-lightgrey)]()
 
-A production-grade, self-healing data aggregation platform that autonomously collects, validates, deduplicates, and delivers job postings from 12+ sources — with built-in resilience patterns, adaptive email outreach, and continuous self-improvement.
+A production-grade, self-healing data aggregation platform that autonomously collects, validates, deduplicates, and delivers job postings from 13+ sources — with built-in resilience patterns, adaptive email outreach, and continuous self-improvement.
 
 ---
 
@@ -49,6 +49,15 @@ SPC anomaly detection"]
 - **URL-Company Validator**: Detects and auto-corrects company-URL mismatches using Levenshtein distance, longest-common-substring matching, and a self-learning cache. Handles Workday, Greenhouse, Lever, Ashby, and custom career domains.
 - **Fuzzy City Correction**: Fixes garbled location names (e.g., "Faington" → "Farmington") using edit distance against known US cities.
 - **Brain.json**: Persistent self-learning store with 224 domain patterns, 180 MX records, 73 domain overrides, and 31 job ID registries — grows smarter with every run.
+
+### Self-Healing Intelligence (Phase 3)
+- **Conflict Preservation**: When source data and page data disagree, both jobs are saved — zero data loss. Conflict entries get clickable Google Search links for manual verification.
+- **Trusted Domain Fallback**: When Tesla, Apple, or Google block HTTP requests, the system accepts source data instead of discarding valid jobs.
+- **JD-Aware Degree Filter**: Reads actual degree requirements from job descriptions — rejects "Mechanical Engineering" but accepts "Computer Science or related field."
+- **Smart Company Name Cleaner**: Acronym detection (CMT, ABB, IBM), Greenhouse slug splitting, and 50+ company alias mappings for dedup normalization.
+- **Non-Tech Title Rejection**: Permanent pattern matching rejects buyer, metrology, avionics, 3D modeling, and other non-CS roles regardless of source.
+- **Non-Geographic Location Detection**: Catches programming languages, personal names, and UI text accidentally parsed as locations.
+- **48-Hour Protection**: Cleanup scripts cannot move jobs from Valid Entries until they are 48+ hours old — fresh pipeline entries are always protected.
 
 ### Resilience Patterns
 - **Write-Ahead Log (WAL)**: Crash-safe sheet writes with transaction journaling and automatic recovery.
@@ -133,6 +142,7 @@ The pipeline runs automatically via GitHub Actions on a configurable schedule. M
 │   ├── sheets_manager.py       # Google Sheets API + formatting
 │   ├── wal.py                  # Write-ahead log for crash safety
 │   ├── config.py               # 2,800+ line configuration
+│   ├── extractors.py           # Multi-source custom parsers
 │   └── utils.py                # Shared utilities
 ├── tests/                      # 237 automated tests
 ├── .local/
@@ -148,13 +158,18 @@ The pipeline runs automatically via GitHub Actions on a configurable schedule. M
 
 | Metric | Value |
 |--------|-------|
-| Data Sources | 12+ |
+| Data Sources | 13+ |
+| Jobs Processed Daily | 4,200+ |
+| Valid Jobs Tracked | 1,000+ |
 | Automated Tests | 237 |
+| Auto-Corrections Per Run | 25+ |
 | Cached Domains | 219+ |
 | MX Records | 180+ |
 | Email Patterns Tracked | 247+ companies |
 | Domain Overrides | 73 |
 | Validation Regex Patterns | 146+ |
+| Company Alias Mappings | 50+ |
+| US City Fuzzy Match DB | 100+ cities |
 
 ## 👨‍💻 Author
 
