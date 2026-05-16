@@ -2261,7 +2261,8 @@ class UnifiedJobAggregator:
             # Duplicate check: only check existing_urls/jobs, NOT processing_lock
             # (processing_lock was already set by the caller for this URL)
             _clean = URLCleaner.clean_url(final_url or url)
-            _norm = URLCleaner.normalize_text(f"{company}_{title}")
+            _norm_co = TitleProcessor.normalize_company_for_dedup(company) if hasattr(TitleProcessor, "normalize_company_for_dedup") else company.lower()
+            _norm = URLCleaner.normalize_text(f"{_norm_co}_{title}")
             with getattr(self, "_github_lock", _NOOP_LOCK):
                 _url_dup = _clean in self.existing_urls
                 _job_dup = _norm in self.existing_jobs

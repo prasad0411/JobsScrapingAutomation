@@ -223,6 +223,28 @@ class TitleProcessor:
         if title.strip().lower() in _standalone_garbage:
             return False, "Standalone generic title"
 
+        # Reject clearly non-tech titles
+        _NON_TECH = [
+            r"\b(?:buyer|purchasing|procurement)\b",
+            r"\b(?:metrology|metallurg|welder|machinist)\b",
+            r"\b(?:avionics|pilot|flight)\b(?!.*software)",
+            r"\b(?:3d\s+model|visual\s+design|graphic\s+design)\b(?!.*engineer|.*develop)",
+            r"\b(?:nurse|physician|pharmacist|dental)\b",
+            r"\b(?:accountant|auditor|tax\s+analyst|bookkeeper)\b",
+            r"\b(?:real\s+estate|property\s+manag|leasing)\b",
+            r"\bgroup\s+head\b(?!.*engineer|.*software|.*data)",
+            r"\bilt\s+specialist\b",
+        ]
+        for _ntp in _NON_TECH:
+            if re.search(_ntp, title, re.I):
+                return False, f"Non-tech title"
+
+        # Reject standalone generic titles
+        _standalone_garbage = {"internship", "intern", "co-op", "coop", "fellowship",
+            "apprenticeship", "job", "position", "role", "opening", "opportunity"}
+        if title.strip().lower() in _standalone_garbage:
+            return False, "Standalone generic title"
+
         # Reject XMLNAME garbage from Workday
         if "xmlname" in title.lower():
             return False, "XMLNAME garbage title"
@@ -329,6 +351,24 @@ class TitleProcessor:
                 return False, "Invalid title pattern"
 
         return True, None
+
+    _COMPANY_ALIASES = {
+        "robert bosch": "bosch", "bosch group": "bosch",
+        "crum & forster insurance": "crum & forster", "cfins": "crum & forster",
+        "xpeng motors": "xpeng", "xpengmotors": "xpeng",
+        "farmers insurance": "farmers insurance", "farmersinsurance": "farmers insurance",
+        "climateai": "climateai", "climate ai": "climateai",
+    }
+
+    @staticmethod
+    def normalize_company_for_dedup(company):
+        import re as _re
+        c = company.strip().lower()
+        c = _re.sub(r"[^a-z0-9 ]", "", c).strip()
+        for alias, canonical in TitleProcessor._COMPANY_ALIASES.items():
+            if c == alias or c.startswith(alias):
+                return canonical
+        return c
 
     @staticmethod
     @lru_cache(maxsize=256)

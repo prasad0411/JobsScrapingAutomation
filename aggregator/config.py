@@ -3305,6 +3305,8 @@ COMPANY_NAME_FIXES = {
     "shorepoint": "ShorePoint",
     "erickson senior living": "Erickson Senior Living",
     "farsight ai": "Farsight AI",
+    "quadric dot i o inc": "Quadric",
+    "dat": "DAT Freight & Analytics",
 }
 
 # City to state mapping for location normalization
