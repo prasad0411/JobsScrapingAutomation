@@ -1355,6 +1355,14 @@ class UnifiedJobAggregator:
             )
             return
 
+        # ── Early dedup: catch duplicates BEFORE expensive page fetch ──
+        _early_norm_co = TitleProcessor.normalize_company_for_dedup(company_from_github) if hasattr(TitleProcessor, "normalize_company_for_dedup") else company_from_github.lower()
+        _early_norm = re.sub(r"[^a-z0-9]", "", f"{_early_norm_co}_{title}".lower())
+        with self._github_lock:
+            if _early_norm in self.existing_jobs:
+                logging.info(f"EARLY DEDUP: {company_from_github} | {title} (already in sheet)")
+                return
+        
         # Pre-fetch: save source data for conflict detection after page fetch
         _pre_fetch_company = company_from_github
         _pre_fetch_title = title
@@ -1399,7 +1407,8 @@ class UnifiedJobAggregator:
                 except Exception:
                     pass
             if _has_conflict:
-                _conflict_key = re.sub(r"[^a-z0-9]", "", f"{_true_original_company}_{_true_original_title}".lower())
+                _conflict_norm_co = TitleProcessor.normalize_company_for_dedup(_true_original_company) if hasattr(TitleProcessor, "normalize_company_for_dedup") else _true_original_company.lower()
+                _conflict_key = re.sub(r"[^a-z0-9]", "", f"{_conflict_norm_co}_{_true_original_title}".lower())
                 if _conflict_key not in self.existing_jobs:
                     _intl_kw = ["uk", "canada", "india", "germany", "france", "japan",
                                 "australia", "brazil", "mexico", "china", "singapore"]
