@@ -780,7 +780,7 @@ class SheetsManager:
             # Return Google Sheets HYPERLINK formula
             import urllib.parse
             encoded = urllib.parse.quote(search_query)
-            return f'=HYPERLINK("https://www.google.com/search?q={encoded}", "🔍 Search")'
+            return f'=HYPERLINK("https://www.google.com/search?q={encoded}", "🔍 {company} - Search")'
         return url
 
     @staticmethod
@@ -860,6 +860,18 @@ class SheetsManager:
         if _lone_state and ',' not in loc:
             loc = _lone_state.group(1)
         if loc in _GARBAGE_LOCS:
+            return "Unknown"
+
+        # Detect non-geographic text (programming languages, names, UI text)
+        _NON_GEO_EXACT = {"python", "rust", "java", "javascript", "golang", "ruby",
+            "react", "node", "sql", "html", "css", "docker", "kubernetes",
+            "colin", "devine", "smith", "opportunity", "select", "click",
+            "apply", "upload", "resume", "often"}
+        _loc_words = set(w.strip().lower() for w in _loc_re.split(r"[,/\s]+", loc) if w.strip())
+        if _loc_words & _NON_GEO_EXACT:
+            return "Unknown"
+        # Reject long locations with no US state code (e.g. "North America Latin America Europe")
+        if len(loc) > 30 and ", " not in loc and "remote" not in loc.lower():
             return "Unknown"
 
         # Fix state code garbage: "Seattle, WASF" → "Seattle, WA", "CTSt Paul, MN" → "St Paul, MN"

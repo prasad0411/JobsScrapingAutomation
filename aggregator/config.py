@@ -3307,6 +3307,12 @@ COMPANY_NAME_FIXES = {
     "farsight ai": "Farsight AI",
     "quadric dot i o inc": "Quadric",
     "dat": "DAT Freight & Analytics",
+    "wwfus": "World Wildlife Fund",
+    "lilasciences": "Lila Sciences",
+    "temporaltechnologies": "Temporal Technologies",
+    "foxnew fox news network": "Fox News",
+    "podium81": "Podium",
+    "starsling": "StarSling",
 }
 
 # City to state mapping for location normalization

@@ -234,6 +234,11 @@ class TitleProcessor:
             r"\b(?:real\s+estate|property\s+manag|leasing)\b",
             r"\bgroup\s+head\b(?!.*engineer|.*software|.*data)",
             r"\bilt\s+specialist\b",
+            r"\b(?:electrolysis|membrane|proton exchange|catalyst|polymer)\b(?!.*software|.*data)",
+            r"\b(?:hamr|component\s+testing|pcb|soldering|antenna)\b(?!.*software)",
+            r"\b(?:air\s+quality|climate\s+action|conservation|sustainability)\b(?!.*data|.*ml|.*ai)",
+            r"\b(?:travel\s+product|digital\s+travel|merchandise\s+strategy)\b",
+            r"\b(?:product\s+management)\b(?!.*software|.*data|.*tech)",
         ]
         for _ntp in _NON_TECH:
             if re.search(_ntp, title, re.I):
@@ -358,6 +363,15 @@ class TitleProcessor:
         "xpeng motors": "xpeng", "xpengmotors": "xpeng",
         "farmers insurance": "farmers insurance", "farmersinsurance": "farmers insurance",
         "climateai": "climateai", "climate ai": "climateai",
+        "plus2": "plus", "plusai": "plus", "plus ai": "plus",
+        "wwfus": "world wildlife fund", "world wildlife fund": "world wildlife fund",
+        "lilasciences": "lila sciences", "lila sciences": "lila sciences",
+        "temporaltechnologies": "temporal technologies",
+        "podium81": "podium", "podium": "podium",
+        "foxnew fox news network": "fox news", "fox news": "fox news",
+        "bcbst bluecross blueshield of tennessee": "bluecross blueshield",
+        "lexisnexis risk solutions fl": "lexisnexis",
+        "lexisnexis risk solutions": "lexisnexis",
     }
 
     @staticmethod
