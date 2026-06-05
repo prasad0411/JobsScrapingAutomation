@@ -485,8 +485,32 @@ class ManualCleanup:
         time.sleep(2)
 
         self._add_hyperlinks(self.sheet, renumbered_rows, 2, url_col_idx=5)
+        self._reconstruct_search_links(self.sheet, renumbered_rows, 2)
         self._add_status_dropdowns(self.sheet, 2, len(renumbered_rows))
         self._apply_status_colors(self.sheet, 2, 2 + len(renumbered_rows))
+
+    def _reconstruct_search_links(self, sheet, rows_data, start_row):
+        """Reconstruct clickable HYPERLINK formulas for search link entries."""
+        import urllib.parse
+        search_updates = []
+        for idx, row_data in enumerate(rows_data):
+            url = self._get_cell(row_data, 5)
+            company = self._get_cell(row_data, 2)
+            title = self._get_cell(row_data, 3)
+            if url and '🔍' in url and company:
+                query = urllib.parse.quote(f"{company} {title} careers apply")
+                formula = f'=HYPERLINK("https://www.google.com/search?q={query}", "🔍 {company} - Search")'
+                row_num = start_row + idx
+                search_updates.append((row_num, formula))
+
+        if search_updates:
+            for row_num, formula in search_updates:
+                self.sheet.update(
+                    range_name=f'F{row_num}',
+                    values=[[formula]],
+                    value_input_option='USER_ENTERED'
+                )
+            time.sleep(2)
 
     def _add_hyperlinks(self, sheet, rows_data, start_row, url_col_idx):
         url_requests = []
