@@ -363,7 +363,7 @@ class TitleProcessor:
         "xpeng motors": "xpeng", "xpengmotors": "xpeng",
         "farmers insurance": "farmers insurance", "farmersinsurance": "farmers insurance",
         "climateai": "climateai", "climate ai": "climateai",
-        "plus2": "plus", "plusai": "plus", "plus ai": "plus",
+        "plus2": "plusai", "plusai": "plusai", "plus ai": "plusai", "plus 2": "plusai", "plus-2": "plusai",
         "wwfus": "world wildlife fund", "world wildlife fund": "world wildlife fund",
         "lilasciences": "lila sciences", "lila sciences": "lila sciences",
         "temporaltechnologies": "temporal technologies",

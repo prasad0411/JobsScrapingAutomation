@@ -3313,6 +3313,8 @@ COMPANY_NAME_FIXES = {
     "foxnew fox news network": "Fox News",
     "podium81": "Podium",
     "starsling": "StarSling",
+    "plus-2": "PlusAI",
+    "plus 2": "PlusAI",
 }
 
 # City to state mapping for location normalization

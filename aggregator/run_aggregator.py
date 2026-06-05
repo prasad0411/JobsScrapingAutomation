@@ -481,6 +481,27 @@ class UnifiedJobAggregator:
         logging.info(f"Loaded {len(self.existing_jobs)} existing jobs from sheets")
 
     def run(self):
+        # ── Run lock: prevent duplicate simultaneous runs ──
+        _lock_file = os.path.join(".local", "aggregator.lock")
+        if os.path.exists(_lock_file):
+            try:
+                _lock_age = time.time() - os.path.getmtime(_lock_file)
+                if _lock_age < 600:  # 10 minutes
+                    print("⚠️  Another aggregator run is in progress (lock file < 10 min old). Exiting.")
+                    logging.warning(f"Skipped: lock file exists, age={_lock_age:.0f}s")
+                    return
+                else:
+                    logging.info(f"Stale lock file ({_lock_age:.0f}s old) — removing")
+                    os.remove(_lock_file)
+            except Exception:
+                pass
+        try:
+            os.makedirs(os.path.dirname(_lock_file), exist_ok=True)
+            with open(_lock_file, "w") as _lf:
+                _lf.write(f"{os.getpid()}\n{time.time()}")
+        except Exception:
+            pass
+
         start_time = time.time()
 
         # Selenium health check — catch ChromeDriver mismatches immediately
@@ -2391,6 +2412,15 @@ class UnifiedJobAggregator:
                 platform=platform,
                 page_source=page_source or "",
             )
+            # Filter tech stack / programming language text mistakenly parsed as location
+            if location and location != "Unknown":
+                _tech_words = {"python", "rust", "java", "javascript", "golang", "ruby",
+                    "react", "node", "sql", "docker", "kubernetes", "terraform",
+                    "bazel", "c++", "typescript", "swift", "kotlin", "scala"}
+                _loc_words = set(w.strip().lower().rstrip(",") for w in location.replace("/", " ").split())
+                if _loc_words & _tech_words:
+                    logging.info(f"Tech stack in location: {location!r} -> falling back to hint")
+                    location = None
             if (
                 (not location or location == "Unknown")
                 and location_hint
