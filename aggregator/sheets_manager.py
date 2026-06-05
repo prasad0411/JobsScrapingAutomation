@@ -144,6 +144,31 @@ class SheetsManager:
 
             setattr(self, sheet_name.lower().replace(" ", "_").replace("-", "_"), sheet)
 
+    def _ensure_status_dropdowns(self):
+        """One-time: set dropdown validation on entire Status column."""
+        try:
+            _STATUS_VALUES = ["Not Applied", "Applied", "Rejected", "Screening",
+                "OA Round 1", "OA Round 2", "Interview 1", "Interview 2",
+                "Assessment", "Offer accepted"]
+            self.spreadsheet.batch_update({"requests": [{
+                "setDataValidation": {
+                    "range": {
+                        "sheetId": self.valid_sheet.id,
+                        "startRowIndex": 1, "endRowIndex": 5000,
+                        "startColumnIndex": 1, "endColumnIndex": 2,
+                    },
+                    "rule": {
+                        "condition": {
+                            "type": "ONE_OF_LIST",
+                            "values": [{"userEnteredValue": s} for s in _STATUS_VALUES],
+                        },
+                        "showCustomUi": True, "strict": False,
+                    },
+                }
+            }]})
+        except Exception:
+            pass
+
     def load_existing_jobs(self):
         existing = {"jobs": set(), "urls": set(), "job_ids": set(), "cache": {}}
         try:
@@ -375,6 +400,7 @@ class SheetsManager:
         ]
 
         self._batch_write(self.valid_sheet, start_row, rows, is_valid_sheet=True)
+        self._ensure_status_dropdowns()
         self._auto_resize_columns(self.valid_sheet, 14)
         return len(jobs)
 
