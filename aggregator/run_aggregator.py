@@ -1410,9 +1410,21 @@ class UnifiedJobAggregator:
                 _conflict_norm_co = TitleProcessor.normalize_company_for_dedup(_true_original_company) if hasattr(TitleProcessor, "normalize_company_for_dedup") else _true_original_company.lower()
                 _conflict_key = re.sub(r"[^a-z0-9]", "", f"{_conflict_norm_co}_{_true_original_title}".lower())
                 if _conflict_key not in self.existing_jobs:
-                    _intl_kw = ["uk", "canada", "india", "germany", "france", "japan",
-                                "australia", "brazil", "mexico", "china", "singapore"]
-                    _loc_ok = not any(kw in _true_original_location.lower() for kw in _intl_kw)
+                    # International check — use regex word boundaries to avoid matching US cities
+                    # e.g. "uk" must not match "Milwaukee", ", in" must not match "Indianapolis, IN"
+                    import re as _intl_re
+                    _intl_patterns = [
+                        r"canada", r"india(?!na)", r"germany", r"france",
+                        r"japan", r"australia", r"brazil", r"mexico(?!\s*,)",
+                        r"china", r"singapore", r"toronto", r"vancouver",
+                        r"london", r"berlin", r"tokyo", r"beijing",
+                        r"shanghai", r"mumbai", r"bangalore", r"hyderabad",
+                        r"dublin", r"sydney", r"melbourne", r"calgary",
+                        r"montreal", r"ON,?\s*Canada", r"BC,?\s*Canada",
+                        r"Bucuresti", r"Romania", r"Croatia",
+                        r",\s*UK", r",\s*United Kingdom",
+                    ]
+                    _loc_ok = not any(_intl_re.search(p, _true_original_location, _intl_re.I) for p in _intl_patterns)
                     _tech_ok = TitleProcessor.is_cs_engineering_role(_true_original_title)
                     _title_ok, _ = TitleProcessor.is_valid_job_title(_true_original_title)
                     if _loc_ok and _tech_ok and _title_ok:
