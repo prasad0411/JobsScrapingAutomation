@@ -1383,6 +1383,14 @@ class UnifiedJobAggregator:
             if _early_norm in self.existing_jobs:
                 logging.info(f"EARLY DEDUP: {company_from_github} | {title} (already in sheet)")
                 return
+
+        # ── Early non-English filter ──
+        _NON_ENG = ["automatizare", "inteligenta artificiala", "dezvoltare", "platforme",
+            "bazata", "senzori", "inginerie", "testare", "praktikum", "werkstudent",
+            "alternance", "stagiaire", "ingeniero", "entwicklung", "forschung"]
+        if any(kw in title.lower() for kw in _NON_ENG):
+            logging.info(f"NON-ENGLISH: {company_from_github} | {title}")
+            return
         
         # Pre-fetch: save source data for conflict detection after page fetch
         _pre_fetch_company = company_from_github
@@ -1448,7 +1456,32 @@ class UnifiedJobAggregator:
                     _loc_ok = not any(_intl_re.search(p, _true_original_location, _intl_re.I) for p in _intl_patterns)
                     _tech_ok = TitleProcessor.is_cs_engineering_role(_true_original_title)
                     _title_ok, _ = TitleProcessor.is_valid_job_title(_true_original_title)
-                    if _loc_ok and _tech_ok and _title_ok:
+
+                    # Additional validation for conflict entries
+                    _title_lower = _true_original_title.lower()
+
+                    # Clearance check
+                    _clearance_kw = ["security clearance", "secret clearance", "ts/sci",
+                        "top secret", "polygraph", "us citizenship required"]
+                    _clearance_ok = not any(kw in _title_lower for kw in _clearance_kw)
+
+                    # PhD filter — reject "Research Intern/Scientist" without BS/MS signal
+                    _phd_titles = ["research intern", "research scientist intern",
+                        "research engineer intern"]
+                    _is_research = any(pt in _title_lower for pt in _phd_titles)
+                    _has_bs_ms = any(kw in _title_lower for kw in ["bs/ms", "bs", "ms", "bachelor", "master"])
+                    _phd_ok = not _is_research or _has_bs_ms
+
+                    # Non-English filter
+                    _non_english_kw = ["automatizare", "inteligenta artificiala", "dezvoltare",
+                        "platforme", "bazata", "senzori", "inginerie", "testare",
+                        "praktikum", "werkstudent", "alternance", "stagiaire"]
+                    _lang_ok = not any(kw in _title_lower for kw in _non_english_kw)
+
+                    # Salary keyword check in title (rare but catches "$20/hr" etc)
+                    _salary_ok = True  # Can't check salary without page fetch
+
+                    if _loc_ok and _tech_ok and _title_ok and _clearance_ok and _phd_ok and _lang_ok:
                         _conflict_hint = {
                             "company": _true_original_company,
                             "title": _true_original_title,

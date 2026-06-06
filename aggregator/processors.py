@@ -244,6 +244,14 @@ class TitleProcessor:
             if re.search(_ntp, title, re.I):
                 return False, f"Non-tech title"
 
+        # Reject non-English titles
+        _NON_ENGLISH_KW = ["automatizare", "inteligenta artificiala", "dezvoltare",
+            "platforme", "bazata", "senzori", "inginerie", "testare",
+            "praktikum", "werkstudent", "alternance", "stagiaire",
+            "ingeniero", "entwicklung", "forschung"]
+        if any(kw in title.lower() for kw in _NON_ENGLISH_KW):
+            return False, "Non-English title"
+
         # Reject standalone generic titles
         _standalone_garbage = {"internship", "intern", "co-op", "coop", "fellowship",
             "apprenticeship", "job", "position", "role", "opening", "opportunity"}
