@@ -144,6 +144,41 @@ class SheetsManager:
 
             setattr(self, sheet_name.lower().replace(" ", "_").replace("-", "_"), sheet)
 
+    def _apply_not_applied_colors(self, start_row, count):
+        """Apply blue color to 'Not Applied' cells in new rows."""
+        try:
+            _NOT_APPLIED_BG = {"red": 0.6, "green": 0.76, "blue": 1.0}
+            requests = []
+            for i in range(count):
+                row_idx = start_row - 1 + i  # 0-indexed
+                requests.append({
+                    "repeatCell": {
+                        "range": {
+                            "sheetId": self.valid_sheet.id,
+                            "startRowIndex": row_idx,
+                            "endRowIndex": row_idx + 1,
+                            "startColumnIndex": 1,
+                            "endColumnIndex": 2,
+                        },
+                        "cell": {"userEnteredFormat": {
+                            "backgroundColor": _NOT_APPLIED_BG,
+                            "textFormat": {
+                                "foregroundColor": {"red": 0, "green": 0, "blue": 0},
+                                "fontFamily": "Times New Roman", "fontSize": 13,
+                            },
+                            "horizontalAlignment": "CENTER",
+                            "verticalAlignment": "MIDDLE",
+                        }},
+                        "fields": "userEnteredFormat",
+                    }
+                })
+            if requests:
+                for i in range(0, len(requests), 50):
+                    self.spreadsheet.batch_update({"requests": requests[i:i+50]})
+                import time; time.sleep(1)
+        except Exception:
+            pass
+
     def _ensure_status_dropdowns(self):
         """One-time: set dropdown validation on entire Status column."""
         try:
@@ -387,7 +422,7 @@ class SheetsManager:
                 job["title"],
                 "N/A",
                 self._smart_url(job),
-                job["job_id"],
+                self._clean_job_id(job.get("job_id", "N/A")),
                 job["job_type"],
                 self._clean_location(job["location"]),
                 self._classify_resume(job["title"]),
@@ -400,6 +435,7 @@ class SheetsManager:
         ]
 
         self._batch_write(self.valid_sheet, start_row, rows, is_valid_sheet=True)
+        self._apply_not_applied_colors(start_row, len(rows))
         self._ensure_status_dropdowns()
         self._auto_resize_columns(self.valid_sheet, 14)
         return len(jobs)
@@ -794,6 +830,17 @@ class SheetsManager:
         except:
             pass
 
+
+    @staticmethod
+    def _clean_job_id(job_id):
+        """Clean garbage job IDs like A66668Apply, N/A etc."""
+        if not job_id or job_id in ("N/A", ""):
+            return "N/A"
+        import re
+        # Reject IDs that contain non-ID text
+        if re.search(r'(?:Apply|Submit|Click|Here|Login)', job_id, re.I):
+            return "N/A"
+        return job_id
 
     @staticmethod
     def _smart_url(job):

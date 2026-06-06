@@ -3315,6 +3315,12 @@ COMPANY_NAME_FIXES = {
     "starsling": "StarSling",
     "plus-2": "PlusAI",
     "plus 2": "PlusAI",
+    "bytedance": "ByteDance",
+    "ispottv": "iSpot.tv",
+    "nationalpublicradioinc": "NPR",
+    "microchiphr": "Microchip Technology",
+    "magnite, inc.us": "Magnite",
+    "tencent america": "Tencent",
 }
 
 # City to state mapping for location normalization
