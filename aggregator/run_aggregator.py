@@ -2438,6 +2438,43 @@ class UnifiedJobAggregator:
                 logging.info(f"REJECTED | {company} | {title} | Blacklisted: {reason}")
                 return None
 
+            # ── Undergrad-only check: MS students not eligible ──
+            if soup:
+                try:
+                    ug_result, ug_reason = ValidationHelper._check_undergraduate_only_requirements(soup)
+                    if ug_result == "REJECT":
+                        self._add_discarded(company, title, location_hint or "Unknown", "Unknown",
+                            final_url or url, "N/A", "Internship", source)
+                        self._print_rejected(company, ug_reason)
+                        logging.info(f"REJECTED | {company} | {title} | {ug_reason}")
+                        return None
+                except Exception:
+                    pass
+
+            # ── JD clearance check: scan page text for clearance requirements ──
+            if soup:
+                try:
+                    _clearance_pats = [
+                        r"(?:clearance.*required)",
+                        r"ability to obtain.*secret",
+                        r"ability to obtain and maintain.*security clearance",
+                        r"willing.*able.*obtain.*(?:top secret|ts.sci|secret clearance)",
+                        r"this\s+position\s+requires.*obtain.*maintain.*security\s+clearance",
+                        r"clearance type.*secret",
+                        r"must.*obtain.*(?:secret|top secret|ts/sci).*clearance",
+                        r"u\.s\.\s+dod\s+security\s+clearance",
+                    ]
+                    _page_text = soup.get_text()[:10000].lower()
+                    for _clr_pat in _clearance_pats:
+                        if re.search(_clr_pat, _page_text, re.I):
+                            self._add_discarded(company, title, location_hint or "Unknown", "Unknown",
+                                final_url or url, "N/A", "Internship", source)
+                            self._print_rejected(company, "Security clearance required (JD)")
+                            logging.info(f"REJECTED | {company} | {title} | Clearance in JD")
+                            return None
+                except Exception:
+                    pass
+
             location = LocationExtractor.extract_all_methods(
                 final_url or url,
                 soup,

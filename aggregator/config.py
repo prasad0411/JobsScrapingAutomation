@@ -460,6 +460,9 @@ ASSOCIATE_BACHELOR_ONLY_PATTERNS = [
     r"currently.*(?:ba|bs)\s+degree",
     r"pursuing.*(?:bsee|bsce|bsme|bsae|bsie)\b",
     r"enrolled.*(?:bsee|bsce|bsme|bsae)\s+(?:or|program)",
+    r"enrollment.*(?:4-year|four.year).*(?:university|college)",
+    r"enrolled.*(?:4-year|four.year).*(?:university|college).*(?:pursuing|technology|degree)",
+
 ]
 
 CPT_OPT_EXCLUSION_PATTERNS = [
