@@ -992,7 +992,9 @@ WORKDAY_ABBREVIATIONS = {
 CLEARANCE_COMPANIES = [
     "booz allen", "raytheon", "northrop grumman", "lockheed martin",
     "general dynamics", "bae systems", "l3harris", "leidos",
-    "saic", "caci", "mantech", "perspecta",
+    "saic", "caci", "mantech", "perspecta", "kbr",
+    "amentum", "gdit", "cole engineering", "metova federal",
+    "parsons", "sierra space",
 ]
 
 COMPANY_NORMALIZATIONS = {
@@ -3321,6 +3323,16 @@ COMPANY_NAME_FIXES = {
     "microchiphr": "Microchip Technology",
     "magnite, inc.us": "Magnite",
     "tencent america": "Tencent",
+    "1600 nio usa": "NIO",
+    "ameres": "Ameresco",
+    "murphy-brown": "Smithfield Foods",
+    "ekkf": "Samsonite",
+    "tyson shared": "Tyson Foods",
+    "renault techno roumanie": "Renault",
+    "ejia": "S&C Electric Company",
+    "ken garff automotive group": "Ken Garff",
+    "scaleai": "Scale AI",
+    "oneclick ui": "Bosch",
 }
 
 # City to state mapping for location normalization
