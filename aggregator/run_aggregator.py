@@ -1460,10 +1460,14 @@ class UnifiedJobAggregator:
                     # Additional validation for conflict entries
                     _title_lower = _true_original_title.lower()
 
-                    # Clearance check
+                    # Clearance check (skip for big tech companies that never require it)
+                    _NO_CLEAR_CO = {"apple", "google", "meta", "amazon", "microsoft",
+                        "netflix", "uber", "lyft", "stripe", "tesla", "nvidia",
+                        "tiktok", "bytedance", "salesforce", "pinterest", "snap"}
                     _clearance_kw = ["security clearance", "secret clearance", "ts/sci",
-                        "top secret", "polygraph", "us citizenship required"]
-                    _clearance_ok = not any(kw in _title_lower for kw in _clearance_kw)
+                        "top secret", "polygraph"]
+                    _co_check = _true_original_company.lower().strip()
+                    _clearance_ok = (_co_check in _NO_CLEAR_CO) or not any(kw in _title_lower for kw in _clearance_kw)
 
                     # PhD filter — reject "Research Intern/Scientist" without BS/MS signal
                     _phd_titles = ["research intern", "research scientist intern",
@@ -2452,17 +2456,26 @@ class UnifiedJobAggregator:
                     pass
 
             # ── JD clearance check: scan page text for clearance requirements ──
-            if soup:
+            # Skip for companies that NEVER require clearance (legal boilerplate triggers false positives)
+            _NO_CLEARANCE_COMPANIES = {"apple", "google", "meta", "amazon", "microsoft",
+                "netflix", "uber", "lyft", "stripe", "airbnb", "spotify", "pinterest",
+                "tesla", "nvidia", "tiktok", "bytedance", "salesforce", "slack",
+                "snap", "reddit", "dropbox", "coinbase", "robinhood", "doordash",
+                "instacart", "databricks", "snowflake", "palantir", "figma"}
+            _co_lower = company.lower().strip()
+            if soup and _co_lower not in _NO_CLEARANCE_COMPANIES:
                 try:
                     _clearance_pats = [
-                        r"(?:clearance.*required)",
-                        r"ability to obtain.*secret",
+                        r"security\s+clearance\s+(?:is\s+)?required",
+                        r"(?:must|required to)\s+(?:have|hold|possess|obtain|maintain)\s+.*(?:security\s+clearance|secret\s+clearance)",
+                        r"ability to obtain.*(?:secret|top secret|ts.sci)\s+(?:security\s+)?clearance",
                         r"ability to obtain and maintain.*security clearance",
                         r"willing.*able.*obtain.*(?:top secret|ts.sci|secret clearance)",
                         r"this\s+position\s+requires.*obtain.*maintain.*security\s+clearance",
-                        r"clearance type.*secret",
-                        r"must.*obtain.*(?:secret|top secret|ts/sci).*clearance",
+                        r"clearance type.*(?:secret|top secret)",
                         r"u\.s\.\s+dod\s+security\s+clearance",
+                        r"active\s+(?:secret|top secret|ts/sci)\s+clearance",
+                        r"(?:secret|top secret)\s+clearance\s+(?:required|needed|mandatory)",
                     ]
                     _page_text = soup.get_text()[:10000].lower()
                     for _clr_pat in _clearance_pats:
@@ -2765,13 +2778,17 @@ class UnifiedJobAggregator:
         reason,
     ):
         with getattr(self, "_github_lock", _NOOP_LOCK):
-            # Dedup: skip if same URL+reason already discarded
+            # Dedup: skip if same URL+reason OR same company+title already discarded
             _url_key = (url, reason)
+            _ct_key = re.sub(r"[^a-z0-9]", "", f"{company}_{title}".lower())
             if not hasattr(self, "_discarded_url_seen"):
                 self._discarded_url_seen = set()
-            if _url_key in self._discarded_url_seen:
+            if not hasattr(self, "_discarded_ct_seen"):
+                self._discarded_ct_seen = set()
+            if _url_key in self._discarded_url_seen or _ct_key in self._discarded_ct_seen:
                 return
             self._discarded_url_seen.add(_url_key)
+            self._discarded_ct_seen.add(_ct_key)
             self.discarded_jobs.append(
                 {
                     "company": company,
