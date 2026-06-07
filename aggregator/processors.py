@@ -152,6 +152,14 @@ class TitleProcessor:
         title = _dur_re.sub(r'\s*\(\d+\s*(?:months?|weeks?|mos?)\)\s*$', '', title, flags=_dur_re.I).strip()
         # Strip "Fall 2026" / "Summer 2026" season suffixes
         title = _dur_re.sub(r'\s*[-–—]\s*(?:Fall|Spring|Summer|Winter)\s+20\d{2}\s*$', '', title, flags=_dur_re.I).strip()
+        # Strip schedule/duration info: "6 Months Full-time - July to Dec", "Full-time - Aug to Dec"
+        title = _dur_re.sub(r'\s*[-–—,]\s*\d+\s*(?:months?|weeks?)\s*(?:full[- ]?time|part[- ]?time)?\s*[-–—]?\s*(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\w*\s*(?:to|through|-|–)\s*(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\w*(?:\s*20\d{2})?\s*$', '', title, flags=_dur_re.I)
+        # Strip "Full-time - July to Dec 2026" without leading number
+        title = _dur_re.sub(r'\s*[-–—,]\s*(?:full[- ]?time|part[- ]?time)\s*[-–—]?\s*(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\w*\s*(?:to|through|-|–)\s*(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\w*(?:\s*20\d{2})?\s*$', '', title, flags=_dur_re.I)
+        # Strip standalone "- Full Time", "- Part Time"
+        title = _dur_re.sub(r'\s*[-–—]\s*(?:full[- ]?time|part[- ]?time)\s*$', '', title, flags=_dur_re.I)
+        # Strip "- College Program 2026", "- College Program"
+        title = _dur_re.sub(r'\s*[-–—]\s*College\s+Program(?:\s+20\d{2})?\s*$', '', title, flags=_dur_re.I)
         # Strip trailing garbage words: "Intern Start", "Apply Now"
         title = _dur_re.sub(r'\s+(?:Start|Apply|Now|Click|Here)\s*$', '', title, flags=_dur_re.I).strip()
 
