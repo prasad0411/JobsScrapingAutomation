@@ -3336,6 +3336,8 @@ COMPANY_NAME_FIXES = {
     "ken garff automotive group": "Ken Garff",
     "scaleai": "Scale AI",
     "oneclick ui": "Bosch",
+    "rivianvw.tech": "XPENG",
+    "magnera corporation": "Magnera",
 }
 
 # City to state mapping for location normalization
