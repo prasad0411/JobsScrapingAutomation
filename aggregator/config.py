@@ -3466,6 +3466,7 @@ H1B_KNOWN_SPONSORS = {
 }
 
 H1B_NO_SPONSOR = {
+    "spacex",
     "boeing", "lockheed martin", "northrop grumman",
     "raytheon", "rtx", "general dynamics", "bae systems",
     "l3harris", "leidos", "saic", "caci", "mantech",
