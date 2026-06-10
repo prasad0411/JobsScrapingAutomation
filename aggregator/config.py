@@ -3338,6 +3338,8 @@ COMPANY_NAME_FIXES = {
     "oneclick ui": "Bosch",
     "rivianvw.tech": "XPENG",
     "magnera corporation": "Magnera",
+    "leonardodrs": "Leonardo DRS",
+    "fourhands": "FourHands",
 }
 
 # City to state mapping for location normalization
