@@ -1399,7 +1399,14 @@ class UnifiedJobAggregator:
             if _early_norm in self.existing_jobs:
                 logging.info(f"EARLY DEDUP: {company_from_github} | {title} (already in sheet)")
                 return
-            if _job_id_key and _job_id_key in self.existing_urls:
+            if not hasattr(self, "_existing_job_ids"):
+                self._existing_job_ids = set()
+                # Load existing job IDs from sheet
+                for _ej_row in self.sheets_manager.valid_sheet.get_all_values()[1:]:
+                    if len(_ej_row) > 6 and _ej_row[6].strip() and _ej_row[6].strip() != "N/A":
+                        _ej_co = re.sub(r"[^a-z0-9]", "", _ej_row[2].lower())
+                        self._existing_job_ids.add(f"{_ej_co}_{_ej_row[6].strip()}")
+            if _job_id_key and _job_id_key in self._existing_job_ids:
                 logging.info(f"EARLY DEDUP (job_id): {company_from_github} | {title} | ID={_job_id}")
                 return
 
@@ -1451,7 +1458,7 @@ class UnifiedJobAggregator:
                     "url": resolved_url,
                     "job_id": "N/A",
                     "job_type": self._detect_job_type(title, source),
-                    "sponsorship": "Yes",
+                    "sponsorship": "Unknown",
                     "entry_date": self._format_date(),
                     "source": source,
                 }
@@ -2577,9 +2584,18 @@ class UnifiedJobAggregator:
                 from aggregator.config import H1B_KNOWN_SPONSORS, H1B_NO_SPONSOR, H1B_SPONSOR_JD_YES, H1B_SPONSOR_JD_NO
                 _co_lower = company.lower().strip()
                 # Check company lists first
-                if any(s in _co_lower or _co_lower in s for s in H1B_KNOWN_SPONSORS):
+                # Exact word match to avoid false positives (e.g. 'meta' matching 'metadata')
+                _co_words = set(_co_lower.split())
+                _co_norm = re.sub(r"[^a-z0-9 ]", "", _co_lower).strip()
+                if _co_norm in H1B_KNOWN_SPONSORS or any(
+                    s == _co_norm or (_co_norm.startswith(s + " ") or _co_norm.endswith(" " + s))
+                    for s in H1B_KNOWN_SPONSORS if len(s) > 3
+                ):
                     _sponsorship = "Yes"
-                elif any(s in _co_lower or _co_lower in s for s in H1B_NO_SPONSOR):
+                elif _co_norm in H1B_NO_SPONSOR or any(
+                    s == _co_norm or (_co_norm.startswith(s + " ") or _co_norm.endswith(" " + s))
+                    for s in H1B_NO_SPONSOR if len(s) > 3
+                ):
                     _sponsorship = "No"
                 # Then check JD text
                 if soup and _sponsorship == "Unknown":
