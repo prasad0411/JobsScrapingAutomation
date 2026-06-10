@@ -1476,7 +1476,11 @@ class UnifiedJobAggregator:
                     # Clearance check (skip for big tech companies that never require it)
                     _NO_CLEAR_CO = {"apple", "google", "meta", "amazon", "microsoft",
                         "netflix", "uber", "lyft", "stripe", "tesla", "nvidia",
-                        "tiktok", "bytedance", "salesforce", "pinterest", "snap"}
+                        "tiktok", "bytedance", "salesforce", "pinterest", "snap",
+                        "rivian", "lucid", "waymo", "cruise", "nuro", "zoox",
+                        "openai", "anthropic", "cerebras", "groq", "ramp",
+                        "coinbase", "robinhood", "doordash", "instacart",
+                        "databricks", "snowflake", "palantir", "figma"}
                     _clearance_kw = ["security clearance", "secret clearance", "ts/sci",
                         "top secret", "polygraph"]
                     _co_check = _true_original_company.lower().strip()
@@ -2474,7 +2478,13 @@ class UnifiedJobAggregator:
                 "netflix", "uber", "lyft", "stripe", "airbnb", "spotify", "pinterest",
                 "tesla", "nvidia", "tiktok", "bytedance", "salesforce", "slack",
                 "snap", "reddit", "dropbox", "coinbase", "robinhood", "doordash",
-                "instacart", "databricks", "snowflake", "palantir", "figma"}
+                "instacart", "databricks", "snowflake", "palantir", "figma",
+                "rivian", "rivian and volkswagen", "lucid", "lucid motors",
+                "centerfield", "waymo", "cruise", "nuro", "zoox", "aurora",
+                "openai", "anthropic", "cerebras", "groq", "ramp", "brex",
+                "notion", "airtable", "asana", "canva", "miro", "vercel",
+                "mongodb", "elastic", "confluent", "datadog", "cloudflare",
+                "hubspot", "twilio", "okta", "crowdstrike", "sentinelone"}
             _co_lower = company.lower().strip()
             if soup and _co_lower not in _NO_CLEARANCE_COMPANIES:
                 try:
