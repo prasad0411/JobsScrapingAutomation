@@ -3340,6 +3340,9 @@ COMPANY_NAME_FIXES = {
     "magnera corporation": "Magnera",
     "leonardodrs": "Leonardo DRS",
     "fourhands": "FourHands",
+    "ancestry.com operations": "Ancestry",
+    "ancestry.com": "Ancestry",
+    "snap finance": "Snap Finance",
 }
 
 # City to state mapping for location normalization

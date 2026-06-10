@@ -1424,9 +1424,41 @@ class UnifiedJobAggregator:
             with self._github_lock:
                 self.source_stats[source]["valid"] += 1
         else:
-            with self._github_lock:
-                self.source_stats[source]["rejected"] += 1
-            logging.info(f"REJECTED (comprehensive) | {company_from_github} | {title} | url={resolved_url[:60]}")
+            # Trusted domain fallback — if fetch failed for a major company,
+            # accept source data instead of discarding the job
+            _TRUSTED_COMPANIES = {"tesla", "apple", "google", "meta", "amazon",
+                "microsoft", "nvidia", "netflix", "uber", "lyft", "stripe",
+                "airbnb", "spotify", "pinterest", "snap", "reddit",
+                "openai", "anthropic", "databricks", "snowflake",
+                "salesforce", "oracle", "adobe", "intel", "cisco",
+                "palantir", "coinbase", "robinhood", "doordash", "instacart",
+                "figma", "notion", "ramp", "brex", "discord",
+                "rivian", "lucid", "neuralink", "waymo", "cruise"}
+            _co_check = company_from_github.lower().strip()
+            if any(tc in _co_check or _co_check in tc for tc in _TRUSTED_COMPANIES):
+                logging.info(f"TRUSTED FALLBACK: {company_from_github} | {title} (HTTP failed, using source data)")
+                result = {
+                    "company": company_from_github,
+                    "title": title,
+                    "location": location_from_github or "Unknown",
+                    "remote": "Unknown",
+                    "url": resolved_url,
+                    "job_id": "N/A",
+                    "job_type": self._detect_job_type(title, source),
+                    "sponsorship": "Yes",
+                    "entry_date": self._format_date(),
+                    "source": source,
+                }
+                with self._github_lock:
+                    self.valid_jobs.append(result)
+                    self.existing_jobs.add(re.sub(r"[^a-z0-9]", "", f"{_co_check}_{title}".lower()))
+                    self.source_stats[source]["valid"] += 1
+                alert = RoleCategorizer.get_terminal_alert(title)
+                print(f"  {company_from_github[:25]}: ✓ Trusted fallback {alert}")
+            else:
+                with self._github_lock:
+                    self.source_stats[source]["rejected"] += 1
+                logging.info(f"REJECTED (comprehensive) | {company_from_github} | {title} | url={resolved_url[:60]}")
 
         # Conflict detection: if page extracted a different company than source,
         # the source's job is a SEPARATE real job — preserve it
