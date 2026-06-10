@@ -3343,6 +3343,7 @@ COMPANY_NAME_FIXES = {
     "ancestry.com operations": "Ancestry",
     "ancestry.com": "Ancestry",
     "snap finance": "Snap Finance",
+    "dpr family of companies": "DPR Construction",
 }
 
 # City to state mapping for location normalization

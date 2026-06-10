@@ -160,6 +160,15 @@ class TitleProcessor:
         title = _dur_re.sub(r'\s*[-–—]\s*(?:full[- ]?time|part[- ]?time)\s*$', '', title, flags=_dur_re.I)
         # Strip "- College Program 2026", "- College Program"
         title = _dur_re.sub(r'\s*[-–—]\s*College\s+Program(?:\s+20\d{2})?\s*$', '', title, flags=_dur_re.I)
+        # Strip redundant title suffix: "AI and Governance Co-op - AI and Governance"
+        # Pattern: "X - X" where second half repeats first half
+        _halves = _dur_re.split(r'\s*[-–—]\s*', title)
+        if len(_halves) == 2:
+            _h1 = _halves[0].strip().lower()
+            _h2 = _halves[1].strip().lower()
+            # If second half is subset of first half, remove it
+            if _h2 in _h1 or _h1.endswith(_h2):
+                title = _halves[0].strip()
         # Strip trailing garbage words: "Intern Start", "Apply Now"
         title = _dur_re.sub(r'\s+(?:Start|Apply|Now|Click|Here)\s*$', '', title, flags=_dur_re.I).strip()
 
@@ -264,6 +273,19 @@ class TitleProcessor:
         for _ntp in _NON_TECH:
             if re.search(_ntp, title, re.I):
                 return False, f"Non-tech title"
+
+        # Reject university-specific co-ops (restricted to that university's students)
+        _UNIV_SPECIFIC = [
+            r"\bdrexel\s+university\b",
+            r"\bnortheastern\s+university\b(?!.*prasad)",  # Your own university is fine
+            r"\bpurdue\s+university\b",
+            r"\bgeorgia\s+tech\b",
+            r"\bstanford\b.*\bco-?op\b",
+            r"\bmit\b.*\bco-?op\b",
+        ]
+        for _up in _UNIV_SPECIFIC:
+            if re.search(_up, title, re.I):
+                return False, "University-specific co-op"
 
         # Reject non-English titles
         _NON_ENGLISH_KW = ["automatizare", "inteligenta artificiala", "dezvoltare",
