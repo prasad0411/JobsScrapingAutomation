@@ -3413,3 +3413,80 @@ COMPANY_CODE_PREFIX_PATTERN = r"""
 # Aliases for backward compatibility (run_aggregator.py uses COMPANY_BLACKLIST)
 COMPANY_BLACKLIST = PLATFORM_BLACKLIST
 COMPANY_BLACKLIST_REASONS = PLATFORM_BLACKLIST_REASONS
+
+
+# ── H1B Sponsorship Database ──
+H1B_KNOWN_SPONSORS = {
+    "google", "meta", "amazon", "microsoft", "apple", "nvidia", "tesla",
+    "stripe", "coinbase", "databricks", "snowflake", "palantir",
+    "salesforce", "oracle", "ibm", "intel", "cisco", "adobe",
+    "uber", "lyft", "airbnb", "doordash", "instacart",
+    "tiktok", "bytedance", "pinterest", "snap", "reddit",
+    "robinhood", "plaid", "affirm", "chime", "sofi",
+    "twilio", "okta", "datadog", "cloudflare", "mongodb",
+    "elastic", "confluent", "hubspot", "figma", "notion",
+    "airtable", "asana", "canva", "miro", "loom",
+    "openai", "anthropic", "cohere", "scale ai",
+    "ramp", "brex", "toast", "squarespace",
+    "crowdstrike", "sentinelone", "zscaler",
+    "neuralink", "rivian", "lucid motors", "aurora",
+    "nuro", "cruise", "zoox", "motional",
+    "cerebras", "groq", "sambanova", "together ai",
+    "jpmorgan", "goldman sachs", "morgan stanley", "citadel",
+    "two sigma", "jane street", "de shaw",
+    "bloomberg", "capital one", "american express",
+    "walmart", "target", "costco",
+    "johnson & johnson", "pfizer", "merck",
+    "deloitte", "accenture", "mckinsey", "bcg",
+    "spotify", "netflix", "discord", "slack",
+    "rippling", "verkada", "anduril", "vanta",
+    "samsara", "draftkings", "hubspot", "pinterest",
+    "dell", "hp", "vmware", "qualcomm", "broadcom",
+    "micron", "applied materials", "lam research",
+    "visa", "mastercard", "paypal", "block",
+    "twitter", "x", "linkedin", "indeed",
+    "zillow", "redfin", "opendoor",
+    "coupang", "grab", "gojek",
+    "bytedance", "tencent", "baidu",
+    "sap", "workday", "servicenow",
+    "palo alto networks", "fortinet", "splunk",
+    "atlassian", "gitlab", "hashicorp",
+    "mongodb", "cockroachdb", "redis",
+    "vercel", "supabase", "postman",
+    "waymo", "argo ai", "plus ai", "xpeng",
+    "bill.com", "marqeta", "nuvei",
+    "docusign", "dropbox", "box",
+    "lendbuzz", "prosper", "earnin",
+}
+
+H1B_NO_SPONSOR = {
+    "boeing", "lockheed martin", "northrop grumman",
+    "raytheon", "rtx", "general dynamics", "bae systems",
+    "l3harris", "leidos", "saic", "caci", "mantech",
+    "kbr", "amentum", "gdit", "peraton",
+    "travelers", "progressive", "geico",
+    "cox automotive", "cox communications",
+    "excelitas", "hermeus", "captivation",
+    "sierra space", "parsons", "textron",
+}
+
+H1B_SPONSOR_JD_YES = [
+    r"(?:visa|h-?1b|immigration)\s+(?:sponsorship|support)\s+(?:is\s+)?(?:available|offered|provided)",
+    r"(?:we|company|will)\s+(?:sponsor|provide)\s+(?:visa|h-?1b|work\s+authorization)",
+    r"(?:cpt|opt)\s+(?:accepted|welcome|eligible)",
+    r"open\s+to\s+(?:international|all)\s+(?:students?|candidates?)",
+    r"sponsorship\s+(?:is\s+)?available",
+    r"willing\s+to\s+sponsor",
+]
+
+H1B_SPONSOR_JD_NO = [
+    r"(?:no|not|without|unable)\s+(?:to\s+)?(?:provide|offer)\s+(?:visa|immigration|h-?1b)?\s*(?:sponsorship|support)",
+    r"(?:must|should)\s+be\s+(?:legally\s+)?authorized\s+to\s+work.*(?:without|no).*sponsor",
+    r"(?:not|no)\s+(?:eligible|available)\s+(?:for\s+)?(?:visa\s+)?sponsorship",
+    r"(?:us|u\.s\.)\s+citizen(?:ship)?\s+(?:required|only)",
+    r"permanent\s+(?:us|u\.s\.)\s+work\s+authorization\s+required",
+    r"must\s+be\s+(?:a\s+)?(?:us|u\.s\.)\s+citizen",
+    r"(?:unable|not\s+able)\s+to\s+sponsor",
+    r"not\s+(?:eligible|open)\s+to\s+(?:candidates?\s+)?(?:on|requiring)\s+(?:opt|cpt|f-?1|student\s+visa)",
+    r"authorization.*without.*(?:need|requiring).*sponsor",
+]

@@ -516,6 +516,19 @@ class UnifiedJobAggregator:
         # (silent)
         self._scrape_simplify_github()
 
+        # ── Direct ATS API sources (Greenhouse, Lever, Ashby, HackerNews) ──
+        try:
+            from aggregator.direct_sources import fetch_all_direct_sources
+            direct_jobs = fetch_all_direct_sources()
+            for dj in direct_jobs:
+                dj["_source_name"] = dj.get("source", "direct")
+                dj["github_category"] = "Direct ATS API"
+            if direct_jobs:
+                self._process_github_jobs(direct_jobs, source="direct_ats")
+                logging.info(f"Direct ATS sources: {len(direct_jobs)} jobs fetched")
+        except Exception as e:
+            logging.error(f"Direct ATS sources failed: {e}")
+
         print("\nProcessing email jobs...")
         try:
             emails_data = self.email_extractor.fetch_job_emails()
@@ -1165,7 +1178,7 @@ class UnifiedJobAggregator:
             pass
 
         # GitHub sources: undo URL-domain override — source pairing is correct
-        _GITHUB_SOURCES = {"SimplifyJobs", "vanshb03", "speedyapply_swe",
+        _GITHUB_SOURCES = {"SimplifyJobs", "vanshb03", "speedyapply_swe", "direct_ats",
             "speedyapply_ai", "zapplyjobs", "jobright_github", "simplify_offseason",
             "vanshb03_offseason", "simplify_newgrad", "cvrve_newgrad"}
         if source in _GITHUB_SOURCES:
@@ -2488,6 +2501,85 @@ class UnifiedJobAggregator:
                 except Exception:
                     pass
 
+            # ── H1B sponsorship detection from company name + JD text ──
+            _sponsorship = "Unknown"
+            try:
+                from aggregator.config import H1B_KNOWN_SPONSORS, H1B_NO_SPONSOR, H1B_SPONSOR_JD_YES, H1B_SPONSOR_JD_NO
+                _co_lower = company.lower().strip()
+                # Check company lists first
+                if any(s in _co_lower or _co_lower in s for s in H1B_KNOWN_SPONSORS):
+                    _sponsorship = "Yes"
+                elif any(s in _co_lower or _co_lower in s for s in H1B_NO_SPONSOR):
+                    _sponsorship = "No"
+                # Then check JD text
+                if soup and _sponsorship == "Unknown":
+                    _jd_text = soup.get_text()[:10000].lower()
+                    for _pat in H1B_SPONSOR_JD_NO:
+                        if re.search(_pat, _jd_text, re.I):
+                            _sponsorship = "No"
+                            break
+                    if _sponsorship == "Unknown":
+                        for _pat in H1B_SPONSOR_JD_YES:
+                            if re.search(_pat, _jd_text, re.I):
+                                _sponsorship = "Yes"
+                                break
+            except (ImportError, AttributeError):
+                pass
+
+            # ── Salary check: reject jobs below $25/hr ──
+            if soup:
+                try:
+                    _jd = soup.get_text()[:15000].lower()
+                    _min_hourly = 25.0
+                    _min_annual = 52000  # ~$25/hr full time
+
+                    # Extract hourly rates: "$20/hr", "$20.00 per hour", "$20 an hour"
+                    _hourly_pats = [
+                        r'\$\s*(\d+(?:\.\d+)?)\s*(?:/\s*hr|per\s+hour|an\s+hour|hourly)',
+                        r'hourly\s+(?:rate|pay|wage|compensation)\s*(?:of|:|\s)\s*\$\s*(\d+(?:\.\d+)?)',
+                        r'\$\s*(\d+(?:\.\d+)?)\s*(?:to|-|–)\s*\$\s*\d+(?:\.\d+)?\s*(?:per\s+hour|/\s*hr|hourly)',
+                    ]
+                    for _sp in _hourly_pats:
+                        _sm = re.search(_sp, _jd)
+                        if _sm:
+                            # Get the first (lowest) rate
+                            _rate = float(_sm.group(1))
+                            if _rate > 0 and _rate < _min_hourly:
+                                self._add_discarded(company, title, location_hint or "Unknown", "Unknown",
+                                    final_url or url, "N/A", "Internship", source,
+                                    f"Low salary: ${_rate:.0f}/hr (minimum ${_min_hourly:.0f}/hr)")
+                                self._print_rejected(company, f"Low salary: ${_rate:.0f}/hr")
+                                logging.info(f"REJECTED | {company} | {title} | Salary ${_rate:.0f}/hr < ${_min_hourly:.0f}/hr")
+                                return None
+                            break
+
+                    # Extract annual salary: "$50,000", "$50K"
+                    _annual_pats = [
+                        r'\$\s*(\d{2,3}),?(\d{3})\s*(?:to|-|–)\s*\$\s*(\d{2,3}),?(\d{3})',
+                        r'\$\s*(\d{2,3})(?:k|K)\s*(?:to|-|–)\s*\$\s*(\d{2,3})(?:k|K)',
+                        r'(?:salary|compensation|pay)\s*(?:range)?[:\s]+\$\s*(\d{2,3}),?(\d{3})',
+                    ]
+                    for _ap in _annual_pats:
+                        _am = re.search(_ap, _jd)
+                        if _am:
+                            try:
+                                if 'k' in _ap.lower() or 'K' in _ap:
+                                    _annual = float(_am.group(1)) * 1000
+                                else:
+                                    _annual = float(_am.group(1) + _am.group(2))
+                                if _annual > 0 and _annual < _min_annual:
+                                    self._add_discarded(company, title, location_hint or "Unknown", "Unknown",
+                                        final_url or url, "N/A", "Internship", source,
+                                        f"Low salary: ${_annual:,.0f}/yr (minimum ${_min_annual:,}/yr)")
+                                    self._print_rejected(company, f"Low salary: ${_annual:,.0f}/yr")
+                                    logging.info(f"REJECTED | {company} | {title} | Salary ${_annual:,.0f}/yr < ${_min_annual:,}/yr")
+                                    return None
+                            except (ValueError, IndexError):
+                                pass
+                            break
+                except Exception:
+                    pass
+
             location = LocationExtractor.extract_all_methods(
                 final_url or url,
                 soup,
@@ -2801,7 +2893,7 @@ class UnifiedJobAggregator:
                     "source": source,
                     "reason": reason,
                     "entry_date": self._format_date(),
-                    "sponsorship": "Unknown",
+                    "sponsorship": _sponsorship,
                 }
             )
             self.outcomes["discarded"] += 1
