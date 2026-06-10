@@ -1392,9 +1392,15 @@ class UnifiedJobAggregator:
         # ── Early dedup: catch duplicates BEFORE expensive page fetch ──
         _early_norm_co = TitleProcessor.normalize_company_for_dedup(company_from_github) if hasattr(TitleProcessor, "normalize_company_for_dedup") else company_from_github.lower()
         _early_norm = re.sub(r"[^a-z0-9]", "", f"{_early_norm_co}_{title}".lower())
+        # Also check job_id dedup — same company + same job_id = duplicate
+        _job_id = job.get("job_id", "") or ""
+        _job_id_key = f"{_early_norm_co}_{_job_id}" if _job_id and _job_id != "N/A" else ""
         with self._github_lock:
             if _early_norm in self.existing_jobs:
                 logging.info(f"EARLY DEDUP: {company_from_github} | {title} (already in sheet)")
+                return
+            if _job_id_key and _job_id_key in self.existing_urls:
+                logging.info(f"EARLY DEDUP (job_id): {company_from_github} | {title} | ID={_job_id}")
                 return
 
         # ── Early non-English filter ──
