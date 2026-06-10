@@ -179,6 +179,32 @@ class SheetsManager:
         except Exception:
             pass
 
+    def _fix_broken_search_links(self):
+        """Fix any search links written as plain text instead of HYPERLINK formula."""
+        try:
+            import urllib.parse
+            data = self.valid_sheet.get_all_values()
+            formulas = self.valid_sheet.get('F1:F' + str(len(data)), value_render_option='FORMULA')
+            
+            for i, (row, formula_row) in enumerate(zip(data[1:], formulas[1:]), start=2):
+                if len(row) < 6:
+                    continue
+                display = row[5].strip()
+                formula = formula_row[0] if formula_row else ""
+                company = row[2].strip()
+                title = row[3].strip()
+                
+                if '🔍' in display and 'HYPERLINK' not in formula and company:
+                    query = urllib.parse.quote(f"{company} {title} careers apply")
+                    new_formula = f'=HYPERLINK("https://www.google.com/search?q={query}", "🔍 {company} - Search")'
+                    self.valid_sheet.update(
+                        range_name=f'F{i}', values=[[new_formula]],
+                        value_input_option='USER_ENTERED'
+                    )
+            import time; time.sleep(1)
+        except Exception:
+            pass
+
     def _ensure_status_dropdowns(self):
         """One-time: set dropdown validation on entire Status column."""
         try:
@@ -436,6 +462,7 @@ class SheetsManager:
 
         self._batch_write(self.valid_sheet, start_row, rows, is_valid_sheet=True)
         self._apply_not_applied_colors(start_row, len(rows))
+        self._fix_broken_search_links()
         self._ensure_status_dropdowns()
         self._auto_resize_columns(self.valid_sheet, 14)
         return len(jobs)
