@@ -1541,12 +1541,34 @@ class UnifiedJobAggregator:
                     _salary_ok = True  # Can't check salary without page fetch
 
                     if _loc_ok and _tech_ok and _title_ok and _clearance_ok and _phd_ok and _lang_ok:
+                        # Determine which company matches URL domain
+                        # Company matching domain gets real URL, other gets search link
+                        _url_domain_co = ""
+                        try:
+                            from urllib.parse import urlparse as _cu
+                            _url_dom = _cu(resolved_url).netloc.lower().split(".")[0].replace("www","")
+                            _url_domain_co = _url_dom
+                        except Exception:
+                            pass
+                        _src_matches_url = _url_domain_co and (
+                            _url_domain_co in re.sub(r"[^a-z0-9]", "", _true_original_company.lower())
+                            or re.sub(r"[^a-z0-9]", "", _true_original_company.lower()) in _url_domain_co
+                        )
+                        # If source company matches URL, give it the real URL
+                        # and swap the result's URL to search link
+                        if _src_matches_url and result:
+                            # Source company owns this URL — swap
+                            result["url"] = "URL_CONFLICT"
+                            _conflict_url = resolved_url
+                        else:
+                            _conflict_url = "URL_CONFLICT"
+
                         _conflict_hint = {
                             "company": _true_original_company,
                             "title": _true_original_title,
                             "location": _true_original_location,
                             "remote": "Unknown",
-                            "url": "URL_CONFLICT",
+                            "url": _conflict_url,
                             "job_id": "N/A",
                             "job_type": self._detect_job_type(_true_original_title, job.get("_source_name", "")),
                             "sponsorship": "Unknown",
