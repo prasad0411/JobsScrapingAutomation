@@ -714,6 +714,15 @@ class TitleProcessor:
                 return True, ""
         if "2026" in title_lower or "2027" in title_lower:
             return True, ""
+
+        # Reject titles with explicit old season/year (Summer 2024, Fall 2025, 2025 etc.)
+        if re.search(r"(?:summer|fall|spring|winter)\s*20(?:2[0-5])", title_lower):
+            _m = re.search(r"(?:summer|fall|spring|winter)\s*(20(?:2[0-5]))", title_lower)
+            return False, f"Wrong season: {_m.group(0) if _m else 'old'}"
+        if re.search(r"\b20(?:2[0-5])\b", title_lower) and not re.search(r"\b20(?:2[6-9]|3\d)\b", title_lower):
+            _m = re.search(r"(20(?:2[0-5]))", title_lower)
+            return False, f"Wrong season: {_m.group(1) if _m else 'old'}"
+
         limited_text = page_text[:PAGE_TEXT_STANDARD_SCAN] if page_text else ""
 
         # Check page text for Spring-only start dates like "begins April 2026"
@@ -755,7 +764,16 @@ class TitleProcessor:
 
         max_year = max(years_found)
         if max_year < 2026:
-            return False, f"Wrong season: {max_year}"
+            # Only reject if title explicitly mentions old season
+            # Don't reject based on page text years alone (copyright, founded dates slip through)
+            title_has_old_year = bool(re.search(r"20(?:2[0-5])", title_lower))
+            title_has_old_season = bool(re.search(r"(?:summer|fall|spring|winter)\s*20(?:2[0-5])", title_lower))
+            if title_has_old_season:
+                return False, f"Wrong season: {max_year}"
+            if title_has_old_year and "summer" not in title_lower and "fall" not in title_lower:
+                return False, f"Wrong season: {max_year}"
+            # Page mentions old year but title is clean — accept (likely copyright/founded date)
+            return True, ""
 
         return True, ""
 

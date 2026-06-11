@@ -2561,7 +2561,7 @@ class UnifiedJobAggregator:
                     pass
 
             # ── JD clearance check: scan page text for clearance requirements ──
-            # Skip for companies that NEVER require clearance (legal boilerplate triggers false positives)
+            # FIRST check whitelist — skip entirely for companies that never require clearance
             _NO_CLEARANCE_COMPANIES = {"apple", "google", "meta", "amazon", "microsoft",
                 "netflix", "uber", "lyft", "stripe", "airbnb", "spotify", "pinterest",
                 "tesla", "nvidia", "tiktok", "bytedance", "salesforce", "slack",
@@ -2572,9 +2572,13 @@ class UnifiedJobAggregator:
                 "openai", "anthropic", "cerebras", "groq", "ramp", "brex",
                 "notion", "airtable", "asana", "canva", "miro", "vercel",
                 "mongodb", "elastic", "confluent", "datadog", "cloudflare",
-                "hubspot", "twilio", "okta", "crowdstrike", "sentinelone"}
+                "hubspot", "twilio", "okta", "crowdstrike", "sentinelone",
+                "discord", "toast", "squarespace", "plaid", "affirm", "chime",
+                "verkada", "scale ai", "anduril", "tenstorrent", "meshy",
+                "sandisk", "copart", "eversana", "zipline", "1password"}
             _co_lower = company.lower().strip()
-            if soup and _co_lower not in _NO_CLEARANCE_COMPANIES:
+            _is_whitelisted = any(wc in _co_lower or _co_lower in wc for wc in _NO_CLEARANCE_COMPANIES)
+            if soup and not _is_whitelisted:
                 try:
                     _clearance_pats = [
                         r"security\s+clearance\s+(?:is\s+)?required",
