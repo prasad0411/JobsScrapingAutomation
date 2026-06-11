@@ -3502,3 +3502,34 @@ H1B_SPONSOR_JD_NO = [
     r"not\s+(?:eligible|open)\s+to\s+(?:candidates?\s+)?(?:on|requiring)\s+(?:opt|cpt|f-?1|student\s+visa)",
     r"authorization.*without.*(?:need|requiring).*sponsor",
 ]
+
+# ── Known company career page search URLs ──
+# Used when pipeline can't get direct job URL — gives career search instead of Google search
+KNOWN_CAREER_URLS = {
+    "american express": "https://aexp.eightfold.ai/careers/search?query=",
+    "the coca-cola company": "https://careers.coca-colacompany.com/search-jobs?q=",
+    "tesla": "https://www.tesla.com/careers/search/?query=",
+    "apple": "https://jobs.apple.com/en-us/search?search=",
+    "google": "https://www.google.com/about/careers/applications/jobs/results?q=",
+    "meta": "https://www.metacareers.com/jobs?q=",
+    "amazon": "https://www.amazon.jobs/en/search?base_query=",
+    "microsoft": "https://careers.microsoft.com/v2/global/en/search?q=",
+    "nvidia": "https://nvidia.wd5.myworkdayjobs.com/NVIDIAExternalCareerSite?q=",
+    "stripe": "https://stripe.com/jobs/search?q=",
+    "databricks": "https://www.databricks.com/company/careers?q=",
+    "salesforce": "https://careers.salesforce.com/en/jobs/?q=",
+    "spotify": "https://www.lifeatspotify.com/jobs?query=",
+    "netflix": "https://jobs.netflix.com/search?q=",
+    "uber": "https://www.uber.com/us/en/careers/search/?q=",
+    "lyft": "https://www.lyft.com/careers/search?q=",
+    "airbnb": "https://careers.airbnb.com/search/?q=",
+    "snap": "https://careers.snap.com/jobs?q=",
+    "discord": "https://discord.com/careers?q=",
+    "reddit": "https://www.redditinc.com/careers?q=",
+    "doordash": "https://careers.doordash.com/search?q=",
+    "plaid": "https://plaid.com/careers/?q=",
+    "robinhood": "https://robinhood.com/careers/search?q=",
+    "coinbase": "https://www.coinbase.com/careers/search?q=",
+    "pinterest": "https://www.pinterestcareers.com/search-results?q=",
+    "instacart": "https://instacart.careers/search?q=",
+}
