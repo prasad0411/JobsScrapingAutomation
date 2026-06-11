@@ -1450,13 +1450,21 @@ class UnifiedJobAggregator:
             _co_check = company_from_github.lower().strip()
             if any(tc in _co_check or _co_check in tc for tc in _TRUSTED_COMPANIES):
                 logging.info(f"TRUSTED FALLBACK: {company_from_github} | {title} (HTTP failed, using source data)")
+                # Extract job_id from URL even when HTTP fails
+                _fallback_job_id = "N/A"
+                from aggregator.processors import _COMPILED_JOB_ID_PATTERNS as _JID_PATS
+                for _jid_pat, _ in _JID_PATS:
+                    _jid_m = _jid_pat.search(resolved_url)
+                    if _jid_m:
+                        _fallback_job_id = _jid_m.group(1)
+                        break
                 result = {
                     "company": company_from_github,
                     "title": title,
                     "location": location_from_github or "Unknown",
                     "remote": "Unknown",
                     "url": resolved_url,
-                    "job_id": "N/A",
+                    "job_id": _fallback_job_id,
                     "job_type": self._detect_job_type(title, source),
                     "sponsorship": "Unknown",
                     "entry_date": self._format_date(),
