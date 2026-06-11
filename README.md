@@ -6,7 +6,7 @@
 [![Docker](https://img.shields.io/badge/Docker-Containerized-2496ED?logo=docker)](docker-compose.yml)
 [![License](https://img.shields.io/badge/License-Private-lightgrey)]()
 
-A production-grade, self-healing data aggregation platform that autonomously collects, validates, deduplicates, and delivers job postings from 13+ sources — with built-in resilience patterns, adaptive email outreach, and continuous self-improvement.
+A production-grade, self-healing data aggregation platform that autonomously collects, validates, deduplicates, and delivers job postings from 17+ sources across 5 ATS platforms (249 companies) — with built-in resilience patterns, adaptive email outreach, self-learning intelligence brain, and continuous self-improvement.
 
 ---
 
@@ -50,27 +50,49 @@ SPC anomaly detection"]
 - **Fuzzy City Correction**: Fixes garbled location names (e.g., "Faington" → "Farmington") using edit distance against known US cities.
 - **Brain.json**: Persistent self-learning store with 224 domain patterns, 180 MX records, 73 domain overrides, and 31 job ID registries — grows smarter with every run.
 
-### Self-Healing Intelligence (Phase 3)
-- **Conflict Preservation**: When source data and page data disagree, both jobs are saved — zero data loss. Conflict entries get clickable Google Search links for manual verification.
-- **Trusted Domain Fallback**: When Tesla, Apple, or Google block HTTP requests, the system accepts source data instead of discarding valid jobs.
-- **JD-Aware Degree Filter**: Reads actual degree requirements from job descriptions — rejects "Mechanical Engineering" but accepts "Computer Science or related field."
-- **Smart Company Name Cleaner**: Acronym detection (CMT, ABB, IBM), Greenhouse slug splitting, and 50+ company alias mappings for dedup normalization.
-- **Non-Tech Title Rejection**: Permanent pattern matching rejects buyer, metrology, avionics, 3D modeling, and other non-CS roles regardless of source.
-- **Non-Geographic Location Detection**: Catches programming languages, personal names, and UI text accidentally parsed as locations.
-- **48-Hour Protection**: Cleanup scripts cannot move jobs from Valid Entries until they are 48+ hours old — fresh pipeline entries are always protected.
+### Direct ATS API Integration (Phase 3)
+- **5 ATS Platforms**: Greenhouse (147 companies), Lever (48), Ashby (35), Workday (11), SmartRecruiters (8) — 249 total companies checked directly via JSON APIs.
+- **Zero Parsing Errors**: Direct API responses have correct company names, real URLs, and proper locations. No row-shift errors, no slug names.
+- **Auto-Discovery Engine**: Scans all processed URLs every 24 hours, discovers new Greenhouse/Lever/Ashby companies, tests their APIs, and auto-adds them to the source list via brain.json. The system grows its own source list.
+- **Workday Search API**: POST-based search across Fortune 500 companies (NVIDIA, Intel, Cisco, Boeing, etc.) with intern/new-grad keyword filtering.
+- **US-Only Filter**: Strict location validation rejects international jobs (Shanghai, Poland, Toronto) while accepting all US states and 50+ known US cities.
+
+### Pipeline Brain v3 — Self-Learning Intelligence
+- **9 Intelligence Layers**: Company knowledge, title learning, location mapping, source quality tracking, user behavior learning, error memory, ATS discovery, sponsorship learning, quality scoring.
+- **Behavioral Learning**: Tracks which jobs you apply to. Learns your preferences for companies, titles, locations, and role types. Scores new jobs by similarity to your apply history.
+- **Error Memory**: Every pipeline mistake is logged with type, company, and details. The same error is never repeated. Recurring patterns surface automatically.
+- **Source Quality Tracking**: Monitors valid/rejected/error ratios per source. Identifies which sources give the best and worst data quality.
+- **Global Knowledge Growth**: Brain file grows every run. More usage = smarter pipeline. Knowledge persists across restarts.
+
+### Self-Healing Intelligence
+- **Discarded Sheet Auditor**: Runs every 72 hours. Scans rejected jobs, cross-references against user's applied companies, rescues false positives, and writes corrections back to brain.json.
+- **Quality Gate**: 11 automated checks run after every pipeline write — catches URL mismatches, non-tech titles, missing job IDs, broken links, row shifts, duplicate job IDs, clearance companies, and staffing agencies.
+- **H1B Sponsor Auto-Tagger**: 100+ known sponsors, 30+ known non-sponsors, plus JD text parsing with exact-match normalization (prevents "meta" matching "metadata inc"). Auto-fills 70% of sponsorship fields.
+- **Salary Floor Enforcement**: Dual parser for hourly ($XX/hr) and annual ($XXK) rates with lower-bound extraction from ranges. Jobs below $25/hr auto-rejected.
+
+### Self-Healing Data Pipeline
+- **Conflict Preservation**: When source data and page data disagree, both jobs are saved — zero data loss. URL-domain matching assigns real URLs to the correct company.
+- **Trusted Domain Fallback**: When Tesla, Apple, Google, or 35+ other companies block HTTP requests, the system accepts source data with job ID extracted from URL. Works on all 5 pipeline paths.
+- **60+ Company Alias Mappings**: Normalizes slugs (Rivianvw.Tech → XPENG, Leonardodrs → Leonardo DRS, Ancestry.com Operations → Ancestry) for accurate deduplication.
+- **Non-Tech Title Rejection**: Rejects business development, venture capital, staffing, mechatronics, field sales, physics modeling, and 30+ other non-CS patterns.
+- **University-Specific Co-op Filter**: Rejects Drexel/Purdue/Georgia Tech specific co-ops that require enrollment at those universities.
+- **Season Detector**: Rejects "Summer 2024" and "Fall 2025" titles but accepts clean titles where only page text mentions old years (copyright/founded dates).
 
 ### Resilience Patterns
 - **Write-Ahead Log (WAL)**: Crash-safe sheet writes with transaction journaling and automatic recovery.
 - **Circuit Breaker**: Email outreach with bounce-rate thresholds at 15% (warning) and 30% (halt). Per-domain confidence scoring with automatic pattern retry.
 - **Graceful Degradation**: Each source processes independently — one source failure doesn't block others.
 
-### Intelligent Filtering
-- **MBA/PhD/Advanced Degree Detection**: Rejects roles with 🎓 emoji or MBA-only requirements.
-- **Undergraduate-Only Detection**: Pattern matching against 50+ regex variants for "bachelor's only" language.
-- **Salary Floor**: Rejects roles below $25/hr minimum.
-- **Location Filtering**: Excludes non-US/Canada, detects international locations from URL paths.
-- **Security Clearance Detection**: Filters roles requiring clearance.
-- **Non-CS Degree Detection**: Rejects BSEE/BSME/hardware engineering roles.
+### Intelligent Filtering (11 Stages)
+- **Deduplication**: Company+title, job ID, and URL-based dedup with normalized keys. Catches same job across different sources.
+- **Undergraduate-Only Detection**: 70+ regex patterns for "bachelor's only", "4-year university", "junior/senior standing" language. Runs on ALL sources.
+- **Security Clearance**: JD-level clearance detection with 40+ company no-clearance whitelist (Apple, Google, Tesla, Rivian, etc.) checked BEFORE pattern matching to prevent false positives.
+- **Clearance Company Blacklist**: RTX, Leidos, Northrop, KBR, Ball Aerospace, Leonardo DRS, and 15+ defense companies auto-rejected.
+- **PhD/Research Filter**: Rejects PhD-only research positions without BS/MS signal.
+- **Salary Floor**: Dual hourly ($25/hr) and annual ($52K/yr) parser with lower-bound extraction. Silent rejection.
+- **Location Filtering**: US-only with strict filter for direct ATS sources. Word-boundary international detection (\bindia\b prevents Indiana false positive).
+- **Non-English Title Filter**: Rejects Romanian, German, French, Spanish language titles.
+- **Staffing Agency Filter**: Rejects Express Employment, Robert Half, Adecco, and other staffing companies.
 
 ### Monitoring & Observability
 - **Source Health Monitor**: Tracks historical job counts per source with 7-run rolling averages. Alerts when a source drops below 50% of baseline.
@@ -158,18 +180,21 @@ The pipeline runs automatically via GitHub Actions on a configurable schedule. M
 
 | Metric | Value |
 |--------|-------|
-| Data Sources | 13+ |
-| Jobs Processed Daily | 4,200+ |
-| Valid Jobs Tracked | 1,000+ |
+| Data Sources | 17+ GitHub/email/web sources |
+| Direct ATS Companies | 249 (5 platforms) |
+| Jobs Processed Daily | 4,500+ |
+| Valid Jobs Tracked | 985+ |
 | Automated Tests | 237 |
+| Pipeline Runs | 6x/day (every 4 hours) |
+| H1B Auto-Tagged | 70% of jobs |
 | Auto-Corrections Per Run | 25+ |
-| Cached Domains | 219+ |
-| MX Records | 180+ |
-| Email Patterns Tracked | 247+ companies |
-| Domain Overrides | 73 |
-| Validation Regex Patterns | 146+ |
-| Company Alias Mappings | 50+ |
-| US City Fuzzy Match DB | 100+ cities |
+| Intelligence Layers | 9 (Pipeline Brain v3) |
+| Company Alias Mappings | 60+ |
+| Clearance Whitelist | 40+ companies |
+| Undergrad Regex Patterns | 70+ |
+| Non-Tech Title Patterns | 30+ |
+| Validation Regex Patterns | 200+ |
+| Brain Knowledge | Grows daily, never resets |
 
 ## 👨‍💻 Author
 
