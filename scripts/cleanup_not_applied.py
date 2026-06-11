@@ -499,7 +499,7 @@ class ManualCleanup:
             title = self._get_cell(row_data, 3)
             if url and '🔍' in url and company:
                 query = urllib.parse.quote(f"{company} {title} careers apply")
-                formula = f'=HYPERLINK("https://www.google.com/search?q={query}", "🔍 {company} - Search")'
+                formula = f'https://www.google.com/search?q={query}'
                 row_num = start_row + idx
                 search_updates.append((row_num, formula))
 
