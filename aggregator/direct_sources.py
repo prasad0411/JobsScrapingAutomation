@@ -354,26 +354,229 @@ def scrape_hackernews_hiring(max_comments: int = 100) -> List[Dict]:
 # ═══════════════════════════════════════════════════════════════════
 
 def _is_us_location(location: str) -> bool:
-    """Quick check if location is in the US."""
-    loc = location.lower()
+    """Strict US-only check for direct ATS sources."""
+    if not location or location == "Unknown":
+        return True  # Let pipeline decide
+    loc = location.lower().strip()
+    
     # Reject obvious international
     intl = ["canada", "uk", "united kingdom", "germany", "france", "india",
             "singapore", "australia", "brazil", "mexico", "japan", "china",
+            "korea", "taiwan", "israel", "ireland", "netherlands", "sweden",
+            "norway", "denmark", "finland", "switzerland", "austria", "poland",
+            "czech", "romania", "hungary", "portugal", "spain", "italy",
             "toronto", "vancouver", "london", "berlin", "tokyo", "sydney",
-            "melbourne", "dublin", "amsterdam", "paris", "mumbai",
-            "bangalore", "são paulo", "sao paulo", "mexico city",
-            "british columbia", "ontario", "quebec", "alberta"]
+            "melbourne", "dublin", "amsterdam", "paris", "mumbai", "pune",
+            "bangalore", "hyderabad", "chennai", "delhi", "kolkata",
+            "são paulo", "sao paulo", "mexico city", "shanghai", "beijing",
+            "shenzhen", "hangzhou", "guangzhou", "seoul", "taipei",
+            "tel aviv", "haifa", "stockholm", "oslo", "copenhagen",
+            "helsinki", "zurich", "vienna", "warsaw", "gdansk", "prague",
+            "bucharest", "budapest", "lisbon", "madrid", "barcelona",
+            "milan", "rome", "munich", "hamburg", "frankfurt",
+            "british columbia", "ontario", "quebec", "alberta",
+            "prc", "apac", "emea", "latam"]
     if any(kw in loc for kw in intl):
         return False
+    
     # Accept US indicators
-    us = ["remote", "usa", "united states", ", ca", ", ny", ", wa", ", tx",
-          ", ma", ", il", ", co", ", ga", ", pa", ", va", ", nc", ", oh",
-          ", fl", ", az", ", ut", ", nj", ", mn", ", wi", ", mi", ", or",
-          ", ct", ", md", ", in", ", mo", ", tn", ", sc", ", al", ", ky"]
-    if any(kw in loc for kw in us):
+    us_states = [", al", ", ak", ", az", ", ar", ", ca", ", co", ", ct",
+        ", de", ", fl", ", ga", ", hi", ", id", ", il", ", in", ", ia",
+        ", ks", ", ky", ", la", ", me", ", md", ", ma", ", mi", ", mn",
+        ", ms", ", mo", ", mt", ", ne", ", nv", ", nh", ", nj", ", nm",
+        ", ny", ", nc", ", nd", ", oh", ", ok", ", or", ", pa", ", ri",
+        ", sc", ", sd", ", tn", ", tx", ", ut", ", vt", ", va", ", wa",
+        ", wv", ", wi", ", wy", ", dc"]
+    us_keywords = ["remote", "usa", "united states", "us-", "usa-"]
+    
+    if any(kw in loc for kw in us_states):
         return True
-    # Unknown location — let pipeline decide
-    return True
+    if any(kw in loc for kw in us_keywords):
+        return True
+    
+    # Check for US state codes in format "US-CA-Santa Clara"
+    if re.match(r"us-[a-z]{2}", loc):
+        return True
+    
+    # Ambiguous (like "3 Locations", "Multiple") — reject for direct sources
+    # Better to miss a job than include international ones
+    # Exception: if it contains a known US city
+    us_cities = ["new york", "san francisco", "palo alto", "mountain view",
+        "sunnyvale", "san jose", "santa clara", "los angeles", "seattle",
+        "austin", "boston", "chicago", "denver", "atlanta", "dallas",
+        "houston", "phoenix", "portland", "san diego", "pittsburgh",
+        "raleigh", "charlotte", "nashville", "minneapolis", "detroit",
+        "philadelphia", "baltimore", "columbus", "indianapolis",
+        "salt lake", "irvine", "bellevue", "redmond", "fremont",
+        "milpitas", "cupertino", "menlo park", "foster city",
+        "south san francisco", "burlingame", "redwood city"]
+    if any(city in loc for city in us_cities):
+        return True
+    
+    # No US signal found — skip this job (conservative for direct sources)
+    return False
+
+
+
+
+# ═══════════════════════════════════════════════════════════════════
+# WORKDAY SEARCH API
+# ═══════════════════════════════════════════════════════════════════
+
+WORKDAY_COMPANIES = {
+    # (display_name, domain, tenant, site)
+    "Intel": ("intel.wd1.myworkdayjobs.com", "intel", "external"),
+    "NVIDIA": ("nvidia.wd5.myworkdayjobs.com", "nvidia", "NVIDIAExternalCareerSite"),
+    "Cisco": ("cisco.wd5.myworkdayjobs.com", "cisco", "cisco_careers"),
+    "Salesforce": ("salesforce.wd12.myworkdayjobs.com", "salesforce", "Slack"),
+    "PayPal": ("paypal.wd1.myworkdayjobs.com", "paypal", "jobs"),
+    "Micron": ("micron.wd1.myworkdayjobs.com", "micron", "External"),
+    "Medtronic": ("medtronic.wd1.myworkdayjobs.com", "medtronic", "redeploymentmedtroniccareers"),
+    "State Street": ("statestreet.wd1.myworkdayjobs.com", "statestreet", "global"),
+    "TD Bank": ("td.wd3.myworkdayjobs.com", "td", "TD_Bank_Careers"),
+    "Iron Mountain": ("ironmountain.wd5.myworkdayjobs.com", "ironmountain", "iron-mountain-jobs"),
+    "Boeing": ("boeing.wd1.myworkdayjobs.com", "boeing", "external_careers"),
+}
+
+def scrape_workday() -> List[Dict]:
+    """Fetch intern/new-grad jobs from Workday company search APIs."""
+    jobs = []
+    for company_name, (domain, tenant, site) in WORKDAY_COMPANIES.items():
+        for query in ["software engineer intern", "data science intern", "machine learning intern"]:
+            url = f"https://{domain}/wday/cxs/{tenant}/{site}/jobs"
+            payload = json.dumps({
+                "appliedFacets": {},
+                "limit": 20,
+                "offset": 0,
+                "searchText": query,
+            }).encode()
+            try:
+                req = urllib.request.Request(url,
+                    data=payload,
+                    headers={"User-Agent": "Mozilla/5.0", "Content-Type": "application/json"},
+                    method="POST")
+                resp = urllib.request.urlopen(req, timeout=10, context=_CTX)
+                data = json.loads(resp.read())
+            except Exception:
+                continue
+
+            for posting in data.get("jobPostings", []):
+                title = posting.get("title", "")
+                if not _is_intern_or_newgrad(title):
+                    continue
+
+                # Build URL
+                external_path = posting.get("externalPath", "")
+                job_url = f"https://{domain}{external_path}" if external_path else ""
+
+                # Location
+                loc_parts = []
+                if posting.get("locationsText"):
+                    loc_parts.append(posting["locationsText"])
+                location = ", ".join(loc_parts) if loc_parts else "Unknown"
+
+                # Job ID from bulletFields
+                job_id = "N/A"
+                for field in posting.get("bulletFields", []):
+                    if field and re.match(r"^[A-Z0-9_-]{4,20}$", str(field)):
+                        job_id = str(field)
+                        break
+
+                jobs.append({
+                    "company": company_name,
+                    "title": title,
+                    "location": location,
+                    "url": job_url,
+                    "job_id": job_id,
+                    "source": "workday_direct",
+                    "age": "0d",
+                    "is_closed": False,
+                })
+
+    # Dedup by company+title
+    seen = set()
+    unique = []
+    for j in jobs:
+        key = re.sub(r"[^a-z0-9]", "", f"{j['company']}_{j['title']}".lower())
+        if key not in seen:
+            seen.add(key)
+            unique.append(j)
+
+    log.info(f"Workday direct: {len(unique)} jobs from {len(WORKDAY_COMPANIES)} companies")
+    return unique
+
+
+# ═══════════════════════════════════════════════════════════════════
+# SMARTRECRUITERS API
+# ═══════════════════════════════════════════════════════════════════
+
+SMARTRECRUITERS_COMPANIES = {
+    "BoschGroup": "Bosch",
+    "EVERSANA1": "EVERSANA",
+    "Sandisk": "SanDisk",
+    "Visa": "Visa",
+    "SquareTrade1": "SquareTrade",
+    "Talan": "Talan",
+    "Eurofins": "Eurofins",
+    "ServiceNow": "ServiceNow",
+}
+
+def scrape_smartrecruiters() -> List[Dict]:
+    """Fetch intern/new-grad jobs from SmartRecruiters company APIs."""
+    jobs = []
+    for company_id, company_name in SMARTRECRUITERS_COMPANIES.items():
+        for query in ["intern", "co-op", "new grad", "entry level", "junior"]:
+            data = _fetch_json(
+                f"https://api.smartrecruiters.com/v1/companies/{company_id}/postings?limit=50&q={query}",
+                timeout=8
+            )
+            if not data or not data.get("content"):
+                continue
+
+            for posting in data["content"]:
+                title = posting.get("name", "")
+                if not _is_intern_or_newgrad(title):
+                    continue
+
+                # Location
+                loc = posting.get("location", {})
+                city = loc.get("city", "")
+                region = loc.get("region", "")
+                country = loc.get("country", "")
+                if country and country.upper() != "US":
+                    continue  # US only
+                location = f"{city}, {region}" if city and region else city or region or "Unknown"
+
+                # URL
+                job_url = posting.get("ref", "")
+                if not job_url:
+                    pid = posting.get("id", "")
+                    job_url = f"https://jobs.smartrecruiters.com/{company_id}/{pid}" if pid else ""
+
+                job_id = posting.get("id", "N/A")
+
+                jobs.append({
+                    "company": company_name,
+                    "title": title,
+                    "location": location,
+                    "url": job_url,
+                    "job_id": str(job_id),
+                    "source": "smartrecruiters_direct",
+                    "age": "0d",
+                    "is_closed": False,
+                })
+
+    # Dedup
+    seen = set()
+    unique = []
+    for j in jobs:
+        key = re.sub(r"[^a-z0-9]", "", f"{j['company']}_{j['title']}".lower())
+        if key not in seen:
+            seen.add(key)
+            unique.append(j)
+
+    log.info(f"SmartRecruiters direct: {len(unique)} jobs from {len(SMARTRECRUITERS_COMPANIES)} companies")
+    return unique
 
 
 def _load_discovered_companies():
@@ -424,6 +627,16 @@ def fetch_all_direct_sources() -> List[Dict]:
         all_jobs.extend(scrape_hackernews_hiring())
     except Exception as e:
         log.error(f"HackerNews scrape failed: {e}")
+
+    try:
+        all_jobs.extend(scrape_workday())
+    except Exception as e:
+        log.error(f"Workday scrape failed: {e}")
+
+    try:
+        all_jobs.extend(scrape_smartrecruiters())
+    except Exception as e:
+        log.error(f"SmartRecruiters scrape failed: {e}")
     
     # Filter US-only
     us_jobs = [j for j in all_jobs if _is_us_location(j.get("location", "Unknown"))]

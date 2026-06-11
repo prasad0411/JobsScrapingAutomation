@@ -55,6 +55,12 @@ from aggregator.extractors import (
     retry_request,
 )
 
+try:
+    from scripts.pipeline_brain import PipelineBrain
+    _BRAIN = PipelineBrain.get()
+except ImportError:
+    _BRAIN = None
+
 from aggregator.processors import (
     TitleProcessor,
     LocationExtractor,
@@ -1436,6 +1442,14 @@ class UnifiedJobAggregator:
             print(f"  {company_display}: ✓ Valid {alert}")
             with self._github_lock:
                 self.source_stats[source]["valid"] += 1
+            if _BRAIN:
+                try:
+                    _BRAIN.on_job_validated(
+                        result.get("company", ""), result.get("title", ""),
+                        result.get("location", ""), source,
+                        result.get("sponsorship", "Unknown"))
+                except Exception:
+                    pass
         else:
             _fallback = self._try_trusted_fallback(company_from_github, title, resolved_url, location_from_github, source)
             if not _fallback:
