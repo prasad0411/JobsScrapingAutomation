@@ -80,7 +80,16 @@ GREENHOUSE_COMPANIES = {
     "nuvei": "Nuvei", "billcom": "Bill.com",
     "tipalti": "Tipalti", "paylocity": "Paylocity",
     "paycor": "Paycor", "justworks": "Justworks",
-    "greenhouse": "Greenhouse", "lever": "Lever",
+    "greenhouse": "Greenhouse",
+    "sweetgreen": "Sweetgreen",
+    "peloton": "Peloton",
+    "zscaler": "Zscaler",
+    "rocketlab": "Rocket Lab",
+    "spacex": "SpaceX",
+    "attentive": "Attentive",
+    "klaviyo": "Klaviyo",
+    "adyen": "Adyen",
+    "rubrik": "Rubrik", "lever": "Lever",
     "ashby": "Ashby", "lattice": "Lattice",
     "culture-amp": "Culture Amp", "betterup": "BetterUp",
     "springhealth": "Spring Health", "headspace": "Headspace",
@@ -367,8 +376,31 @@ def _is_us_location(location: str) -> bool:
     return True
 
 
+def _load_discovered_companies():
+    """Load auto-discovered companies from brain.json."""
+    import os
+    try:
+        if os.path.exists(".local/brain.json"):
+            with open(".local/brain.json") as f:
+                brain = json.load(f)
+            discovered = brain.get("discovered_ats", {})
+            # Merge into main dicts
+            for slug, name in discovered.get("greenhouse", {}).items():
+                if slug not in GREENHOUSE_COMPANIES:
+                    GREENHOUSE_COMPANIES[slug] = name
+            for slug, name in discovered.get("lever", {}).items():
+                if slug not in LEVER_COMPANIES:
+                    LEVER_COMPANIES[slug] = name
+            for slug, name in discovered.get("ashby", {}).items():
+                if slug not in ASHBY_COMPANIES:
+                    ASHBY_COMPANIES[slug] = name
+    except Exception:
+        pass
+
+
 def fetch_all_direct_sources() -> List[Dict]:
     """Fetch from all direct ATS APIs. Returns list of job dicts."""
+    _load_discovered_companies()  # Auto-expand company list from brain
     all_jobs = []
     
     log.info("Fetching direct sources: Greenhouse, Lever, Ashby, HackerNews")
