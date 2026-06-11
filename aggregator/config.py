@@ -992,6 +992,11 @@ WORKDAY_ABBREVIATIONS = {
 }
 
 # Companies that almost always require security clearance
+STAFFING_AGENCIES = [
+    "express employment", "robert half", "adecco", "manpower",
+    "kelly services", "randstad", "staffing agency",
+]
+
 CLEARANCE_COMPANIES = [
     "booz allen", "raytheon", "northrop grumman", "lockheed martin",
     "general dynamics", "bae systems", "l3harris", "leidos",
