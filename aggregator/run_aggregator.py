@@ -1437,46 +1437,8 @@ class UnifiedJobAggregator:
             with self._github_lock:
                 self.source_stats[source]["valid"] += 1
         else:
-            # Trusted domain fallback — if fetch failed for a major company,
-            # accept source data instead of discarding the job
-            _TRUSTED_COMPANIES = {"tesla", "apple", "google", "meta", "amazon",
-                "microsoft", "nvidia", "netflix", "uber", "lyft", "stripe",
-                "airbnb", "spotify", "pinterest", "snap", "reddit",
-                "openai", "anthropic", "databricks", "snowflake",
-                "salesforce", "oracle", "adobe", "intel", "cisco",
-                "palantir", "coinbase", "robinhood", "doordash", "instacart",
-                "figma", "notion", "ramp", "brex", "discord",
-                "rivian", "lucid", "neuralink", "waymo", "cruise"}
-            _co_check = company_from_github.lower().strip()
-            if any(tc in _co_check or _co_check in tc for tc in _TRUSTED_COMPANIES):
-                logging.info(f"TRUSTED FALLBACK: {company_from_github} | {title} (HTTP failed, using source data)")
-                # Extract job_id from URL even when HTTP fails
-                _fallback_job_id = "N/A"
-                from aggregator.processors import _COMPILED_JOB_ID_PATTERNS as _JID_PATS
-                for _jid_pat, _ in _JID_PATS:
-                    _jid_m = _jid_pat.search(resolved_url)
-                    if _jid_m:
-                        _fallback_job_id = _jid_m.group(1)
-                        break
-                result = {
-                    "company": company_from_github,
-                    "title": title,
-                    "location": location_from_github or "Unknown",
-                    "remote": "Unknown",
-                    "url": resolved_url,
-                    "job_id": _fallback_job_id,
-                    "job_type": self._detect_job_type(title, source),
-                    "sponsorship": "Unknown",
-                    "entry_date": self._format_date(),
-                    "source": source,
-                }
-                with self._github_lock:
-                    self.valid_jobs.append(result)
-                    self.existing_jobs.add(re.sub(r"[^a-z0-9]", "", f"{_co_check}_{title}".lower()))
-                    self.source_stats[source]["valid"] += 1
-                alert = RoleCategorizer.get_terminal_alert(title)
-                print(f"  {company_from_github[:25]}: ✓ Trusted fallback {alert}")
-            else:
+            _fallback = self._try_trusted_fallback(company_from_github, title, resolved_url, location_from_github, source)
+            if not _fallback:
                 with self._github_lock:
                     self.source_stats[source]["rejected"] += 1
                 logging.info(f"REJECTED (comprehensive) | {company_from_github} | {title} | url={resolved_url[:60]}")
@@ -1900,6 +1862,8 @@ class UnifiedJobAggregator:
                     source=sender,
                     email_html=email_html,
                 )
+                if not result:
+                    result = self._try_trusted_fallback(company, title, actual_url, location, sender)
                 if result:
                     alert = RoleCategorizer.get_terminal_alert(result["title"])
                     print(
@@ -1938,6 +1902,8 @@ class UnifiedJobAggregator:
                 source=sender,
                 email_html=email_html,
             )
+            if not result:
+                result = self._try_trusted_fallback("", title, actual_url, "", sender)
             if result:
                 alert = RoleCategorizer.get_terminal_alert(result["title"])
                 print(
@@ -2060,6 +2026,8 @@ class UnifiedJobAggregator:
                 result = self._process_single_job_comprehensive(
                     actual_url, source=sender, email_html=email_html
                 )
+                if not result:
+                    result = self._try_trusted_fallback("", title, actual_url, "", sender)
                 if result:
                     alert = RoleCategorizer.get_terminal_alert(result["title"])
                     print(f"    {result['company'][:50]}: ✓ Valid {alert} (ZipRecruiter→resolved)")
@@ -2313,6 +2281,51 @@ class UnifiedJobAggregator:
             logging.debug(f"Soup parsing failed: {e}")
 
         return None
+
+    _TRUSTED_FALLBACK_COMPANIES = {"tesla", "apple", "google", "meta", "amazon",
+        "microsoft", "nvidia", "netflix", "uber", "lyft", "stripe",
+        "airbnb", "spotify", "pinterest", "snap", "reddit",
+        "openai", "anthropic", "databricks", "snowflake",
+        "salesforce", "oracle", "adobe", "intel", "cisco",
+        "palantir", "coinbase", "robinhood", "doordash", "instacart",
+        "figma", "notion", "ramp", "brex", "discord",
+        "rivian", "lucid", "neuralink", "waymo", "cruise",
+        "tiktok", "bytedance", "verkada", "scale ai", "anduril",
+    }
+
+    def _try_trusted_fallback(self, company, title, url, location, source):
+        """When HTTP fetch fails for a trusted company, accept source data."""
+        _co = company.lower().strip()
+        if not any(tc in _co or _co in tc for tc in self._TRUSTED_FALLBACK_COMPANIES):
+            return None
+        # Extract job_id from URL
+        _job_id = "N/A"
+        from aggregator.processors import _COMPILED_JOB_ID_PATTERNS
+        for _pat, _ in _COMPILED_JOB_ID_PATTERNS:
+            _m = _pat.search(url)
+            if _m:
+                _job_id = _m.group(1)
+                break
+        logging.info(f"TRUSTED FALLBACK: {company} | {title} (HTTP failed, using source data)")
+        result = {
+            "company": company,
+            "title": title,
+            "location": location or "Unknown",
+            "remote": "Unknown",
+            "url": url,
+            "job_id": _job_id,
+            "job_type": self._detect_job_type(title, source),
+            "sponsorship": "Unknown",
+            "entry_date": self._format_date(),
+            "source": source,
+        }
+        with self._github_lock:
+            self.valid_jobs.append(result)
+            self.existing_jobs.add(re.sub(r"[^a-z0-9]", "", f"{_co}_{title}".lower()))
+            self.source_stats[source]["valid"] += 1
+        alert = RoleCategorizer.get_terminal_alert(title)
+        print(f"  {company[:25]}: ✓ Trusted fallback {alert}")
+        return result
 
     def _process_single_job_comprehensive(
         self,
