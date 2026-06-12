@@ -2085,7 +2085,7 @@ JOB_ID_PATTERNS = [
     (r"/jobs?/(\d{6,})", 0.94),
     (r"/careers/jobs/(\d{4,6})", 0.92),
     (r"/careers/jobs/(\d{4,6})", 0.92),
-    (r"_([A-Z]R?-?\d{5,})(?:-\d+)?(?:\?|$)", 0.93),
+    (r"_([A-Z]R?-?\d{4,})(?:-\d+)?(?:\?|$)", 0.93),
     (r"_([A-Z]{1,3}_\d{4,})(?:\?|$|/)", 0.91),  # e.g. JR_14561
     (r"/([A-Z]{2,3}\d{5,})(?:-\d+)?(?:\?|$)", 0.91),
     (r"(?:jobs\.)?lever\.co/[^/]+/([a-f0-9-]{36})", 0.96),
@@ -3533,3 +3533,9 @@ KNOWN_CAREER_URLS = {
     "pinterest": "https://www.pinterestcareers.com/search-results?q=",
     "instacart": "https://instacart.careers/search?q=",
 }
+
+# Companies that are actually generic ATS slugs, not real company names
+GENERIC_COMPANY_SLUGS = [
+    "biotech", "careers", "jobs", "hiring", "talent",
+    "recruitment", "opportunities", "openings",
+]

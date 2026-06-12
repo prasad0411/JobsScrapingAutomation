@@ -130,6 +130,13 @@ class TitleProcessor:
     @lru_cache(maxsize=512)
     def clean_title_aggressive(title):
         title = re.sub(r"^[:\s]+", "", title).strip()  # strip leading colon/space
+        # Reject garbage titles that are just URL paths or button text
+        _GARBAGE_TITLES = {"application", "apply", "apply now", "job", "careers",
+            "sign in", "login", "home", "search", "page not found", "404",
+            "let's confirm you are human", "your connection was interrupted",
+            "career page", "job listings", "open positions"}
+        if title.lower().strip() in _GARBAGE_TITLES:
+            return False, f"Garbage title: {title}"
         if not title or len(title) < 5:
             return title
 
@@ -224,6 +231,13 @@ class TitleProcessor:
 
     @staticmethod
     def is_valid_job_title(title):
+        # Reject garbage titles that are just URL paths or button text
+        _GARBAGE_TITLES = {"application", "apply", "apply now", "job", "careers",
+            "sign in", "login", "home", "search", "page not found", "404",
+            "let's confirm you are human", "your connection was interrupted",
+            "career page", "job listings", "open positions"}
+        if title.lower().strip() in _GARBAGE_TITLES:
+            return False, f"Garbage title: {title}"
         if not title or len(title) < 5:
             return False, "Title too short"
 
@@ -265,6 +279,17 @@ class TitleProcessor:
             r"\bmechatronics\b",
             r"\bshipyard\b",
             r"\bbusiness\s+development\b",
+            r"\bpartnerships?\s+(?:&|and)\s+growth\b",
+            r"\binstructor\b",
+            r"\bteaching\b",
+            r"\bteacher\b",
+            r"\btransit\s+intern\b",
+            r"\bcommunity\s+college\b",
+            r"\bschool\s+district\b",
+            r"\bcounty\s+of\b",
+            r"\bgenerator\s+(?:application|design)\b",
+            r"\bpower\s+(?:generation|plant|systems)\s+(?:engineer|intern)\b",
+            r"\bgovernment\s+(?:intern|jobs)\b",
             r"\bventure\s+capital\b",
             r"\bstaffing\b",
             r"\brecruitment\b(?!.*engineer|.*software)",
@@ -290,6 +315,15 @@ class TitleProcessor:
         for _up in _UNIV_SPECIFIC:
             if re.search(_up, title, re.I):
                 return False, "University-specific co-op"
+
+        # Reject senior-level scientist/engineer roles (II, III, IV = not entry level)
+        if re.search(r"(?:scientist|engineer|developer|analyst)\s+(?:II|III|IV|V)", title, re.I):
+            if not re.search(r"intern|co-?op|new\s+grad|entry|junior", title, re.I):
+                return False, f"Senior role (Roman numeral level): {title[:30]}"
+
+        # Reject education institutions
+        _EDU_COMPANIES = ["community college", "school district", "university system",
+            "board of education", "public schools"]
 
         # Reject non-English titles
         _NON_ENGLISH_KW = ["automatizare", "inteligenta artificiala", "dezvoltare",
@@ -2620,6 +2654,10 @@ class ValidationHelper:
                 r"2027\s+start",
                 r"start.*2027",
                 r"phd\s+internship",
+                r"in\s+the\s+process\s+of\s+obtaining.*ph\.?d",
+                r"currently\s+has.*ph\.?d\s+degree",
+                r"ph\.?d\s+degree\s+in\s+the\s+field\s+of",
+                r"(?:requires?|must\s+have).*ph\.?d\s+(?:degree|student|candidate)",
                 r"currently\s+pursuing\s+ph\.?d",
                 r"preferably\s+a\s+current\s+3rd\s+year",
                 r"must\s+be\s+currently\s+pursuing\s+a\s+bachelor",
@@ -2809,6 +2847,10 @@ class ValidationHelper:
                 r"(?:pursuing|enrolled\s+in|candidates?\s+in).*\bphd\s+(?:degree|program)",
                 r"phd-only",
                 r"phd\s+internship",
+                r"in\s+the\s+process\s+of\s+obtaining.*ph\.?d",
+                r"currently\s+has.*ph\.?d\s+degree",
+                r"ph\.?d\s+degree\s+in\s+the\s+field\s+of",
+                r"(?:requires?|must\s+have).*ph\.?d\s+(?:degree|student|candidate)",
             ]
 
             phd_only_patterns.extend(ENHANCED_PHD_PATTERNS)

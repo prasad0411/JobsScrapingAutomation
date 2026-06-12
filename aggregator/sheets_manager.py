@@ -964,7 +964,7 @@ class SheetsManager:
 
         # Strip country name prefix concatenated with city (e.g. "CanadaSanta Clara, CA")
         import re as _cp_re
-        _country_prefixes = ["Canada", "United States", "USA", "US"]
+        _country_prefixes = ["Canada", "United States", "USA", "US", "BGR"]
         for _cp in _country_prefixes:
             if loc.startswith(_cp) and len(loc) > len(_cp) and loc[len(_cp):][0].isupper():
                 loc = loc[len(_cp):].strip()

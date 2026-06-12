@@ -375,7 +375,7 @@ def _is_us_location(location: str) -> bool:
             "bucharest", "budapest", "lisbon", "madrid", "barcelona",
             "milan", "rome", "munich", "hamburg", "frankfurt",
             "british columbia", "ontario", "quebec", "alberta",
-            "prc", "apac", "emea", "latam"]
+            "prc", "apac", "emea", "latam", "bgr", "sofia", "bogota", "buenos aires", "santiago"]
     if any(kw in loc for kw in intl):
         return False
     

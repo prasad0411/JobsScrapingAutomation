@@ -1395,6 +1395,11 @@ class UnifiedJobAggregator:
             )
             return
 
+        # ── Reject linkedin.com/jobs URLs — these are listings, not company pages ──
+        if "linkedin.com/jobs" in resolved_url:
+            logging.info(f"REJECTED | linkedin.com job listing URL (not a company page)")
+            return
+
         # ── Early dedup: catch duplicates BEFORE expensive page fetch ──
         _early_norm_co = TitleProcessor.normalize_company_for_dedup(company_from_github) if hasattr(TitleProcessor, "normalize_company_for_dedup") else company_from_github.lower()
         _early_norm = re.sub(r"[^a-z0-9]", "", f"{_early_norm_co}_{title}".lower())
@@ -2304,7 +2309,7 @@ class UnifiedJobAggregator:
         "palantir", "coinbase", "robinhood", "doordash", "instacart",
         "figma", "notion", "ramp", "brex", "discord",
         "rivian", "lucid", "neuralink", "waymo", "cruise",
-        "tiktok", "bytedance", "verkada", "scale ai", "anduril",
+        "tiktok", "bytedance", "verkada", "scale ai",
     }
 
     def _try_trusted_fallback(self, company, title, url, location, source):
@@ -2588,7 +2593,7 @@ class UnifiedJobAggregator:
                 "mongodb", "elastic", "confluent", "datadog", "cloudflare",
                 "hubspot", "twilio", "okta", "crowdstrike", "sentinelone",
                 "discord", "toast", "squarespace", "plaid", "affirm", "chime",
-                "verkada", "scale ai", "anduril", "tenstorrent", "meshy",
+                "verkada", "scale ai", "tenstorrent", "meshy",
                 "sandisk", "copart", "eversana", "zipline", "1password"}
             _co_lower = company.lower().strip()
             _is_whitelisted = any(wc in _co_lower or _co_lower in wc for wc in _NO_CLEARANCE_COMPANIES)
