@@ -1395,6 +1395,26 @@ class UnifiedJobAggregator:
             )
             return
 
+        # ── Reject blacklisted companies (clearance, defense) before ANY processing ──
+        try:
+            from aggregator.config import CLEARANCE_COMPANIES
+            _co_blacklist = company_from_github.lower().strip()
+            if any(bc.lower() in _co_blacklist or _co_blacklist in bc.lower() for bc in CLEARANCE_COMPANIES):
+                logging.info(f"EARLY BLACKLIST: {company_from_github} (clearance company)")
+                return
+        except (ImportError, AttributeError):
+            pass
+
+        # ── Reject blacklisted company patterns (universities, hospitals, government) ──
+        try:
+            from aggregator.config import COMPANY_BLACKLIST_PATTERNS
+            _co_bl = company_from_github.lower().strip()
+            if any(bp in _co_bl for bp in COMPANY_BLACKLIST_PATTERNS):
+                logging.info(f"EARLY BLACKLIST: {company_from_github} (company pattern)")
+                return
+        except (ImportError, AttributeError):
+            pass
+
         # ── Reject linkedin.com/jobs URLs — these are listings, not company pages ──
         if "linkedin.com/jobs" in resolved_url:
             logging.info(f"REJECTED | linkedin.com job listing URL (not a company page)")
@@ -2683,11 +2703,14 @@ class UnifiedJobAggregator:
                                 return None
                             break
 
-                    # Extract annual salary: "$50,000", "$50K"
+                    # Extract annual salary: "$50,000", "$50K", "$48,000 - $68,000"
+                    # $25/hr × 40hrs × 52wks = $52,000/yr minimum
                     _annual_pats = [
-                        r'\$\s*(\d{2,3}),?(\d{3})\s*(?:to|-|–)\s*\$\s*(\d{2,3}),?(\d{3})',
-                        r'\$\s*(\d{2,3})(?:k|K)\s*(?:to|-|–)\s*\$\s*(\d{2,3})(?:k|K)',
-                        r'(?:salary|compensation|pay)\s*(?:range)?[:\s]+\$\s*(\d{2,3}),?(\d{3})',
+                        r'\$\s*(\d{2,3}),?(\d{3})\s*(?:to|-|–|\s*-\s*)\s*\$\s*\d{2,3},?\d{3}',
+                        r'\$\s*(\d{2,3})(?:k|K)\s*(?:to|-|–)\s*\$\s*\d{2,3}(?:k|K)',
+                        r'(?:salary|compensation|pay|range)[:\s]+\$\s*(\d{2,3}),?(\d{3})',
+                        r'\$\s*(\d{2,3}),?(\d{3})(?:/year|/yr|\s*per\s*year|\s*annually)',
+                        r'(?:us\s*salary|base\s*salary)[:\s]+\$\s*(\d{2,3}),?(\d{3})',
                     ]
                     for _ap in _annual_pats:
                         _am = re.search(_ap, _jd)

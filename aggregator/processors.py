@@ -280,6 +280,7 @@ class TitleProcessor:
             r"\bshipyard\b",
             r"\bbusiness\s+development\b",
             r"\bpartnerships?\s+(?:&|and)\s+growth\b",
+            r"\bproduct\s+manager\b(?!.*engineer)",
             r"\binstructor\b",
             r"\bteaching\b",
             r"\bteacher\b",
@@ -288,6 +289,13 @@ class TitleProcessor:
             r"\bschool\s+district\b",
             r"\bcounty\s+of\b",
             r"\bgenerator\s+(?:application|design)\b",
+            r"\bpeople\s+operations\b",
+            r"\baircraft\s+(?:technician|mechanic|painter|repair|composite)\b",
+            r"\binterior\s+installation\b",
+            r"\bstructural\s+mechanic\b",
+            r"\bgas\s+compressor\b",
+            r"\bsystem\s+product\s+engineer\b(?!.*software)",
+            r"\bproduct\s+engineer\s+(?:1|I|i)\b(?!.*software)",
             r"\bpower\s+(?:generation|plant|systems)\s+(?:engineer|intern)\b",
             r"\bgovernment\s+(?:intern|jobs)\b",
             r"\bventure\s+capital\b",
@@ -2648,6 +2656,7 @@ class ValidationHelper:
                 r"must\s+be\s+pursuing\s+a\s+ph\.?d",
                 r"\(ph\.?d\.?\)",
                 r"ph\.?d\.?\s+intern",
+                r"research\s+scientist\s+intern.*(?:audio|speech|vision|nlp|perception)",
                 r"20\d\d\s+start\s+\(ph\.?d",
                 r"summer\s+2027",
                 r"fall\s+2027",
@@ -2742,6 +2751,7 @@ class ValidationHelper:
                 r"with\s+(?:a\s+)?(?:ba/bs|bs/ba)\s*,?\s*majoring",
                 r"graduating.*(?:ba|bs|ba/bs|bs/ba)\s*,?\s*majoring",
                 r"receive\s+(?:a\s+)?(?:ba|bs|ba/bs)\s+(?:by|before|prior)",
+                r"high\s+school\s+diploma.*currently\s+attending\s+(?:a\s+)?college",
             ]
 
             for pattern in undergraduate_patterns:
