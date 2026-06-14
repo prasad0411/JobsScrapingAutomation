@@ -2387,15 +2387,16 @@ class UnifiedJobAggregator:
 
             # ── GATE 1: Company blacklist (clearance + non-CS) ──
             _BLACKLIST_COMPANIES = [
-                "anduril", "shield ai", "gulfstream",
+                # Defense — ALWAYS require clearance (confirmed)
                 "northrop grumman", "raytheon", "rtx", "leidos",
                 "lockheed martin", "general dynamics", "l3harris",
                 "saic", "caci", "mantech", "kbr", "amentum", "gdit",
-                "peraton", "sierra space", "parsons", "textron",
-                "captivation", "wyetech", "visionist", "concept plus",
-                "sparksoft", "hermeus", "altamira", "bae systems",
-                "ball aerospace", "leonardo drs", "rocketlab",
-                "solar turbines",
+                "peraton", "sierra space", "parsons",
+                "captivation", "wyetech", "visionist",
+                "sparksoft", "bae systems", "leonardo drs",
+                # Non-CS companies
+                "gulfstream", "solar turbines",
+                # Education/Government (not internship employers)
                 "university of texas at austin", "north orange county",
                 "nationwide children", "children's hospital",
                 "community college", "school district",
@@ -2459,10 +2460,11 @@ class UnifiedJobAggregator:
             _url_job_id = None
             _jid_patterns = [
                 r"/jobs?/(\d{5,})",
-                r"_([A-Z]R?-?\d{4,})(?:-\d+)?(?:\?|$)",
+                r"_([A-Z]{1,4}-?\d{4,})(?:-\d+)?(?:\?|$)",
                 r"gh_jid=(\d{7,})",
                 r"/([A-Z]{2,3}\d{5,})(?:-\d+)?(?:\?|$)",
                 r"[/_](R\d{4}-\d{3,})(?:\?|$|/)",
+                r"_?(REQ-\d{4,})(?:\?|$|/)",
                 r"/(\d{6,})(?:\?|$)",
             ]
             for _jp in _jid_patterns:

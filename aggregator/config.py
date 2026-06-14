@@ -2085,7 +2085,8 @@ JOB_ID_PATTERNS = [
     (r"/jobs?/(\d{6,})", 0.94),
     (r"/careers/jobs/(\d{4,6})", 0.92),
     (r"/careers/jobs/(\d{4,6})", 0.92),
-    (r"_([A-Z]R?-?\d{4,})(?:-\d+)?(?:\?|$)", 0.93),
+    (r"_([A-Z]{1,4}-?\d{4,})(?:-\d+)?(?:\?|$)", 0.93),
+    (r"_?(REQ-\d{4,})(?:\?|$|/)", 0.92),
     (r"_([A-Z]{1,3}_\d{4,})(?:\?|$|/)", 0.91),  # e.g. JR_14561
     (r"/([A-Z]{2,3}\d{5,})(?:-\d+)?(?:\?|$)", 0.91),
     (r"(?:jobs\.)?lever\.co/[^/]+/([a-f0-9-]{36})", 0.96),
@@ -3349,6 +3350,7 @@ COMPANY_NAME_FIXES = {
     "ancestry.com": "Ancestry",
     "snap finance": "Snap Finance",
     "dpr family of companies": "DPR Construction",
+    "valeo north america": "Valeo",
 }
 
 # City to state mapping for location normalization
@@ -3501,6 +3503,8 @@ H1B_SPONSOR_JD_NO = [
     r"(?:unable|not\s+able)\s+to\s+sponsor",
     r"not\s+(?:eligible|open)\s+to\s+(?:candidates?\s+)?(?:on|requiring)\s+(?:opt|cpt|f-?1|student\s+visa)",
     r"authorization.*without.*(?:need|requiring).*sponsor",
+    r"(?:not|isn'?t)\s+eligible\s+for\s+(?:visa\s+)?sponsorship",
+    r"position\s+is\s+not\s+eligible\s+for\s+(?:visa\s+)?sponsorship",
 ]
 
 # ── Known company career page search URLs ──
