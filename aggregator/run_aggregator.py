@@ -2434,8 +2434,9 @@ class UnifiedJobAggregator:
                 logging.info(f"GATE REJECT | {_co_hint} | Garbage title: {_ti_hint}")
                 return None
             if any(bt in _ti_lower for bt in _BLACKLIST_TITLES):
-                if "product manager" in _ti_lower and "engineer" in _ti_lower:
-                    pass  # "Product Manager Engineer" is OK
+                if "product manager" in _ti_lower and any(kw in _ti_lower for kw in 
+                    ["engineer", "technical", "software", "data", "ml", "ai", "platform"]):
+                    pass  # "Technical Product Manager" etc. is OK
                 else:
                     self._add_discarded(_co_hint, _ti_hint, location_hint or "Unknown", "Unknown",
                         url, "N/A", "Internship", source, f"Non-tech title: {_ti_hint[:40]}")
@@ -2616,6 +2617,16 @@ class UnifiedJobAggregator:
             title = PageParser.extract_title(soup)
             if not title or title == "Unknown":
                 title = title_hint if title_hint else "Unknown"
+
+            # ── POST-GATE: PhD detection from raw title + page <title> ──
+            _raw_phd_check = (title or "") + " " + (soup.title.string if soup and soup.title else "")
+            if re.search(r"\(ph\.?d\.?\)", _raw_phd_check, re.I):
+                _co = company_hint or "Unknown"
+                self._add_discarded(_co, title, location_hint or "Unknown", "Unknown",
+                    url, "N/A", "Internship", source, "PhD required (title)")
+                logging.info(f"POST-GATE REJECT | PhD in title: {title[:50]}")
+                return None
+
             title = TitleProcessor.clean_title_aggressive(title)
             # If extracted title looks like a page/company headline, trust hint
             if title_hint:

@@ -877,10 +877,10 @@ class SheetsManager:
             company = job.get("company", "")
             title = job.get("title", "")
             search_query = f"{company} {title} careers apply"
-            # Return Google Sheets HYPERLINK formula
+            # Return raw Google search URL (auto-links in Sheets)
             import urllib.parse
             encoded = urllib.parse.quote(search_query)
-            return f'=HYPERLINK("https://www.google.com/search?q={encoded}", "🔍 {company} - Search")'
+            return f"https://www.google.com/search?q={encoded}"
         return url
 
     @staticmethod
