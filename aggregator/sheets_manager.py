@@ -196,7 +196,7 @@ class SheetsManager:
                 
                 if '🔍' in display and 'HYPERLINK' not in formula and company:
                     query = urllib.parse.quote(f"{company} {title} careers apply")
-                    new_formula = f'=HYPERLINK("https://www.google.com/search?q={query}", "🔍 {company} - Search")'
+                    new_formula = f"https://www.google.com/search?q={query}"
                     self.valid_sheet.update(
                         range_name=f'F{i}', values=[[new_formula]],
                         value_input_option='USER_ENTERED'

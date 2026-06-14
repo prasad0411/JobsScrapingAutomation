@@ -1775,6 +1775,8 @@ class UnifiedJobAggregator:
             company_hint=_company_hint or "",
             title_hint=_title_hint or "",
         )
+        if not result:
+            result = self._try_trusted_fallback(_company_hint or "", _title_hint or "", resolved_url, "", sender)
         if result:
             # Cross-validate: if extracted company doesn't match hint, use hint
             # This catches SWE List URL/company mismatches
@@ -2457,6 +2459,47 @@ class UnifiedJobAggregator:
             self._run_dedup_keys.add(_dedup_key)
 
             # ── GATE 5: Extract job_id from URL early (for dedup) ──
+            _url_job_id = None
+            _jid_patterns = [
+                r"/jobs?/(\d{5,})",
+                r"_([A-Z]{1,4}-?\d{4,})(?:-\d+)?(?:\?|$)",
+                r"gh_jid=(\d{7,})",
+                r"/([A-Z]{2,3}\d{5,})(?:-\d+)?(?:\?|$)",
+                r"[/_](R\d{4}-\d{3,})(?:\?|$|/)",
+                r"_?(REQ-\d{4,})(?:\?|$|/)",
+                r"/(\d{6,})(?:\?|$)",
+            ]
+            for _jp in _jid_patterns:
+                _jm = re.search(_jp, url)
+                if _jm:
+                    _url_job_id = _jm.group(1)
+                    break
+            if _url_job_id and _co_lower:
+                _jid_key = f"{_co_lower}_{_url_job_id}"
+                if _jid_key in self._run_dedup_jobids:
+                    logging.info(f"GATE REJECT | Run dedup job_id: {_co_hint} | {_url_job_id}")
+                    return None
+                self._run_dedup_jobids.add(_jid_key)
+
+
+            # ── GATE 3: LinkedIn URL rejection ──
+            if "linkedin.com/jobs" in url:
+                logging.info(f"GATE REJECT | LinkedIn job listing URL")
+                return None
+
+            # ── GATE 4: Run-level dedup ──
+            if not hasattr(self, "_run_dedup_keys"):
+                self._run_dedup_keys = set()
+            if not hasattr(self, "_run_dedup_jobids"):
+                self._run_dedup_jobids = set()
+            _dedup_key = re.sub(r"[^a-z0-9]", "", f"{_co_lower}_{_ti_lower}")
+            if _dedup_key and len(_dedup_key) > 5 and _dedup_key in self._run_dedup_keys:
+                logging.info(f"GATE REJECT | Run dedup: {_co_hint} | {_ti_hint[:40]}")
+                return None
+            if _dedup_key and len(_dedup_key) > 5:
+                self._run_dedup_keys.add(_dedup_key)
+
+            # ── GATE 5: Extract job_id from URL early ──
             _url_job_id = None
             _jid_patterns = [
                 r"/jobs?/(\d{5,})",

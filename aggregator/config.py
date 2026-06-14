@@ -3543,3 +3543,10 @@ GENERIC_COMPANY_SLUGS = [
     "biotech", "careers", "jobs", "hiring", "talent",
     "recruitment", "opportunities", "openings",
 ]
+
+COMPANY_BLACKLIST_PATTERNS = [
+    "gulfstream", "solar turbines",
+    "university of texas at austin", "north orange county",
+    "community college", "school district",
+    "children's hospital", "nationwide children",
+]
