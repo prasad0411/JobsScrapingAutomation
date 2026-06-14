@@ -2376,6 +2376,111 @@ class UnifiedJobAggregator:
         email_html=None,
     ):
         try:
+            # ══════════════════════════════════════════════════════
+            # UNIVERSAL PRE-VALIDATION GATE
+            # Runs on EVERY job from EVERY path. Cannot be bypassed.
+            # ══════════════════════════════════════════════════════
+            _co_hint = (company_hint or "").strip()
+            _ti_hint = (title_hint or "").strip()
+            _co_lower = _co_hint.lower()
+            _ti_lower = _ti_hint.lower()
+
+            # ── GATE 1: Company blacklist (clearance + non-CS) ──
+            _BLACKLIST_COMPANIES = [
+                "anduril", "shield ai", "gulfstream",
+                "northrop grumman", "raytheon", "rtx", "leidos",
+                "lockheed martin", "general dynamics", "l3harris",
+                "saic", "caci", "mantech", "kbr", "amentum", "gdit",
+                "peraton", "sierra space", "parsons", "textron",
+                "captivation", "wyetech", "visionist", "concept plus",
+                "sparksoft", "hermeus", "altamira", "bae systems",
+                "ball aerospace", "leonardo drs", "rocketlab",
+                "solar turbines",
+                "university of texas at austin", "north orange county",
+                "nationwide children", "children's hospital",
+                "community college", "school district",
+            ]
+            if any(bc in _co_lower for bc in _BLACKLIST_COMPANIES):
+                self._add_discarded(_co_hint, _ti_hint, location_hint or "Unknown", "Unknown",
+                    url, "N/A", "Internship", source, f"Blacklisted company: {_co_hint}")
+                logging.info(f"GATE REJECT | {_co_hint} | Blacklisted company")
+                return None
+
+            # ── GATE 2: Title blacklist (non-tech, garbage, PM) ──
+            _BLACKLIST_TITLES = [
+                "people operations", "aircraft technician", "aircraft mechanic",
+                "aircraft painter", "aircraft composite", "interior installation",
+                "structural mechanic", "gas compressor", "system product engineer",
+                "generator application", "power generation", "power plant",
+                "field sales", "business development", "venture capital",
+                "partnerships & growth", "partnerships and growth",
+                "product manager", "transit intern", "instructor",
+                "teaching", "teacher", "recruitment", "staffing",
+                "avionics", "metrology", "cabinet maker", "payroll",
+                "erp supervisor", "mechatronics", "shipyard",
+                "packaging engineer",
+            ]
+            _GARBAGE_TITLES = [
+                "application", "apply", "apply now", "job", "careers",
+                "sign in", "login", "home", "search", "page not found",
+                "404", "let's confirm you are human",
+                "your connection was interrupted", "career page",
+                "503 service temporarily unavailable",
+            ]
+            if _ti_lower.strip() in _GARBAGE_TITLES:
+                logging.info(f"GATE REJECT | {_co_hint} | Garbage title: {_ti_hint}")
+                return None
+            if any(bt in _ti_lower for bt in _BLACKLIST_TITLES):
+                if "product manager" in _ti_lower and "engineer" in _ti_lower:
+                    pass  # "Product Manager Engineer" is OK
+                else:
+                    self._add_discarded(_co_hint, _ti_hint, location_hint or "Unknown", "Unknown",
+                        url, "N/A", "Internship", source, f"Non-tech title: {_ti_hint[:40]}")
+                    logging.info(f"GATE REJECT | {_co_hint} | Non-tech title: {_ti_hint[:40]}")
+                    return None
+
+            # ── GATE 3: LinkedIn URL rejection ──
+            if "linkedin.com/jobs" in url:
+                logging.info(f"GATE REJECT | LinkedIn job listing URL")
+                return None
+
+            # ── GATE 4: Run-level dedup ──
+            if not hasattr(self, "_run_dedup_keys"):
+                self._run_dedup_keys = set()
+            if not hasattr(self, "_run_dedup_jobids"):
+                self._run_dedup_jobids = set()
+            _dedup_key = re.sub(r"[^a-z0-9]", "", f"{_co_lower}_{_ti_lower}")
+            if _dedup_key in self._run_dedup_keys:
+                logging.info(f"GATE REJECT | Run dedup: {_co_hint} | {_ti_hint[:40]}")
+                return None
+            self._run_dedup_keys.add(_dedup_key)
+
+            # ── GATE 5: Extract job_id from URL early (for dedup) ──
+            _url_job_id = None
+            _jid_patterns = [
+                r"/jobs?/(\d{5,})",
+                r"_([A-Z]R?-?\d{4,})(?:-\d+)?(?:\?|$)",
+                r"gh_jid=(\d{7,})",
+                r"/([A-Z]{2,3}\d{5,})(?:-\d+)?(?:\?|$)",
+                r"[/_](R\d{4}-\d{3,})(?:\?|$|/)",
+                r"/(\d{6,})(?:\?|$)",
+            ]
+            for _jp in _jid_patterns:
+                _jm = re.search(_jp, url)
+                if _jm:
+                    _url_job_id = _jm.group(1)
+                    break
+            if _url_job_id and _co_lower:
+                _jid_key = f"{_co_lower}_{_url_job_id}"
+                if _jid_key in self._run_dedup_jobids:
+                    logging.info(f"GATE REJECT | Run dedup job_id: {_co_hint} | {_url_job_id}")
+                    return None
+                self._run_dedup_jobids.add(_jid_key)
+
+            # ══════════════════════════════════════════════════════
+            # END PRE-VALIDATION GATE
+            # ══════════════════════════════════════════════════════
+
             # ── Pre-fetch dead URL check ──────────────────────────
             if self._is_dead_url(url):
                 co = company_hint or "Unknown"
@@ -2755,6 +2860,31 @@ class UnifiedJobAggregator:
                 and location_hint != "Unknown"
             ):
                 location = location_hint
+            # ── POST-GATE: Clean location (all formats) ──
+            if location and location != "Unknown":
+                # Country prefix: "CANYCBellevue, WA" → "Bellevue, WA"
+                for _pfx in ["CANYC", "CANY", "Canada", "United States ", "USA"]:
+                    if location.startswith(_pfx) and len(location) > len(_pfx):
+                        _rest = location[len(_pfx):].strip()
+                        if _rest and _rest[0].isupper():
+                            location = _rest
+                            break
+                # State prefix: "WI Beloit" → "Beloit, WI"
+                _sp_match = re.match(r"^([A-Z]{2})\s+([A-Z][a-z].+)$", location)
+                if _sp_match:
+                    _st = _sp_match.group(1)
+                    _ALL_STATES = {"AL","AK","AZ","AR","CA","CO","CT","DE","FL","GA","HI","ID","IL",
+                        "IN","IA","KS","KY","LA","ME","MD","MA","MI","MN","MS","MO","MT",
+                        "NE","NV","NH","NJ","NM","NY","NC","ND","OH","OK","OR","PA","RI",
+                        "SC","SD","TN","TX","UT","VT","VA","WA","WV","WI","WY","DC"}
+                    if _st in _ALL_STATES:
+                        location = f"{_sp_match.group(2)}, {_st}"
+                # BGR = Bulgaria
+                if location.startswith("BGR") or "sofia" in location.lower():
+                    self._add_discarded(company or company_hint, title or title_hint,
+                        location, "Unknown", url, "N/A", "Internship", source, "Location: Bulgaria")
+                    logging.info(f"POST-GATE | Bulgaria location: {location}")
+                    return None
             # Normalize city-only locations to "City, ST" format
             if location and location != "Unknown":
                 import re as _reloc
@@ -2875,6 +3005,9 @@ class UnifiedJobAggregator:
                 description=soup.get_text()[:2000] if soup else "",
             )
             job_id = PageParser.extract_job_id(soup, final_url or url)
+            # Fallback: use URL-extracted job_id if page extraction failed
+            if (not job_id or job_id == "N/A") and _url_job_id:
+                job_id = _url_job_id
             sponsorship = ValidationHelper.check_sponsorship_status(soup)
 
             # Use original URL if redirect crossed to different domain (prevents company/URL mismatch)
