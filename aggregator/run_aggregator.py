@@ -1628,6 +1628,15 @@ class UnifiedJobAggregator:
                     unique = len(set(id(v) for v in parsed_jobs.values()))
                     logging.info(f"Pre-parsed {unique} Jobright jobs from: {subject}")
 
+            if sender == "LinkedIn" and html_content:
+                from aggregator.extractors import LinkedInEmailParser
+                li_jobs = LinkedInEmailParser.parse_email_jobs(html_content)
+                if li_jobs:
+                    if not hasattr(self, "_linkedin_email_map"):
+                        self._linkedin_email_map = {}
+                    self._linkedin_email_map.update(li_jobs)
+                    logging.info(f"Pre-parsed {len(li_jobs)} LinkedIn jobs from: {subject}")
+
             deduped_urls = []
             for url_entry in urls:
                 # SWE List returns (url, company_hint, title_hint) tuples
@@ -1750,6 +1759,10 @@ class UnifiedJobAggregator:
 
         if "ziprecruiter.com" in url.lower():
             self._process_ziprecruiter_url(url, sender, email_html, subject)
+            return "processed"
+
+        if "linkedin.com" in url.lower() and "/jobs/view/" in url.lower():
+            self._process_linkedin_url(url, sender, email_html, subject)
             return "processed"
 
         if self._is_duplicate_url(resolved_url):
@@ -2222,6 +2235,183 @@ class UnifiedJobAggregator:
             if job.get("url", "") == url:
                 return job
         return None
+    def _process_linkedin_url(self, url, sender, email_html, subject):
+        """Process LinkedIn Job Alert URL using pre-parsed email data + ATS lookup."""
+        source_name = "LinkedIn"
+
+        # -- Step 1: Get pre-parsed email data --
+        li_data = self._get_linkedin_email_data(url)
+
+        if not li_data or li_data.get("title", "Unknown") == "Unknown":
+            logging.info(f"LINKEDIN | No parsed data for: {url[:60]}")
+            self.outcomes["skipped_no_data"] = self.outcomes.get("skipped_no_data", 0) + 1
+            return
+
+        company = li_data.get("company", "Unknown")
+        title = TitleProcessor.clean_title_aggressive(li_data.get("title", "Unknown"))
+        location = li_data.get("location", "Unknown")
+        linkedin_job_id = li_data.get("linkedin_job_id", "")
+
+        logging.info(f"LINKEDIN STEP 1 | Email data: {company} | {title} | {location}")
+
+        # -- Step 2: Pre-filter (same gates as Jobright) --
+        if self._is_duplicate(company, title, url):
+            logging.info(f"LINKEDIN STEP 2 | Duplicate: {company} | {title}")
+            return
+
+        is_internship, intern_reason = TitleProcessor.is_internship_role(title)
+        if not is_internship:
+            self.outcomes["skipped_senior_role"] += 1
+            self.source_stats[source_name]["rejected"] += 1
+            self._print_rejected(company, intern_reason)
+            logging.info(f"LINKEDIN STEP 2 | REJECTED | {company} | {title} | {intern_reason}")
+            return
+
+        is_tech = TitleProcessor.is_cs_engineering_role(title)
+        if not is_tech:
+            self.outcomes["skipped_non_tech"] += 1
+            self.source_stats[source_name]["rejected"] += 1
+            self._print_rejected(company, "Not CS/Engineering")
+            logging.info(f"LINKEDIN STEP 2 | REJECTED | {company} | {title} | Not CS/Engineering")
+            return
+
+        company_lower = company.lower().strip()
+        if any(bl.lower() == company_lower for bl in COMPANY_BLACKLIST):
+            reason = COMPANY_BLACKLIST_REASONS.get(company, "Blacklisted")
+            self.outcomes["skipped_blacklisted"] += 1
+            self.source_stats[source_name]["rejected"] += 1
+            self._add_discarded(company, title, location, "Unknown", url, "N/A", "Internship", source_name, reason)
+            self._print_rejected(company, "Blacklisted")
+            logging.info(f"LINKEDIN STEP 2 | REJECTED | {company} | Blacklisted: {reason}")
+            return
+
+        international_check = LocationProcessor.check_if_international(location, url=url, title=title)
+        if international_check:
+            self.outcomes["skipped_international"] += 1
+            self.source_stats[source_name]["rejected"] += 1
+            self._add_discarded(company, title, location, "Unknown", url, "N/A", "Internship", source_name, international_check)
+            short_reason = international_check.replace("Location: ", "")
+            self._print_rejected(company, short_reason)
+            logging.info(f"LINKEDIN STEP 2 | REJECTED | {company} | {international_check}")
+            return
+
+        # -- Step 3: ATS Lookup (find real career page URL) --
+        logging.info(f"LINKEDIN STEP 3 | ATS lookup for: {company} | {title}")
+        ats_url = self._try_ats_lookup(company, title)
+
+        if ats_url:
+            logging.info(f"LINKEDIN STEP 4 | ATS found: {ats_url[:80]}")
+
+            if self._is_duplicate_url(ats_url):
+                self.outcomes["skipped_duplicate_url"] += 1
+                logging.info(f"LINKEDIN STEP 5 | Duplicate ATS URL: {ats_url[:60]}")
+                return
+
+            result = self._process_single_job_comprehensive(
+                ats_url,
+                company_hint=company,
+                title_hint=title,
+                location_hint=location,
+                source=source_name,
+                email_html=email_html,
+            )
+            if not result:
+                result = self._try_trusted_fallback(company, title, ats_url, location, source_name)
+            if result:
+                alert = RoleCategorizer.get_terminal_alert(result["title"])
+                print(f"    {result['company'][:50]}: \u2713 Valid {alert} (LinkedIn\u2192ATS)")
+                self.source_stats[source_name]["valid"] += 1
+
+                # Self-learn: cache LinkedIn company -> ATS mapping in brain
+                try:
+                    from outreach.brain import Brain
+                    b = Brain.get()
+                    if "linkedin_ats_cache" not in b.data:
+                        b.data["linkedin_ats_cache"] = {}
+                    b.data["linkedin_ats_cache"][company_lower] = {
+                        "ats_url": ats_url[:120],
+                        "last_seen": __import__("time").strftime("%Y-%m-%d"),
+                    }
+                except Exception:
+                    pass
+            else:
+                self.source_stats[source_name]["rejected"] += 1
+            return
+
+        # -- Step 4: No ATS match -- write directly with email metadata --
+        logging.info(f"LINKEDIN STEP 4 | No ATS match for {company} | {title} -- direct write")
+
+        import urllib.parse
+        search_query = urllib.parse.quote(f"{company} {title} careers apply")
+        search_url = f"https://www.google.com/search?q={search_query}"
+
+        ct_key = URLCleaner.normalize_text(f"{company}_{title}")
+        if ct_key in self.existing_jobs:
+            self.outcomes["skipped_duplicate_company_title"] += 1
+            logging.info(f"LINKEDIN STEP 4 | Duplicate ct_key: {company} | {title}")
+            return
+
+        remote = "Remote" if "remote" in location.lower() else "Unknown"
+        if location.lower() in ("unknown", "", "n/a"):
+            location = "Unknown"
+
+        job_data = {
+            "company": company,
+            "title": title,
+            "location": location,
+            "remote": remote,
+            "url": search_url,
+            "job_id": linkedin_job_id or "N/A",
+            "job_type": "Internship",
+            "sponsorship": "Unknown",
+            "entry_date": self._format_date(),
+            "source": source_name,
+        }
+
+        quality = QualityScorer.calculate_score(job_data)
+        if quality < MIN_QUALITY_SCORE:
+            self.outcomes["skipped_low_quality"] += 1
+            self._print_rejected(company, f"Low quality ({quality})")
+            logging.info(f"REJECTED | {company} | {title} | Low quality: {quality} | LinkedIn")
+            self.source_stats[source_name]["rejected"] += 1
+            return
+
+        job_data = validate_job(job_data)
+        _ok, _why = validate_job_integrity(job_data)
+        if not _ok:
+            logging.info(f"INTEGRITY FAIL: {job_data.get('company', '?')} | {_why}")
+            return
+
+        company = job_data.get("company", company)
+        title = job_data.get("title", title)
+        from aggregator.sheets_manager import SheetsManager
+        job_data["resume_type"] = SheetsManager._classify_resume(title)
+
+        self.valid_jobs.append(job_data)
+        self.outcomes["valid"] += 1
+        self.existing_jobs.add(ct_key)
+        alert = RoleCategorizer.get_terminal_alert(title)
+        print(f"    {company[:50]}: \u2713 Valid {alert} (LinkedIn\u2192direct)")
+        self.source_stats[source_name]["valid"] += 1
+        logging.info(f"ACCEPTED | {company} | {title} | {location} | LinkedIn (email data)")
+
+    def _get_linkedin_email_data(self, url):
+        """Look up pre-parsed LinkedIn email data for a URL."""
+        if not hasattr(self, "_linkedin_email_map"):
+            return None
+        # Direct match
+        if url in self._linkedin_email_map:
+            return self._linkedin_email_map[url]
+        # Extract job ID and try canonical URL
+        import re as _re
+        _m = _re.search(r"/jobs/view/(\d+)", url)
+        if _m:
+            canonical = f"https://www.linkedin.com/jobs/view/{_m.group(1)}"
+            if canonical in self._linkedin_email_map:
+                return self._linkedin_email_map[canonical]
+        return None
+
+
     def _get_jobright_email_fallback(self, url):
         if not hasattr(self, "_jobright_email_map"):
             return None
@@ -2334,6 +2524,25 @@ class UnifiedJobAggregator:
         "tiktok", "bytedance", "verkada", "scale ai",
     }
 
+    @staticmethod
+    def _ats_company_match(search_company, ats_company):
+        """Word-boundary company matching to avoid substring false positives.
+        e.g. 'intel' should NOT match 'united imaging intelligence'
+        but 'intel' SHOULD match 'Intel Corporation'
+        """
+        a = search_company.lower().strip()
+        b = ats_company.lower().strip()
+        # Exact match
+        if a == b:
+            return True
+        # Check if ATS name appears as whole word(s) in search company
+        if re.search(r'\b' + re.escape(b) + r'\b', a):
+            return True
+        # Check if search company appears as whole word(s) in ATS name
+        if re.search(r'\b' + re.escape(a) + r'\b', b):
+            return True
+        return False
+
     def _try_ats_lookup(self, company, title):
         """When we only have a search URL, try to find the real job via ATS APIs."""
         import urllib.request, ssl, json
@@ -2357,7 +2566,7 @@ class UnifiedJobAggregator:
 
         # Check Greenhouse
         for slug, name in GREENHOUSE_COMPANIES.items():
-            if _co_lower in name.lower() or name.lower() in _co_lower:
+            if self._ats_company_match(_co_lower, name.lower()):
                 data = _fetch(f"https://boards-api.greenhouse.io/v1/boards/{slug}/jobs")
                 if data and data.get("jobs"):
                     for job in data["jobs"]:
@@ -2374,7 +2583,7 @@ class UnifiedJobAggregator:
 
         # Check Lever
         for slug, name in LEVER_COMPANIES.items():
-            if _co_lower in name.lower() or name.lower() in _co_lower:
+            if self._ats_company_match(_co_lower, name.lower()):
                 data = _fetch(f"https://api.lever.co/v0/postings/{slug}?mode=json")
                 if data and isinstance(data, list):
                     for job in data:
@@ -2390,7 +2599,7 @@ class UnifiedJobAggregator:
 
         # Check Ashby
         for slug, name in ASHBY_COMPANIES.items():
-            if _co_lower in name.lower() or name.lower() in _co_lower:
+            if self._ats_company_match(_co_lower, name.lower()):
                 data = _fetch(f"https://api.ashbyhq.com/posting-api/job-board/{slug}")
                 if data and data.get("jobs"):
                     for job in data["jobs"]:
@@ -2408,7 +2617,7 @@ class UnifiedJobAggregator:
         try:
             from aggregator.direct_sources import WORKDAY_COMPANIES
             for wd_name, (domain, tenant, site) in WORKDAY_COMPANIES.items():
-                if _co_lower in wd_name.lower() or wd_name.lower() in _co_lower:
+                if self._ats_company_match(_co_lower, wd_name.lower()):
                     search_url = f"https://{domain}/wday/cxs/{tenant}/{site}/jobs"
                     payload = json.dumps({
                         "appliedFacets": {},
@@ -2444,7 +2653,7 @@ class UnifiedJobAggregator:
         try:
             from aggregator.direct_sources import SMARTRECRUITERS_COMPANIES
             for sr_id, sr_name in SMARTRECRUITERS_COMPANIES.items():
-                if _co_lower in sr_name.lower() or sr_name.lower() in _co_lower:
+                if self._ats_company_match(_co_lower, sr_name.lower()):
                     import urllib.parse
                     encoded_title = urllib.parse.quote(title)
                     sr_url = f"https://api.smartrecruiters.com/v1/companies/{sr_id}/postings?limit=20&q={encoded_title}"

@@ -82,6 +82,18 @@ GREENHOUSE_COMPANIES = {
     "paycor": "Paycor", "justworks": "Justworks",
     "greenhouse": "Greenhouse",
     "andurilindustries": "Anduril",
+    "dashlane": "Dashlane",
+    "pinterest": "Pinterest",
+    "waymo": "Waymo",
+    "vonage": "Vonage",
+    "iterable": "Iterable",
+    "blockchain": "Blockchain.com",
+    "gemini": "Gemini",
+    "alpaca": "Alpaca ",
+    "sezzle": "Sezzle",
+    "marqeta": "Marqeta",
+    "jetbrains": "JetBrains",
+    "coreweave": "CoreWeave",
     "sweetgreen": "Sweetgreen",
     "peloton": "Peloton",
     "zscaler": "Zscaler",
@@ -129,6 +141,7 @@ LEVER_COMPANIES = {
     "sila-nano": "Sila Nanotechnologies",
     "redwoodmaterials": "Redwood Materials",
     "quantumscape": "QuantumScape",
+    "palantir": "Palantir",
 }
 
 ASHBY_COMPANIES = {

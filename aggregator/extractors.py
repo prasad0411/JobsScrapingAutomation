@@ -1335,6 +1335,8 @@ class EmailExtractor:
             "swelist": "SWE List",
             "jobright": "Jobright",
             "fursah": "Fursah",
+            "jobalerts-noreply@linkedin.com": "LinkedIn",
+            "linkedin.com": "LinkedIn",
         }
         for key, value in senders.items():
             if key in from_lower:
@@ -1426,6 +1428,14 @@ class EmailExtractor:
                         if not EmailExtractor._is_non_job_url(url):
                             urls.append(url)
                             seen.add(url)
+                elif "linkedin.com/" in url.lower() and "/jobs/view/" in url.lower():
+                    # Deduplicate by job ID (each card has 3-4 links with different tracking)
+                    _li_match = re.search(r"/jobs/view/(\d+)", url)
+                    if _li_match:
+                        _li_clean = f"https://www.linkedin.com/jobs/view/{_li_match.group(1)}"
+                        if _li_clean not in seen:
+                            urls.append(_li_clean)
+                            seen.add(_li_clean)
         return urls
 
     @staticmethod
@@ -1445,6 +1455,129 @@ class EmailExtractor:
             "install-autofill",
         ]
         return any(p in url.lower() for p in non_job)
+
+
+
+
+class LinkedInEmailParser:
+    """Parse LinkedIn Job Alert emails to extract structured job data.
+
+    LinkedIn email structure (per job card):
+      <td data-test-id="job-card">
+        <img alt="CompanyName">                              -> company (backup)
+        <a ...trk=...jobcard_body_ID...>Job Title</a>       -> title + LinkedIn URL
+        <p class="text-system-gray-100 ...">Co . Loc</p>    -> company + location
+
+    URLs: linkedin.com/comm/jobs/view/{job_id}?tracking...
+    """
+
+    @staticmethod
+    def parse_email_jobs(email_html):
+        """Parse LinkedIn alert email HTML -> {clean_url: {company, title, location, linkedin_job_id}}"""
+        if not email_html:
+            return {}
+
+        try:
+            soup, _ = safe_parse_html(email_html)
+            if not soup:
+                return {}
+
+            jobs = {}
+
+            # Primary anchor: data-test-id="job-card" -- LinkedIn own marker
+            job_cards = soup.find_all("td", attrs={"data-test-id": "job-card"})
+
+            if not job_cards:
+                logging.debug("LinkedIn parser: no data-test-id=job-card found")
+                return {}
+
+            for card in job_cards:
+                try:
+                    job = LinkedInEmailParser._parse_single_card(card)
+                    if job and job.get("url"):
+                        jobs[job["url"]] = job
+                except Exception as e:
+                    logging.debug(f"LinkedIn card parse failed: {e}")
+                    continue
+
+            logging.info(f"LinkedIn email parser: extracted {len(jobs)} job cards")
+            return jobs
+
+        except Exception as e:
+            logging.debug(f"LinkedIn email parsing failed: {e}")
+            return {}
+
+    @staticmethod
+    def _parse_single_card(card):
+        """Extract company, title, location, URL from a single LinkedIn job card."""
+
+        # -- Step 1: Extract LinkedIn URL + job ID --
+        url = None
+        linkedin_job_id = None
+
+        for link in card.find_all("a", href=True):
+            href = link.get("href", "")
+            match = re.search(r"linkedin\.com/(?:comm/)?jobs/view/(\d+)", href)
+            if match:
+                linkedin_job_id = match.group(1)
+                url = f"https://www.linkedin.com/jobs/view/{linkedin_job_id}"
+                break
+
+        if not url or not linkedin_job_id:
+            return None
+
+        # -- Step 2: Extract title from jobcard_body link --
+        title = "Unknown"
+
+        for link in card.find_all("a", href=True):
+            href = link.get("href", "")
+            if "jobcard_body" in href:
+                text = link.get_text(strip=True)
+                if text and len(text) > 5:
+                    title = text
+                    break
+
+        if title == "Unknown":
+            title_link = card.find("a", class_=re.compile(r"text-md|text-color-brand"))
+            if title_link:
+                text = title_link.get_text(strip=True)
+                if text and len(text) > 5:
+                    title = text
+
+        # -- Step 3: Extract company + location from info line --
+        company = "Unknown"
+        location = "Unknown"
+
+        info_p = card.find("p", class_=re.compile(r"text-system-gray"))
+        if info_p:
+            info_text = info_p.get_text(strip=True)
+            if "\u00b7" in info_text:
+                parts = info_text.split("\u00b7", 1)
+                company = parts[0].strip()
+                raw_location = parts[1].strip() if len(parts) > 1 else "Unknown"
+                location = re.sub(r",?\s*United States\s*$", "", raw_location, flags=re.I).strip()
+                if not location:
+                    location = "United States"
+
+        # -- Step 4: Backup company from <img alt="CompanyName"> --
+        if company == "Unknown":
+            logo_img = card.find("img", alt=True)
+            if logo_img:
+                alt = logo_img.get("alt", "").strip()
+                _skip_alts = {"LinkedIn", "radar icon", "", "Prasad Kanade"}
+                if alt and alt not in _skip_alts and len(alt) > 1 and len(alt) < 100:
+                    company = alt
+
+        if title == "Unknown" and company == "Unknown":
+            return None
+
+        return {
+            "company": company,
+            "title": title,
+            "location": location,
+            "url": url,
+            "linkedin_job_id": linkedin_job_id,
+        }
 
 
 class PageFetcher:
