@@ -2334,9 +2334,93 @@ class UnifiedJobAggregator:
         "tiktok", "bytedance", "verkada", "scale ai",
     }
 
+    def _try_ats_lookup(self, company, title):
+        """When we only have a search URL, try to find the real job via ATS APIs."""
+        import urllib.request, ssl, json
+        _ctx = ssl.create_default_context()
+        _co_lower = company.lower().strip()
+        _ti_lower = title.lower().strip()
+        _ti_words = set(_ti_lower.split())
+
+        try:
+            from aggregator.direct_sources import GREENHOUSE_COMPANIES, LEVER_COMPANIES, ASHBY_COMPANIES
+        except ImportError:
+            return None
+
+        def _fetch(url, timeout=5):
+            try:
+                req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
+                resp = urllib.request.urlopen(req, timeout=timeout, context=_ctx)
+                return json.loads(resp.read())
+            except Exception:
+                return None
+
+        # Check Greenhouse
+        for slug, name in GREENHOUSE_COMPANIES.items():
+            if _co_lower in name.lower() or name.lower() in _co_lower:
+                data = _fetch(f"https://boards-api.greenhouse.io/v1/boards/{slug}/jobs")
+                if data and data.get("jobs"):
+                    for job in data["jobs"]:
+                        j_title = job.get("title", "").lower()
+                        # Fuzzy title match — at least 60% word overlap
+                        j_words = set(j_title.split())
+                        overlap = len(_ti_words & j_words)
+                        if overlap >= max(2, len(_ti_words) * 0.5):
+                            job_url = job.get("absolute_url", "")
+                            if job_url:
+                                logging.info(f"ATS LOOKUP: Found {company} | {title} → {job_url[:60]}")
+                                return job_url
+                return None
+
+        # Check Lever
+        for slug, name in LEVER_COMPANIES.items():
+            if _co_lower in name.lower() or name.lower() in _co_lower:
+                data = _fetch(f"https://api.lever.co/v0/postings/{slug}?mode=json")
+                if data and isinstance(data, list):
+                    for job in data:
+                        j_title = job.get("text", "").lower()
+                        j_words = set(j_title.split())
+                        overlap = len(_ti_words & j_words)
+                        if overlap >= max(2, len(_ti_words) * 0.5):
+                            job_url = job.get("hostedUrl", "")
+                            if job_url:
+                                logging.info(f"ATS LOOKUP: Found {company} | {title} → {job_url[:60]}")
+                                return job_url
+                return None
+
+        # Check Ashby
+        for slug, name in ASHBY_COMPANIES.items():
+            if _co_lower in name.lower() or name.lower() in _co_lower:
+                data = _fetch(f"https://api.ashbyhq.com/posting-api/job-board/{slug}")
+                if data and data.get("jobs"):
+                    for job in data["jobs"]:
+                        j_title = job.get("title", "").lower()
+                        j_words = set(j_title.split())
+                        overlap = len(_ti_words & j_words)
+                        if overlap >= max(2, len(_ti_words) * 0.5):
+                            job_url = job.get("jobUrl", "")
+                            if job_url:
+                                logging.info(f"ATS LOOKUP: Found {company} | {title} → {job_url[:60]}")
+                                return job_url
+                return None
+
+        return None
+
     def _try_trusted_fallback(self, company, title, url, location, source):
         """When HTTP fetch fails for a trusted company, accept source data."""
         _co = company.lower().strip()
+
+        # Try ATS lookup first — get real URL and process properly
+        if company and title:
+            real_url = self._try_ats_lookup(company, title)
+            if real_url:
+                logging.info(f"TRUSTED FALLBACK → ATS LOOKUP: {company} | {title}")
+                result = self._process_single_job_comprehensive(
+                    real_url, company_hint=company, title_hint=title,
+                    location_hint=location, source=source)
+                if result:
+                    return result
+
         if not any(tc in _co or _co in tc for tc in self._TRUSTED_FALLBACK_COMPANIES):
             return None
         # Extract job_id from URL
