@@ -81,6 +81,7 @@ GREENHOUSE_COMPANIES = {
     "tipalti": "Tipalti", "paylocity": "Paylocity",
     "paycor": "Paycor", "justworks": "Justworks",
     "greenhouse": "Greenhouse",
+    "andurilindustries": "Anduril",
     "sweetgreen": "Sweetgreen",
     "peloton": "Peloton",
     "zscaler": "Zscaler",

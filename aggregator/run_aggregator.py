@@ -2404,6 +2404,69 @@ class UnifiedJobAggregator:
                                 return job_url
                 return None
 
+        # Check Workday
+        try:
+            from aggregator.direct_sources import WORKDAY_COMPANIES
+            for wd_name, (domain, tenant, site) in WORKDAY_COMPANIES.items():
+                if _co_lower in wd_name.lower() or wd_name.lower() in _co_lower:
+                    search_url = f"https://{domain}/wday/cxs/{tenant}/{site}/jobs"
+                    payload = json.dumps({
+                        "appliedFacets": {},
+                        "limit": 20,
+                        "offset": 0,
+                        "searchText": title,
+                    }).encode()
+                    try:
+                        req = urllib.request.Request(search_url,
+                            data=payload,
+                            headers={"User-Agent": "Mozilla/5.0", "Content-Type": "application/json"},
+                            method="POST")
+                        resp = urllib.request.urlopen(req, timeout=10, context=_ctx)
+                        data = json.loads(resp.read())
+                    except Exception:
+                        data = None
+                    if data and data.get("jobPostings"):
+                        for job in data["jobPostings"]:
+                            j_title = job.get("title", "").lower()
+                            j_words = set(j_title.split())
+                            overlap = len(_ti_words & j_words)
+                            if overlap >= max(2, len(_ti_words) * 0.5):
+                                ext_path = job.get("externalPath", "")
+                                if ext_path:
+                                    job_url = f"https://{domain}{ext_path}"
+                                    logging.info(f"ATS LOOKUP (Workday): {company} | {title} -> {job_url[:60]}")
+                                    return job_url
+                    return None
+        except (ImportError, AttributeError):
+            pass
+
+        # Check SmartRecruiters
+        try:
+            from aggregator.direct_sources import SMARTRECRUITERS_COMPANIES
+            for sr_id, sr_name in SMARTRECRUITERS_COMPANIES.items():
+                if _co_lower in sr_name.lower() or sr_name.lower() in _co_lower:
+                    import urllib.parse
+                    encoded_title = urllib.parse.quote(title)
+                    sr_url = f"https://api.smartrecruiters.com/v1/companies/{sr_id}/postings?limit=20&q={encoded_title}"
+                    data = _fetch(sr_url, timeout=8)
+                    if data and data.get("content"):
+                        for job in data["content"]:
+                            j_title = job.get("name", "").lower()
+                            j_words = set(j_title.split())
+                            overlap = len(_ti_words & j_words)
+                            if overlap >= max(2, len(_ti_words) * 0.5):
+                                job_url = job.get("ref", "")
+                                if not job_url:
+                                    pid = job.get("id", "")
+                                    if pid:
+                                        job_url = f"https://jobs.smartrecruiters.com/{sr_id}/{pid}"
+                                if job_url:
+                                    logging.info(f"ATS LOOKUP (SmartRecruiters): {company} | {title} -> {job_url[:60]}")
+                                    return job_url
+                    return None
+        except (ImportError, AttributeError):
+            pass
+
         return None
 
     def _try_trusted_fallback(self, company, title, url, location, source):
