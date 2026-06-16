@@ -19,7 +19,7 @@ jobs:
 
       - name: Install dependencies
         run: |
-          pip install pytest beautifulsoup4 requests dnspython gspread oauth2client msal pyyaml
+          pip install pytest beautifulsoup4 requests dnspython gspread oauth2client msal pyyaml google-api-python-client google-auth-httplib2 google-auth-oauthlib
 
       - name: Run tests
         run: pytest tests/ -v --tb=short
