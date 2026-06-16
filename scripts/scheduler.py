@@ -48,6 +48,24 @@ JOBS = [
 _running = {}
 _running_lock = threading.Lock()
 
+# ── Startup config validation (self-healing) ──
+def _validate_jobs_config():
+    """Validate JOBS at import time — catch config bugs before they crash the loop."""
+    for job in JOBS:
+        name = job.get("name", "UNNAMED")
+        if "type" not in job:
+            log.error(f"Config error: job '{name}' has no 'type' key")
+        if job.get("type") == "interval":
+            if not any(k in job for k in ("interval", "interval_hours", "interval_minutes")):
+                log.error(f"Config error: job '{name}' has type=interval but no interval/interval_hours key")
+        if job.get("type") == "times" and "times" not in job:
+            log.error(f"Config error: job '{name}' has type=times but no 'times' key")
+        if "timeout" not in job:
+            log.warning(f"Config warning: job '{name}' has no timeout — defaulting to 300s")
+            job["timeout"] = 300
+
+_validate_jobs_config()
+
 def load_state():
     try:
         with open(STATE_FILE) as f:
@@ -160,13 +178,25 @@ def should_run_timed(job, state, now):
         return True
     return False
 
+def _resolve_interval_seconds(job):
+    """Self-healing: accept interval (seconds), interval_hours, or interval_minutes.
+    Logs a warning if the config is ambiguous so we catch it early."""
+    if "interval" in job:
+        return job["interval"]
+    if "interval_hours" in job:
+        return job["interval_hours"] * 3600
+    if "interval_minutes" in job:
+        return job["interval_minutes"] * 60
+    log.warning(f"Job '{job.get('name', '?')}' has type=interval but no interval key — defaulting to 1hr")
+    return 3600
+
 def should_run_interval(job, state, now):
     name = job["name"]
     last_run_str = state.get(name)
     if not last_run_str:
         return True
     last_run = datetime.datetime.fromisoformat(last_run_str)
-    return (now - last_run).total_seconds() >= job["interval"]
+    return (now - last_run).total_seconds() >= _resolve_interval_seconds(job)
 
 def check_missed_on_wake(state, now):
     log.info("Checking for missed jobs since last run...")
