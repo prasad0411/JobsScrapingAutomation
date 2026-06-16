@@ -3109,7 +3109,7 @@ class UnifiedJobAggregator:
                     ug_result, ug_reason = ValidationHelper._check_undergraduate_only_requirements(soup)
                     if ug_result == "REJECT":
                         self._add_discarded(company, title, location_hint or "Unknown", "Unknown",
-                            final_url or url, "N/A", "Internship", source)
+                            final_url or url, "N/A", "Internship", source, ug_reason)
                         self._print_rejected(company, ug_reason)
                         logging.info(f"REJECTED | {company} | {title} | {ug_reason}")
                         return None
@@ -3152,7 +3152,7 @@ class UnifiedJobAggregator:
                     for _clr_pat in _clearance_pats:
                         if re.search(_clr_pat, _page_text, re.I):
                             self._add_discarded(company, title, location_hint or "Unknown", "Unknown",
-                                final_url or url, "N/A", "Internship", source)
+                                final_url or url, "N/A", "Internship", source, "Security clearance required (JD)")
                             self._print_rejected(company, "Security clearance required (JD)")
                             logging.info(f"REJECTED | {company} | {title} | Clearance in JD")
                             return None
@@ -3591,7 +3591,7 @@ class UnifiedJobAggregator:
                     "source": source,
                     "reason": reason,
                     "entry_date": self._format_date(),
-                    "sponsorship": _sponsorship,
+                    "sponsorship": "Unknown",
                 }
             )
             self.outcomes["discarded"] += 1
