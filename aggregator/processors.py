@@ -2047,6 +2047,26 @@ class LocationProcessor:
 
         location = location.strip(", ")
 
+
+        # Fix state code prefix: "CAFremont, CA" -> "Fremont, CA", "TXBellevue, WA" -> "Bellevue, WA"
+        _sp_match = re.match(r"^([A-Z]{2})([A-Z][a-z].+)$", location)
+        if _sp_match:
+            _prefix, _rest = _sp_match.groups()
+            from aggregator.config import validate_us_state_code
+            if validate_us_state_code(_prefix):
+                location = _rest.strip()
+                if not re.search(r",\s*[A-Z]{2}\s*$", location):
+                    location = f"{location}, {_prefix}"
+        # Fix state code suffix: "HillsboroUS" -> strip trailing country code
+        _ss_match = re.match(r"^([A-Za-z ]{3,})(US|CA)$", location)
+        if _ss_match and "," not in location:
+            location = _ss_match.group(1).strip()
+        # Fix concatenated state+city: "MANYC" -> "New York, NY"
+        _concat_fixes = {"MANYC": "New York, NY", "Cambridge, MANYC": "Cambridge, MA"}
+        if location.strip() in _concat_fixes:
+            location = _concat_fixes[location.strip()]
+
+
         # Fix iCIMS garbage locations like 's US', 'Location US'
         if location.lower() in ['s us', 'us', 'location us', 'locations us', 'jobs us']:
             location = 'US'
@@ -2067,6 +2087,7 @@ class LocationProcessor:
                               'delivers ', 'provides ', 'serving ',
                               's not finding', 's include', 's are currently',
                               'internship opportunities', 'apply now',
+                              'as required by law', 's as required',
                               ]
         if any(gi in location.lower() for gi in garbage_indicators):
             location = 'Unknown'

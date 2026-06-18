@@ -33,6 +33,15 @@ AUDIT_LOG_FILE = ".local/audit_history.json"
 # INTELLIGENCE: Companies that should never be rejected for clearance
 # This list GROWS automatically when the auditor rescues a company
 # ═══════════════════════════════════════════════════════════════════
+# Companies that ALWAYS require clearance — NEVER rescue these
+_ALWAYS_CLEARANCE = {
+    "general dynamics", "general dynamics mission systems", "gdms", "gdit",
+    "caci", "northrop grumman", "raytheon", "rtx", "leidos",
+    "lockheed martin", "l3harris", "saic", "mantech", "kbr",
+    "amentum", "peraton", "sierra space", "parsons",
+    "bae systems", "leonardo drs", "booz allen", "booz allen hamilton",
+}
+
 _BASE_NO_CLEARANCE = {
     "apple", "google", "meta", "amazon", "microsoft", "netflix",
     "uber", "lyft", "stripe", "airbnb", "spotify", "pinterest",
@@ -249,6 +258,26 @@ class DiscardedAuditor:
                 duplicates.add(i)
                 continue
             seen_keys.add(key)
+
+            # ── CHECK 0: Age limit — don't rescue jobs older than 60 days ──
+            entry_date_str = row[10].strip() if len(row) > 10 else ""
+            try:
+                # Parse common date formats
+                _age_date = None
+                for _fmt in ["%d %B, %I:%M %p", "%d %B, %Y", "%d %B"]:
+                    try:
+                        _age_date = datetime.strptime(entry_date_str, _fmt).replace(year=datetime.now().year)
+                        break
+                    except ValueError:
+                        continue
+                if _age_date and (datetime.now() - _age_date).days > 60:
+                    continue  # Too old to rescue — skip silently
+            except Exception:
+                pass
+
+            # ── CHECK 0b: Never rescue defense/clearance companies ──
+            if any(dc in co_lower for dc in _ALWAYS_CLEARANCE):
+                continue  # Known clearance company — do NOT rescue
 
             # ── CHECK 1: Clearance false positive ──
             if "clearance" in reason.lower() or "security" in reason.lower():
