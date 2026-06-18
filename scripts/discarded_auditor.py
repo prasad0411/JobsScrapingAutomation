@@ -265,11 +265,20 @@ class DiscardedAuditor:
             # ── CHECK 2: International false positive ──
             if "international" in reason.lower() or "canada" in reason.lower() or "location" in reason.lower():
                 if location:
-                    # Check US state code
+                    loc_lower = location.lower()
+                    # SAFETY: never rescue jobs with explicit non-US indicators
+                    _intl_markers = ["canada", "uk", "united kingdom", "germany", "france",
+                                     "india", "china", "japan", "australia", "netherlands",
+                                     "ireland", "singapore", "brazil", "israel", "sweden",
+                                     "switzerland", "korea", "taiwan", "hong kong"]
+                    if any(m in loc_lower for m in _intl_markers):
+                        continue  # Genuinely international — do NOT rescue
+                    # Check US state code (last comma-separated part must be exactly 2 chars)
                     loc_parts = location.split(",")
                     if len(loc_parts) >= 2:
-                        state = loc_parts[-1].strip().upper()[:2]
-                        if state in US_STATES:
+                        state_raw = loc_parts[-1].strip().upper()
+                        # Must be exactly a 2-letter state code, not a truncated country name
+                        if len(state_raw) == 2 and state_raw in US_STATES:
                             rescued.append((i, row, f"False international: {location} is US"))
                             self.brain.add_us_city(location.split(",")[0].strip())
                             continue
