@@ -861,9 +861,7 @@ class UnifiedJobAggregator:
             (VANSHB03_URL, "vanshb03"),
             (SPEEDYAPPLY_SWE_URL, "speedyapply_swe"),
             (SPEEDYAPPLY_AI_URL, "speedyapply_ai"),
-            (ZAPPLYJOBS_URL, "zapplyjobs"),
-            (JOBRIGHT_GITHUB_URL, "jobright_github"),
-            (SIMPLIFY_OFFSEASON_URL, "simplify_offseason"),
+
             (VANSHB03_OFFSEASON_URL, "vanshb03_offseason"),
             (NEWGRAD_SIMPLIFY_URL, "simplify_newgrad"),
             (NEWGRAD_CVRVE_URL, "cvrve_newgrad"),
@@ -924,8 +922,7 @@ class UnifiedJobAggregator:
         _process_github_batch(speedyapply_jobs, "speedyapply_swe")
 
         # ── New sources (fault-isolated: each source independent) ──
-        for _src_name in ["speedyapply_ai", "zapplyjobs", "jobright_github",
-                          "simplify_offseason", "vanshb03_offseason", "simplify_newgrad",
+        for _src_name in ["speedyapply_ai",                           "vanshb03_offseason", "simplify_newgrad",
                           "cvrve_newgrad"]:
             _src_jobs = _results.get(_src_name, [])
             if _src_jobs:
@@ -1185,8 +1182,7 @@ class UnifiedJobAggregator:
 
         # GitHub sources: undo URL-domain override — source pairing is correct
         _GITHUB_SOURCES = {"SimplifyJobs", "vanshb03", "speedyapply_swe", "direct_ats",
-            "speedyapply_ai", "zapplyjobs", "jobright_github", "simplify_offseason",
-            "vanshb03_offseason", "simplify_newgrad", "cvrve_newgrad"}
+            "speedyapply_ai",             "vanshb03_offseason", "simplify_newgrad", "cvrve_newgrad"}
         if source in _GITHUB_SOURCES:
             company_from_github = _true_original_company
 
@@ -3803,10 +3799,7 @@ class UnifiedJobAggregator:
     def _safe_scrape(url, source_name):
         try:
             # Source-specific preprocessing for non-standard markdown formats
-            if source_name == "zapplyjobs":
-                return _scrape_zapplyjobs(url, source_name)
-            elif source_name == "jobright_github":
-                return _scrape_jobright_github(url, source_name)
+
             elif source_name == "simplify_offseason":
                 return _scrape_simplify_offseason(url, source_name)
             return SimplifyGitHubScraper.scrape(url, source_name=source_name)

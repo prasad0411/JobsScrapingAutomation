@@ -892,6 +892,8 @@ class Brain:
 
 
     def migrate_legacy_files(self):
+        if self.data.get("_migration_v2_done"):
+            return
         """
         One-time migration: read legacy .local/ JSON files into Brain.
         Runs at startup, idempotent — safe to call multiple times.
@@ -999,6 +1001,8 @@ class Brain:
 
         if migrated:
             log.info(f"Brain: migrated legacy files: {migrated}")
+            self.data["_migration_v2_done"] = True
+            self.save()
         # Always re-sync outreach_patterns.json regardless of migration state
         import os as _os3, json as _json3
         _local3 = _os3.path.join(_os3.path.dirname(_os3.path.dirname(
