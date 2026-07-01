@@ -3799,9 +3799,6 @@ class UnifiedJobAggregator:
     def _safe_scrape(url, source_name):
         try:
             # Source-specific preprocessing for non-standard markdown formats
-
-            elif source_name == "simplify_offseason":
-                return _scrape_simplify_offseason(url, source_name)
             return SimplifyGitHubScraper.scrape(url, source_name=source_name)
         except Exception as e:
             print(f"  ✗ {source_name} error: {e}")
