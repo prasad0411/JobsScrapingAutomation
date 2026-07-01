@@ -1336,6 +1336,7 @@ class EmailExtractor:
             "jobright": "Jobright",
             "fursah": "Fursah",
             "jobalerts-noreply@linkedin.com": "LinkedIn",
+            "jobs-noreply@linkedin.com": "LinkedIn",
             "linkedin.com": "LinkedIn",
         }
         for key, value in senders.items():
@@ -1488,7 +1489,12 @@ class LinkedInEmailParser:
             job_cards = soup.find_all("td", attrs={"data-test-id": "job-card"})
 
             if not job_cards:
-                logging.debug("LinkedIn parser: no data-test-id=job-card found")
+                # Fallback: "similar jobs" / "explore" emails use different structure
+                jobs = LinkedInEmailParser._parse_generic_format(soup)
+                if jobs:
+                    logging.info(f"LinkedIn email parser (generic format): extracted {len(jobs)} job cards")
+                    return jobs
+                logging.debug("LinkedIn parser: no job cards found in any format")
                 return {}
 
             for card in job_cards:
@@ -1578,6 +1584,100 @@ class LinkedInEmailParser:
             "url": url,
             "linkedin_job_id": linkedin_job_id,
         }
+
+    @staticmethod
+    @staticmethod
+    def _parse_generic_format(soup):
+        """Parse LinkedIn 'similar jobs' and 'explore new jobs' email format.
+
+        These emails have one job per container:
+          <td data-test-id="email-generic-section-JOBS_POSTING_SECTION-job-cards">
+        Each contains a link with "Title | Company · Location | flavor" text
+        and a <p> with "Company · Location" info.
+        """
+        jobs = {}
+
+        containers = soup.find_all("td", attrs={
+            "data-test-id": "email-generic-section-JOBS_POSTING_SECTION-job-cards"
+        })
+        if not containers:
+            return {}
+
+        seen_ids = set()
+        for container in containers:
+            for link in container.find_all("a", href=True):
+                href = link.get("href", "")
+                match = re.search(r"linkedin\.com/(?:comm/)?jobs/view/(\d+)", href)
+                if not match:
+                    continue
+
+                linkedin_job_id = match.group(1)
+                if linkedin_job_id in seen_ids:
+                    continue
+
+                link_text = link.get_text(separator=" | ", strip=True)
+
+                # lxml parser may return empty text for links wrapping tables
+                # Fall back to container text which has "Title Company · Location flavor"
+                if not link_text or len(link_text) < 5:
+                    link_text = container.get_text(separator=" | ", strip=True)
+                    if not link_text or len(link_text) < 5:
+                        continue
+
+                # Only mark as seen AFTER we confirm this link has text
+                seen_ids.add(linkedin_job_id)
+
+                url = f"https://www.linkedin.com/jobs/view/{linkedin_job_id}"
+                title = "Unknown"
+                company = "Unknown"
+                location = "Unknown"
+
+                # Extract company + location from <p> with middot
+                for p in container.find_all("p"):
+                    p_text = p.get_text(strip=True)
+                    if "·" in p_text and len(p_text) < 200:
+                        parts = p_text.split("·", 1)
+                        company = parts[0].strip()
+                        raw_loc = parts[1].strip() if len(parts) > 1 else "Unknown"
+                        location = re.sub(r",?\s*United States\s*$", "", raw_loc, flags=re.I).strip()
+                        location = re.sub(r"\s*\((?:On-site|Hybrid|Remote)\)\s*$", "", location, flags=re.I).strip()
+                        if not location:
+                            location = "United States"
+                        break
+
+                # Extract title from link text
+                if company != "Unknown" and company in link_text:
+                    title_part = link_text.split(company)[0].strip().rstrip(" |").strip()
+                    if title_part and len(title_part) > 3:
+                        title = title_part
+                elif " | " in link_text:
+                    segments = [s.strip() for s in link_text.split(" | ") if s.strip()]
+                    if segments and len(segments[0]) > 3:
+                        title = segments[0]
+
+                # Backup company from <img alt>
+                if company == "Unknown":
+                    img = container.find("img", alt=True)
+                    if img:
+                        alt = img.get("alt", "").strip()
+                        skip_alts = {"LinkedIn", "radar icon", "", "Prasad Kanade"}
+                        if alt and alt not in skip_alts and len(alt) > 1 and len(alt) < 100:
+                            company = alt
+
+                if title == "Unknown" and company == "Unknown":
+                    continue
+
+                jobs[url] = {
+                    "company": company,
+                    "title": title,
+                    "location": location,
+                    "url": url,
+                    "linkedin_job_id": linkedin_job_id,
+                }
+
+                break  # One job per container, move to next
+
+        return jobs
 
 
 class PageFetcher:
