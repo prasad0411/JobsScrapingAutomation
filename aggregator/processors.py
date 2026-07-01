@@ -2065,6 +2065,14 @@ class LocationProcessor:
         _concat_fixes = {"MANYC": "New York, NY", "Cambridge, MANYC": "Cambridge, MA"}
         if location.strip() in _concat_fixes:
             location = _concat_fixes[location.strip()]
+        # Fix "STATE City, Street Address" → "City, STATE"
+        import re as _re
+        _state_city_match = _re.match(r"^([A-Z]{2})\s+([A-Za-z ]+?)(?:,\s*.+)?$", location)
+        if _state_city_match:
+            _st, _city = _state_city_match.groups()
+            from aggregator.config import validate_us_state_code
+            if validate_us_state_code(_st) and len(_city.strip()) > 2:
+                location = f"{_city.strip()}, {_st}"
 
 
         # Fix iCIMS garbage locations like 's US', 'Location US'
