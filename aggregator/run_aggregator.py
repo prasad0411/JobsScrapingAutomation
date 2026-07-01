@@ -1081,8 +1081,8 @@ class UnifiedJobAggregator:
                         self._print_rejected(company_from_github, "No H1B sponsorship (Simplify)")
                         logging.info(f"REJECTED | {company_from_github} | {title} | No H1B (Simplify metadata)")
                         return
-                except Exception:
-                    pass
+                except Exception as _e:
+                    logging.error(f"Simplify H1B check failed: {_e}")
 
         # Detect Simplify URL-company mismatches (e.g. Ingram Micro URL for Bose job)
         # If the URL domain clearly belongs to a different known company, reject
@@ -3113,8 +3113,8 @@ class UnifiedJobAggregator:
                         self._print_rejected(company, ug_reason)
                         logging.info(f"REJECTED | {company} | {title} | {ug_reason}")
                         return None
-                except Exception:
-                    pass
+                except Exception as _e:
+                    logging.error(f"Undergrad check failed for {company}: {_e}")
 
             # ── JD clearance check: scan page text for clearance requirements ──
             # FIRST check whitelist — skip entirely for companies that never require clearance
@@ -3156,8 +3156,8 @@ class UnifiedJobAggregator:
                             self._print_rejected(company, "Security clearance required (JD)")
                             logging.info(f"REJECTED | {company} | {title} | Clearance in JD")
                             return None
-                except Exception:
-                    pass
+                except Exception as _e:
+                    logging.error(f"JD clearance check failed for {company}: {_e}")
 
             # ── H1B sponsorship detection from company name + JD text ──
             _sponsorship = "Unknown"
@@ -3247,8 +3247,8 @@ class UnifiedJobAggregator:
                             except (ValueError, IndexError):
                                 pass
                             break
-                except Exception:
-                    pass
+                except Exception as _e:
+                    logging.error(f"Salary extraction failed for {company}: {_e}")
 
             location = LocationExtractor.extract_all_methods(
                 final_url or url,

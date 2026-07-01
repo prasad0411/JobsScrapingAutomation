@@ -262,7 +262,6 @@ class DiscardedAuditor:
             # ── CHECK 0: Age limit — don't rescue jobs older than 60 days ──
             entry_date_str = row[10].strip() if len(row) > 10 else ""
             try:
-                # Parse common date formats
                 _age_date = None
                 for _fmt in ["%d %B, %I:%M %p", "%d %B, %Y", "%d %B"]:
                     try:
@@ -270,10 +269,14 @@ class DiscardedAuditor:
                         break
                     except ValueError:
                         continue
-                if _age_date and (datetime.now() - _age_date).days > 60:
-                    continue  # Too old to rescue — skip silently
-            except Exception:
-                pass
+                if _age_date:
+                    # Handle year rollover: if parsed date is in the future, it's from last year
+                    if _age_date > datetime.now():
+                        _age_date = _age_date.replace(year=_age_date.year - 1)
+                    if (datetime.now() - _age_date).days > 60:
+                        continue  # Too old to rescue — skip silently
+            except Exception as _e:
+                log.debug(f"Date parse failed for rescue candidate: {entry_date_str} — {_e}")
 
             # ── CHECK 0b: Never rescue defense/clearance companies ──
             if any(dc in co_lower for dc in _ALWAYS_CLEARANCE):
