@@ -218,18 +218,29 @@ class ManualCleanup:
             pass  # suppressed: use log.debug(_e) to investigate
 
     def _parse_entry_date(self, date_str):
-        """Parse Entry Date format: '17 March, 11:10 AM' → datetime object."""
+        """Parse Entry Date format: '17 March, 11:10 AM' or 'Rescued 17 Jun, 05:32 PM'."""
         if not date_str:
             return None
-        try:
-            yr = datetime.datetime.now().year
-            return datetime.datetime.strptime(f"{date_str.strip()} {yr}", "%d %B, %I:%M %p %Y")
-        except ValueError:
+        import re as _re
+        clean = date_str.strip()
+        # Strip "Rescued DD Mon, HH:MM PM" — extract the embedded date
+        _rescued = _re.match(r"Rescued\s+(\d{1,2}\s+\w+,\s+\d{1,2}:\d{2}\s+[AP]M)", clean)
+        if _rescued:
+            clean = _rescued.group(1)
+        # Strip any trailing non-date text
+        clean = _re.sub(r"\s*Rescued.*$", "", clean).strip()
+        yr = datetime.datetime.now().year
+        # Try multiple formats
+        for fmt in ["%d %B, %I:%M %p", "%d %b, %I:%M %p", "%d %B, %Y", "%d %B"]:
             try:
-                dt = datetime.datetime.strptime(date_str.strip(), "%d %B, %I:%M %p")
-                return dt.replace(year=datetime.datetime.now().year)
+                dt = datetime.datetime.strptime(f"{clean} {yr}", f"{fmt} %Y")
+                # Handle year rollover (Dec parsed as future = last year)
+                if dt > datetime.datetime.now():
+                    dt = dt.replace(year=yr - 1)
+                return dt
             except ValueError:
-                return None
+                continue
+        return None
 
     def _is_expired(self, row):
         """Returns True if row has no protected status AND entry date is 2+ days old."""
