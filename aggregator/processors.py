@@ -667,7 +667,7 @@ class TitleProcessor:
                     return False, f"Senior/experienced role: contains '{level}'"
             return True, None
 
-        if any(kw in title_lower for kw in ["intern", "co-op", "coop"]):
+        if any(kw in title_lower for kw in ["intern", "co-op", "coop", "co op"]) or title_lower.rstrip().endswith(" co"):
             if re.search(r"\(intern\)", title_lower):
                 return True, None
             for level in excluded:

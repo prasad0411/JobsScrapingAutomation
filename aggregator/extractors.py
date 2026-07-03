@@ -1616,6 +1616,8 @@ class LinkedInEmailParser:
                     continue
 
                 link_text = link.get_text(separator=" | ", strip=True)
+                # Normalize Unicode hyphens/dashes to ASCII
+                link_text = link_text.replace("‐", "-").replace("‑", "-").replace("–", "-").replace("—", "-").replace("−", "-")
 
                 # lxml parser may return empty text for links wrapping tables
                 # Fall back to container text which has "Title Company · Location flavor"

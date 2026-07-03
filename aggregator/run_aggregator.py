@@ -2112,7 +2112,7 @@ class UnifiedJobAggregator:
                 self.source_stats[sender]["rejected"] += 1
                 return
 
-            is_intern = any(ind in title.lower() for ind in ["intern", "co-op", "coop", "apprentice"])
+            is_intern = any(ind in title.lower() for ind in ["intern", "co-op", "coop", "co op", "apprentice"]) or title.lower().rstrip().endswith(" co")
             if not is_intern:
                 self.outcomes["skipped_not_internship"] = self.outcomes.get("skipped_not_internship", 0) + 1
                 self._print_rejected(company, "Not internship")
