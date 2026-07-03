@@ -2257,11 +2257,30 @@ class UnifiedJobAggregator:
 
         is_internship, intern_reason = TitleProcessor.is_internship_role(title)
         if not is_internship:
-            self.outcomes["skipped_senior_role"] += 1
-            self.source_stats[source_name]["rejected"] += 1
-            self._print_rejected(company, intern_reason)
-            logging.info(f"LINKEDIN STEP 2 | REJECTED | {company} | {title} | {intern_reason}")
-            return
+            # Also accept new grad / entry-level roles from LinkedIn
+            _tl = title.lower()
+            _new_grad_indicators = [
+                "new grad", "newgrad", "entry level", "entry-level",
+                "associate ", "junior ", " i ", " 1 ", "engineer i",
+                "engineer 1", "developer 1", "analyst 1", "scientist 1",
+                "graduate ", "new college", "early career",
+                "software engineer i", "software developer i",
+            ]
+            _is_new_grad = any(ng in _tl for ng in _new_grad_indicators)
+            _is_new_grad = _is_new_grad or _tl.endswith(" i") or _tl.endswith(" 1")
+            
+            # Reject senior roles even if they match new grad keywords
+            _senior = ["senior", "sr.", "sr ", "staff", "principal", "lead", "director", "manager"]
+            _is_senior = any(s in _tl for s in _senior)
+            
+            if not _is_new_grad or _is_senior:
+                self.outcomes["skipped_senior_role"] += 1
+                self.source_stats[source_name]["rejected"] += 1
+                self._print_rejected(company, intern_reason)
+                logging.info(f"LINKEDIN STEP 2 | REJECTED | {company} | {title} | {intern_reason}")
+                return
+            # Accepted as new grad role
+            logging.info(f"LINKEDIN STEP 2 | Accepted as new grad: {company} | {title}")
 
         is_tech = TitleProcessor.is_cs_engineering_role(title)
         if not is_tech:
