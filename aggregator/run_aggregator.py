@@ -2263,8 +2263,8 @@ class UnifiedJobAggregator:
                 "new grad", "newgrad", "entry level", "entry-level",
                 "associate ", "junior ", " i ", " 1 ", "engineer i",
                 "engineer 1", "developer 1", "analyst 1", "scientist 1",
-                "graduate ", "new college", "early career",
-                "software engineer i", "software developer i",
+                "graduate ", "new college", "early career", " ncg ",
+                "ncg -", "ncg-", "software engineer i", "software developer i",
             ]
             _is_new_grad = any(ng in _tl for ng in _new_grad_indicators)
             _is_new_grad = _is_new_grad or _tl.endswith(" i") or _tl.endswith(" 1")
