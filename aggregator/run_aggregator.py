@@ -3799,7 +3799,7 @@ class UnifiedJobAggregator:
 
     @staticmethod
     def _format_date():
-        return datetime.datetime.now().strftime("%d %B, %I:%M %p")
+        return datetime.datetime.now().strftime("%d-%b-%Y")
 
     @staticmethod
     def _looks_like_title(text):

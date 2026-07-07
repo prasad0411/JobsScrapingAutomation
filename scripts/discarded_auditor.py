@@ -263,12 +263,21 @@ class DiscardedAuditor:
             entry_date_str = row[10].strip() if len(row) > 10 else ""
             try:
                 _age_date = None
-                for _fmt in ["%d %B, %I:%M %p", "%d %B, %Y", "%d %B"]:
+                # Formats with year (don't override year)
+                for _fmt in ["%d-%b-%Y", "%d %B, %Y"]:
                     try:
-                        _age_date = datetime.strptime(entry_date_str, _fmt).replace(year=datetime.now().year)
+                        _age_date = datetime.strptime(entry_date_str, _fmt)
                         break
                     except ValueError:
                         continue
+                # Formats without year (set current year)
+                if not _age_date:
+                    for _fmt in ["%d %B, %I:%M %p", "%d %b, %I:%M %p", "%d %B"]:
+                        try:
+                            _age_date = datetime.strptime(entry_date_str, _fmt).replace(year=datetime.now().year)
+                            break
+                        except ValueError:
+                            continue
                 if _age_date:
                     # Handle year rollover: if parsed date is in the future, it's from last year
                     if _age_date > datetime.now():

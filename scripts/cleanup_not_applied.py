@@ -218,23 +218,27 @@ class ManualCleanup:
             pass  # suppressed: use log.debug(_e) to investigate
 
     def _parse_entry_date(self, date_str):
-        """Parse Entry Date format: '17 March, 11:10 AM' or 'Rescued 17 Jun, 05:32 PM'."""
+        """Parse Entry Date in any format the pipeline has used."""
         if not date_str:
             return None
         import re as _re
         clean = date_str.strip()
-        # Strip "Rescued DD Mon, HH:MM PM" — extract the embedded date
+        # Strip "Rescued DD Mon, HH:MM PM" prefix
         _rescued = _re.match(r"Rescued\s+(\d{1,2}\s+\w+,\s+\d{1,2}:\d{2}\s+[AP]M)", clean)
         if _rescued:
             clean = _rescued.group(1)
-        # Strip any trailing non-date text
         clean = _re.sub(r"\s*Rescued.*$", "", clean).strip()
         yr = datetime.datetime.now().year
-        # Try multiple formats
-        for fmt in ["%d %B, %I:%M %p", "%d %b, %I:%M %p", "%d %B, %Y", "%d %B"]:
+        # Formats WITH year (don't append year)
+        for fmt in ["%d-%b-%Y", "%d %B, %Y"]:
+            try:
+                return datetime.datetime.strptime(clean, fmt)
+            except ValueError:
+                continue
+        # Formats WITHOUT year (append year, handle rollover)
+        for fmt in ["%d %B, %I:%M %p", "%d %b, %I:%M %p", "%d %B"]:
             try:
                 dt = datetime.datetime.strptime(f"{clean} {yr}", f"{fmt} %Y")
-                # Handle year rollover (Dec parsed as future = last year)
                 if dt > datetime.datetime.now():
                     dt = dt.replace(year=yr - 1)
                 return dt
