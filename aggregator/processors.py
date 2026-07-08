@@ -2096,6 +2096,7 @@ class LocationProcessor:
                               's not finding', 's include', 's are currently',
                               'internship opportunities', 'apply now',
                               'as required by law', 's as required',
+                              'city of wa county', 'city of',
                               ]
         if any(gi in location.lower() for gi in garbage_indicators):
             location = 'Unknown'

@@ -2255,6 +2255,7 @@ class UnifiedJobAggregator:
             logging.info(f"LINKEDIN STEP 2 | Duplicate: {company} | {title}")
             return
 
+        job_type = "Internship"  # Default, overridden to "Full Time" for new grad
         is_internship, intern_reason = TitleProcessor.is_internship_role(title)
         if not is_internship:
             # Also accept new grad / entry-level roles from LinkedIn
@@ -2279,7 +2280,8 @@ class UnifiedJobAggregator:
                 self._print_rejected(company, intern_reason)
                 logging.info(f"LINKEDIN STEP 2 | REJECTED | {company} | {title} | {intern_reason}")
                 return
-            # Accepted as new grad role
+            # Accepted as new grad role — override job_type
+            job_type = "Full Time"
             logging.info(f"LINKEDIN STEP 2 | Accepted as new grad: {company} | {title}")
 
         is_tech = TitleProcessor.is_cs_engineering_role(title)
@@ -2295,7 +2297,7 @@ class UnifiedJobAggregator:
             reason = COMPANY_BLACKLIST_REASONS.get(company, "Blacklisted")
             self.outcomes["skipped_blacklisted"] += 1
             self.source_stats[source_name]["rejected"] += 1
-            self._add_discarded(company, title, location, "Unknown", url, "N/A", "Internship", source_name, reason)
+            self._add_discarded(company, title, location, "Unknown", url, "N/A", job_type, source_name, reason)
             self._print_rejected(company, "Blacklisted")
             logging.info(f"LINKEDIN STEP 2 | REJECTED | {company} | Blacklisted: {reason}")
             return
@@ -2377,7 +2379,7 @@ class UnifiedJobAggregator:
             "remote": remote,
             "url": search_url,
             "job_id": linkedin_job_id or "N/A",
-            "job_type": "Internship",
+            "job_type": job_type,
             "sponsorship": "Unknown",
             "entry_date": self._format_date(),
             "source": source_name,
