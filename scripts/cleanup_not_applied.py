@@ -233,7 +233,7 @@ class ManualCleanup:
         for fmt in ["%d-%b-%Y", "%d %B, %Y"]:
             try:
                 return datetime.datetime.strptime(clean, fmt)
-            except ValueError:
+            except (ValueError, Exception):
                 continue
         # Formats WITHOUT year (append year, handle rollover)
         for fmt in ["%d %B, %I:%M %p", "%d %b, %I:%M %p", "%d %B"]:
