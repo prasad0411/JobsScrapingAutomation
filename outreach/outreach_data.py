@@ -341,21 +341,7 @@ class Sheets:
                     _b = Brain.get()
                     _co_key = _re.sub(r"[^a-z0-9]", "", co.lower().strip())
                     _extract_yes = False
-
-                    # Signal 1: verified contact exists for this company
-                    _all_contacts = _b._data.get("company_contacts", {})
-                    _co_contacts = _all_contacts.get(_co_key, {})
-                    if _co_contacts:
-                        _extract_yes = True
-
-                    # Signal 2: Brain domain has learned pattern with successes
-                    for _dom, _dv in _b._data.get("domains", {}).items():
-                        if isinstance(_dv, dict) and _dv.get("pattern_successes", 0) > 0:
-                            if _dom.split(".")[0].lower() in _co_key and len(_dom.split(".")[0]) > 3:
-                                _extract_yes = True
-                                break
-
-                    # Signal 2b: job is Applied in Valid Entries → high priority outreach
+                    # ONLY extract for Applied jobs
                     _status = ""
                     try:
                         for _vr in vdata[1:]:
@@ -368,33 +354,6 @@ class Sheets:
                         pass
                     if _status == "applied":
                         _extract_yes = True
-
-                    # Signal 3: known H1B sponsor
-                    _SPONSORS = {
-                        'google','alphabet','microsoft','amazon','apple','meta','nvidia',
-                        'intel','qualcomm','cisco','oracle','salesforce','adobe','servicenow',
-                        'workday','snowflake','databricks','jpmorgan','goldman','visa','stripe',
-                        'paypal','uber','airbnb','doordash','linkedin','spotify','tesla',
-                        'waymo','zoox','rivian','spacex','boeing','asml','amd','broadcom',
-                        'marvell','micron','kla','two sigma','citadel','jane street',
-                        'de shaw','hudson river',
-                    }
-                    if any(s in co.lower() for s in _SPONSORS):
-                        _extract_yes = True
-
-                    # Signal 4: sponsorship=Yes in Valid Entries
-                    if spon.lower() == "yes":
-                        _extract_yes = True
-
-                    # Signal 5: high-value title keywords
-                    _HV_TITLE = [
-                        "llm", "large language", "foundation model", "agentic",
-                        "generative ai", "genai", "reinforcement learning",
-                        "computer vision", "autonomous", "multimodal",
-                    ]
-                    if any(kw in ti.lower() for kw in _HV_TITLE):
-                        _extract_yes = True
-
                     if _extract_yes:
                         nr[C["extract"]] = "yes"
 
