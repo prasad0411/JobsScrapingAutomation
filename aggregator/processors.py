@@ -133,6 +133,9 @@ class TitleProcessor:
         # Strip known garbage prefixes: "Pipeline RR:", "XMLNAME-", etc.
         title = re.sub(r"^Pipeline\s+\w+:\s*", "", title, flags=re.I).strip()
         title = re.sub(r"^XMLNAME[-\s]*", "", title, flags=re.I).strip()
+        # Strip garbage suffixes: "Start Date", "Apply Now", etc.
+        title = re.sub(r"\s+Start Date\s*$", "", title, flags=re.I).strip()
+        title = re.sub(r"\s+Apply Now\s*$", "", title, flags=re.I).strip()
         # Reject garbage titles that are just URL paths or button text
         _GARBAGE_TITLES = {"application", "apply", "apply now", "job", "careers",
             "sign in", "login", "home", "search", "page not found", "404",
@@ -2066,6 +2069,9 @@ class LocationProcessor:
             location = _ss_match.group(1).strip()
         # Fix common location typos
         location = re.sub(r"St,\s", "St. ", location)  # "St, Louis" → "St. Louis"
+        # Fix "WA, DC" → "Washington, DC"
+        if location.strip() in ("WA, DC", "WA DC"):
+            location = "Washington, DC"
         # Fix concatenated state+city: "MANYC" -> "New York, NY"
         _concat_fixes = {"MANYC": "New York, NY", "Cambridge, MANYC": "Cambridge, MA"}
         if location.strip() in _concat_fixes:
