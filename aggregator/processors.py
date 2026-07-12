@@ -2072,6 +2072,13 @@ class LocationProcessor:
         # Fix "WA, DC" → "Washington, DC"
         if location.strip() in ("WA, DC", "WA DC"):
             location = "Washington, DC"
+        # Fix "+1" or "+2" multi-location suffix
+        location = re.sub(r"\s*\+\d+\s*$", "", location).strip()
+        # Fix "NY City Metropolitan Area (On, site)" → "New York, NY"
+        if "ny city metropolitan" in location.lower():
+            location = "New York, NY"
+        # Fix "(On, site)" or "(On-site)" suffix
+        location = re.sub(r"\s*\(On[,\s-]*site\)\s*$", "", location, flags=re.I).strip()
         # Fix concatenated state+city: "MANYC" -> "New York, NY"
         _concat_fixes = {"MANYC": "New York, NY", "Cambridge, MANYC": "Cambridge, MA"}
         if location.strip() in _concat_fixes:
