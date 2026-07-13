@@ -306,6 +306,24 @@ class Sheets:
             if dedup_key in seen:
                 continue
             seen.add(dedup_key)
+            # Get status and location from Valid Entries
+            _v_status = row[1].strip() if len(row) > 1 else ""
+            _v_location = row[8].strip() if len(row) > 8 else ""
+            # FILTER: Only include jobs that are Applied or previously tracked
+            _has_existing = False
+            if jid_clean:
+                _has_existing = ("jid", jid_clean) in outreach_by_key
+            if not _has_existing:
+                _has_existing = ("co_ti", f"{co.lower()}||{ti.lower()}") in outreach_by_key
+            # Not Applied + never tracked = skip entirely
+            if _v_status.lower() == "not applied":
+                if not _has_existing:
+                    continue  # Never entered outreach
+                else:
+                    continue  # Was Applied, now reverted to Not Applied — remove
+            if not _v_status or _v_status.lower() in ("", "not applied"):
+                if not _has_existing:
+                    continue
 
             # Find existing outreach row
             existing = None
@@ -322,6 +340,17 @@ class Sheets:
                 nr[C["company"]] = co  # verbatim from Valid
                 nr[C["title"]] = ti    # verbatim from Valid
                 nr[C["job_id"]] = jid  # verbatim from Valid
+                # If status just changed to Applied, upgrade extract + add search links
+                if _v_status.lower() == "applied" and nr[C["extract"]].strip().lower() != "yes":
+                    nr[C["extract"]] = "yes"
+                    import urllib.parse as _up
+                    _loc_clean = _v_location.replace(",", "").strip() if _v_location else ""
+                    if not nr[C["hm_li"]] or nr[C["hm_li"]].startswith("https://www.google.com"):
+                        _q = f"{co} Software Engineering Manager {_loc_clean} LinkedIn".strip()
+                        nr[C["hm_li"]] = f"https://www.google.com/search?q={_up.quote_plus(_q)}"
+                    if not nr[C["rec_li"]] or nr[C["rec_li"]].startswith("https://www.google.com"):
+                        _q = f"{co} Technical Recruiter LinkedIn".strip()
+                        nr[C["rec_li"]] = f"https://www.google.com/search?q={_up.quote_plus(_q)}"
                 # NEVER touch LinkedIn URL columns (F, J) — user enters these manually
                 # Explicitly preserve LinkedIn URLs from existing row
                 for li_col in [C["hm_li"], C["rec_li"]]:
@@ -332,8 +361,9 @@ class Sheets:
                 nr = [""] * len(O_HEADERS)
                 nr[C["company"]] = co
                 nr[C["title"]] = ti
-                nr[C["extract"]] = "Skip"
                 nr[C["job_id"]] = jid
+                # Skip non-Applied jobs entirely (they won't reach here after filter)
+                nr[C["extract"]] = "Skip"
 
                 # ── Smart Extract=yes + contact auto-fill ──────────────────────
                 try:
@@ -356,6 +386,15 @@ class Sheets:
                         _extract_yes = True
                     if _extract_yes:
                         nr[C["extract"]] = "yes"
+                        # Generate Google search links for HM and Recruiter
+                        import urllib.parse as _up
+                        _loc_clean = _v_location.replace(",", "").strip() if _v_location else ""
+                        if not nr[C["hm_li"]]:
+                            _q = f"{co} Software Engineering Manager {_loc_clean} LinkedIn".strip()
+                            nr[C["hm_li"]] = f"https://www.google.com/search?q={_up.quote_plus(_q)}"
+                        if not nr[C["rec_li"]]:
+                            _q = f"{co} Technical Recruiter LinkedIn".strip()
+                            nr[C["rec_li"]] = f"https://www.google.com/search?q={_up.quote_plus(_q)}"
 
                     # AUTO-FILL: exact role match first
                     for _role, _col_name, _col_email in [
