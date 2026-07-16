@@ -30,11 +30,49 @@ class BounceScanner:
         return {}
 
     @staticmethod
+    @staticmethod
+    def update_domain_reputation():
+        """Update domain reputation scores from bounce cache."""
+        import json
+        base = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        rep_file = os.path.join(base, ".local", "domain_reputation.json")
+        bounce_file = os.path.join(base, ".local", "bounced_emails.json")
+        try:
+            bounced = {}
+            if os.path.exists(bounce_file):
+                with open(bounce_file) as f:
+                    bounced = json.load(f)
+            reputation = {}
+            if os.path.exists(rep_file):
+                with open(rep_file) as f:
+                    reputation = json.load(f)
+            # Count bounces per domain
+            from collections import Counter
+            domain_bounces = Counter()
+            for email in bounced:
+                if "@" in email:
+                    domain_bounces[email.split("@")[1]] += 1
+            # Update reputation
+            for domain, count in domain_bounces.items():
+                if domain not in reputation:
+                    reputation[domain] = {"score": 0, "bounces": 0, "successes": 0, "blocked": False}
+                reputation[domain]["bounces"] = count
+                reputation[domain]["score"] = count * -30
+                reputation[domain]["blocked"] = count >= 3  # 3+ bounces = permanent block
+                if count >= 2:
+                    reputation[domain]["reason"] = f"{count} bounced emails — domain blocked"
+            with open(rep_file, "w") as f:
+                json.dump(reputation, f, indent=2)
+        except Exception:
+            pass
+
+    @staticmethod
     def save_bounced(cache: dict):
         try:
             json.dump(cache, open(BOUNCED_EMAILS_FILE, "w"), indent=2)
         except Exception as e:
             log.error(f"Failed to save bounce cache: {e}")
+        BounceScanner.update_domain_reputation()
 
     @staticmethod
     def scan(gmail_service, days_back: int = 14) -> set:

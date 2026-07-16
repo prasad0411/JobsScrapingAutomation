@@ -391,6 +391,11 @@ class Finder:
                     pv_result = self.pv.verify_email(email, domains[0])
                     if pv_result == "exists":
                         r.update(email=email, source="website_mining+provider", status="Valid", confidence=80)
+                        # Audit log
+                        try:
+                            import logging as _el
+                            _el.getLogger("outreach_audit").info(f"FOUND | {email} | website_mining+provider | confidence=80 | domain={domains[0]}")
+                        except: pass
                         self._clear_retry(retry_key)
                         log.info(f"Website mined + verified: {email}")
                         return r
@@ -908,6 +913,69 @@ class Finder:
             except Exception as _re:
                 log.debug(f"Reacher alert failed: {_re}")
         return self._reacher
+
+    def _github_email_search(self, name, company):
+        """Free email discovery: search GitHub for employee's public email.
+        
+        Many engineers have emails visible in:
+        1. GitHub profile (public email field)
+        2. Git commit author emails
+        3. GitHub event stream
+        """
+        import requests as _req
+        try:
+            # Search GitHub users by name + company
+            _first = name.split()[0] if name else ""
+            _last = name.split()[-1] if name and len(name.split()) > 1 else ""
+            if not _first or not _last:
+                return None
+            
+            query = f"{_first} {_last} {company}"
+            resp = _req.get(
+                f"https://api.github.com/search/users?q={query}&per_page=3",
+                headers={"Accept": "application/vnd.github.v3+json"},
+                timeout=8,
+            )
+            if resp.status_code != 200:
+                return None
+            
+            users = resp.json().get("items", [])
+            for user in users:
+                # Check user profile for public email
+                user_resp = _req.get(
+                    f"https://api.github.com/users/{user['login']}",
+                    headers={"Accept": "application/vnd.github.v3+json"},
+                    timeout=8,
+                )
+                if user_resp.status_code == 200:
+                    email = user_resp.json().get("email")
+                    if email and "@" in email and "noreply" not in email:
+                        company_domain = email.split("@")[1].lower()
+                        # Verify it's a company email, not personal
+                        if any(d in company_domain for d in ["gmail", "yahoo", "hotmail", "outlook.com"]):
+                            continue
+                        log.info(f"GitHub discovery: {name} @ {company} → {email}")
+                        return email
+                
+                # Check recent events for commit emails
+                events_resp = _req.get(
+                    f"https://api.github.com/users/{user['login']}/events/public?per_page=10",
+                    headers={"Accept": "application/vnd.github.v3+json"},
+                    timeout=8,
+                )
+                if events_resp.status_code == 200:
+                    for event in events_resp.json():
+                        commits = event.get("payload", {}).get("commits", [])
+                        for commit in commits:
+                            cemail = commit.get("author", {}).get("email", "")
+                            if cemail and "@" in cemail and "noreply" not in cemail:
+                                if any(d in cemail for d in ["gmail", "yahoo", "hotmail"]):
+                                    continue
+                                log.info(f"GitHub commit discovery: {name} → {cemail}")
+                                return cemail
+        except Exception as e:
+            log.debug(f"GitHub email search failed: {e}")
+        return None
 
     def _apis(self, p, dom, li, r):
         default_order = ["apollo", "hunter", "snov", "prospeo"]

@@ -38,6 +38,14 @@ from outreach.outreach_data import Sheets, Credits
 from outreach.outreach_finder import Finder
 from outreach.outreach_mailer import Drafter, Mailer
 from outreach.bounce_scanner import BounceScanner
+
+# Dedicated outreach audit log — tracks every send/block decision
+import logging as _ol
+_audit_log = _ol.getLogger("outreach_audit")
+_audit_handler = _ol.FileHandler(os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), ".local", "outreach_audit.log"))
+_audit_handler.setFormatter(_ol.Formatter("%(asctime)s | %(message)s"))
+_audit_log.addHandler(_audit_handler)
+_audit_log.setLevel(_ol.INFO)
 from outreach.outreach_verifier import CircuitBreaker, AUTO_SEND_THRESHOLD
 from outreach.brain import Brain
 
@@ -211,6 +219,17 @@ def phase_extract_and_draft(sheets, finder, mailer):
 
     # Load bounce + failed pattern data ONCE before the loop (not per row)
     _all_bounced = set(BounceScanner.load_bounced().keys())
+    # Load domain reputation for Layer 1 defense
+    _domain_rep = {}
+    try:
+        import json as _json
+        _rep_file = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), ".local", "domain_reputation.json")
+        if os.path.exists(_rep_file):
+            with open(_rep_file) as _rf:
+                _domain_rep = _json.load(_rf)
+            log.info(f"Domain reputation loaded: {sum(1 for d in _domain_rep.values() if d.get('blocked'))} blocked domains")
+    except Exception:
+        pass
     _failed_pat_file = os.path.join(os.path.dirname(os.path.dirname(
         os.path.abspath(__file__))), ".local", "failed_patterns.json")
     _failed_pats = {}
@@ -248,9 +267,16 @@ def phase_extract_and_draft(sheets, finder, mailer):
             # Check 1: known bounced email addresses
             if el in _all_bounced:
                 log.info(f"Pre-send block: {email} is in bounce cache")
+                _audit_log.info(f"BLOCKED | {email} | bounce_cache | exact email previously bounced")
                 return True
             domain = el.split("@")[1]
             local = el.split("@")[0]
+            # Check 1b: domain reputation — block entire domain if 2+ bounces
+            _rep = _domain_rep.get(domain, {})
+            if _rep.get("blocked"):
+                log.info(f"Pre-send block: {email} — domain {domain} blacklisted ({_rep.get('bounces', 0)} bounces)")
+                _audit_log.info(f"BLOCKED | {email} | domain_reputation | {domain} has {_rep.get('bounces', 0)} bounces, score {_rep.get('score', 0)}")
+                return True
             # Check 2: failed_patterns.json (local parts and pattern strings)
             for entry in _failed_pats.get(domain, []):
                 if entry == local:
@@ -277,6 +303,7 @@ def phase_extract_and_draft(sheets, finder, mailer):
                         _pat = None
                     if _pat and _pat in _failed_domain_pats:
                         log.info(f"Pre-send block: {email} pattern '{_pat}' in domain_history failed list")
+                        _audit_log.info(f"BLOCKED | {email} | domain_history | pattern '{_pat}' failed at {domain}")
                         return True
             except Exception as _dhe:
                 log.debug(f"domain_history check failed: {_dhe}")
