@@ -221,6 +221,7 @@ def phase_extract_and_draft(sheets, finder, mailer):
     _all_bounced = set(BounceScanner.load_bounced().keys())
     # Load domain reputation for Layer 1 defense
     _domain_rep = {}
+    _daily_pause = False
     try:
         import json as _json
         _rep_file = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), ".local", "domain_reputation.json")
@@ -228,6 +229,16 @@ def phase_extract_and_draft(sheets, finder, mailer):
             with open(_rep_file) as _rf:
                 _domain_rep = _json.load(_rf)
             log.info(f"Domain reputation loaded: {sum(1 for d in _domain_rep.values() if d.get('blocked'))} blocked domains")
+            # Check today's bounce rate
+            _cb_file = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), ".local", "circuit_breaker.json")
+            if os.path.exists(_cb_file):
+                with open(_cb_file) as _cbf:
+                    _cb = _json.load(_cbf)
+                _today_sent = _cb.get("sent_today", 0)
+                _today_bounced = _cb.get("bounced_today", 0)
+                if _today_sent > 5 and _today_bounced > 0 and _today_bounced / _today_sent > 0.10:
+                    log.warning(f"SAFETY PAUSE: {_today_bounced}/{_today_sent} bounced today ({_today_bounced*100//_today_sent}%)")
+                    _daily_pause = True
     except Exception:
         pass
     _failed_pat_file = os.path.join(os.path.dirname(os.path.dirname(
@@ -263,6 +274,10 @@ def phase_extract_and_draft(sheets, finder, mailer):
         def _is_blocked(email):
             if not email or "@" not in email:
                 return False
+            # Safety valve: if daily bounce rate >10%, block everything
+            if _daily_pause:
+                log.info(f"Pre-send block: {email} — daily bounce rate too high, pausing")
+                return True
             el = email.lower().strip()
             # Check 1: known bounced email addresses
             if el in _all_bounced:

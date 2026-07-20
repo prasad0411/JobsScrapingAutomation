@@ -977,6 +977,205 @@ class Finder:
             log.debug(f"GitHub email search failed: {e}")
         return None
 
+    def _batch_reacher_verify(self, parsed, domain):
+        """Test ALL email patterns at once via Reacher. Pick the best one.
+        
+        Instead of trying 1 pattern per day and waiting for bounces,
+        test 8-10 patterns in ~15 seconds and pick the verified one.
+        Returns (email, confidence, source) or (None, 0, None).
+        """
+        if not self._rok() or not domain:
+            return None, 0, None
+        
+        first = parsed.get("fa", "")
+        last = parsed.get("la", "")
+        if not first or not last:
+            return None, 0, None
+        
+        f = first.lower()
+        l = last.lower()
+        fi = f[0] if f else ""
+        li_char = l[0] if l else ""
+        
+        # Generate all candidate patterns
+        candidates = [
+            f"{f}.{l}@{domain}",        # first.last
+            f"{fi}{l}@{domain}",         # flast
+            f"{f}{li_char}@{domain}",    # firstl
+            f"{f}_{l}@{domain}",         # first_last
+            f"{f}@{domain}",             # first
+            f"{l}.{f}@{domain}",         # last.first
+            f"{fi}.{l}@{domain}",        # f.last
+            f"{f}.{li_char}@{domain}",   # first.l
+            f"{f}-{l}@{domain}",         # first-last
+            f"{f}{l}@{domain}",          # firstlast
+        ]
+        
+        # Remove duplicates while preserving order
+        seen = set()
+        unique = []
+        for c in candidates:
+            if c not in seen:
+                seen.add(c)
+                unique.append(c)
+        candidates = unique
+        
+        # Check pattern blacklist — skip known failed patterns
+        try:
+            import json
+            _bl_file = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), ".local", "pattern_blacklist.json")
+            if os.path.exists(_bl_file):
+                with open(_bl_file) as _f:
+                    _blacklist = json.load(_f)
+                _blocked = _blacklist.get(domain, [])
+                candidates = [c for c in candidates if c.split("@")[0] not in _blocked]
+        except Exception:
+            pass
+        
+        # Check bounce cache — skip known bounced emails
+        try:
+            from outreach.bounce_scanner import BounceScanner
+            _bounced = set(BounceScanner.load_bounced().keys())
+            candidates = [c for c in candidates if c.lower() not in _bounced]
+        except Exception:
+            pass
+        
+        if not candidates:
+            log.info(f"Batch Reacher: all patterns exhausted for {domain}")
+            return None, 0, None
+        
+        log.info(f"Batch Reacher: testing {len(candidates)} patterns for {first} {last} @ {domain}")
+        
+        # First: check if domain is catch-all (all patterns will return "safe")
+        if self._is_catchall(domain):
+            # Can't verify via SMTP — use MX-based priority
+            log.info(f"Batch Reacher: {domain} is catch-all, using MX-priority pattern")
+            mx_pattern = self._mx_priority_pattern(domain)
+            if mx_pattern:
+                for c in candidates:
+                    local = c.split("@")[0]
+                    if mx_pattern == "first.last" and "." in local and len(local.split(".")[0]) > 1:
+                        return c, 50, "catchall_mx_priority"
+                    elif mx_pattern == "flast" and len(local) > 2 and local[1:] == l:
+                        return c, 50, "catchall_mx_priority"
+            # Default: first.last for catch-all
+            return candidates[0], 40, "catchall_default"
+        
+        # Test each candidate through Reacher
+        import requests
+        safe_results = []
+        risky_results = []
+        
+        for email in candidates:
+            try:
+                resp = requests.post(
+                    REACHER_URL,
+                    json={"to_email": email, "from_email": "verify@example.org"},
+                    timeout=12,
+                )
+                if resp.status_code == 200:
+                    data = resp.json()
+                    reachable = data.get("is_reachable", "unknown")
+                    smtp = data.get("smtp", {})
+                    
+                    if reachable == "safe":
+                        safe_results.append((email, 90, "batch_reacher_safe"))
+                        log.info(f"  ✓ SAFE: {email}")
+                        # First safe result is enough — use it
+                        break
+                    elif reachable == "risky":
+                        risky_results.append((email, 55, "batch_reacher_risky"))
+                        log.info(f"  ~ RISKY: {email}")
+                    else:
+                        log.info(f"  ✗ {reachable}: {email}")
+                else:
+                    log.debug(f"  Reacher HTTP {resp.status_code} for {email}")
+            except Exception as e:
+                log.debug(f"  Reacher error for {email}: {e}")
+            
+            # Rate limit: small delay between checks
+            import time
+            time.sleep(0.5)
+        
+        # Return best result
+        if safe_results:
+            email, conf, src = safe_results[0]
+            self.pc.detect(email, parsed)  # Learn the pattern
+            log.info(f"Batch Reacher: VERIFIED {email} (confidence={conf})")
+            return email, conf, src
+        elif risky_results:
+            email, conf, src = risky_results[0]
+            log.info(f"Batch Reacher: best risky result {email} (confidence={conf})")
+            return email, conf, src
+        
+        log.info(f"Batch Reacher: no valid email found for {first} {last} @ {domain}")
+        return None, 0, None
+
+    def _google_email_pattern_discovery(self, domain):
+        """Search Google for public emails at this domain to learn the pattern.
+        
+        Searches: "@domain.com" email — finds press releases, bios, job posts
+        that contain real employee emails, revealing the pattern.
+        """
+        try:
+            import requests as _req
+            query = f'"%40{domain}" email'
+            resp = _req.get(
+                f"https://www.google.com/search?q={query}&num=5",
+                headers={"User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)"},
+                timeout=8,
+            )
+            if resp.status_code == 200:
+                import re
+                # Find email patterns in search results
+                emails = re.findall(rf"[a-zA-Z0-9._%+-]+@{re.escape(domain)}", resp.text)
+                if emails:
+                    # Analyze the pattern from found emails
+                    for email in emails:
+                        local = email.split("@")[0]
+                        if "." in local and len(local.split(".")) == 2:
+                            parts = local.split(".")
+                            if len(parts[0]) > 1 and len(parts[1]) > 1:
+                                log.info(f"Google pattern discovery: {domain} uses first.last (from {email})")
+                                return "first.last"
+                            elif len(parts[0]) == 1:
+                                log.info(f"Google pattern discovery: {domain} uses f.last (from {email})")
+                                return "f.last"
+                        elif "_" in local:
+                            log.info(f"Google pattern discovery: {domain} uses first_last (from {email})")
+                            return "first_last"
+        except Exception:
+            pass
+        return None
+
+    def _mx_priority_pattern(self, domain):
+        """Check MX records to determine likely email pattern.
+        
+        Google Workspace → first.last (80% of the time)
+        Microsoft 365 → first.last or flast (50/50)
+        Self-hosted → unpredictable
+        """
+        try:
+            import subprocess
+            result = subprocess.run(
+                ["dig", "+short", "MX", domain],
+                capture_output=True, text=True, timeout=5
+            )
+            mx = result.stdout.lower()
+            
+            if "google" in mx or "aspmx" in mx:
+                return "first.last"  # Google Workspace
+            elif "outlook" in mx or "microsoft" in mx or "protection.outlook" in mx:
+                return "first.last"  # Microsoft 365 most common
+            elif "pphosted" in mx or "proofpoint" in mx:
+                return "first.last"  # Enterprise, usually first.last
+            elif "mimecast" in mx:
+                return "first.last"
+            else:
+                return "first.last"  # Default best guess
+        except Exception:
+            return "first.last"
+    
     def _apis(self, p, dom, li, r):
         default_order = ["apollo", "hunter", "snov", "prospeo"]
         try:

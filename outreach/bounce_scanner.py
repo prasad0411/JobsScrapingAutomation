@@ -58,7 +58,7 @@ class BounceScanner:
                     reputation[domain] = {"score": 0, "bounces": 0, "successes": 0, "blocked": False}
                 reputation[domain]["bounces"] = count
                 reputation[domain]["score"] = count * -30
-                reputation[domain]["blocked"] = count >= 3  # 3+ bounces = permanent block
+                reputation[domain]["blocked"] = count >= 5  # 5+ bounces = permanent block (5 pattern attempts)
                 if count >= 2:
                     reputation[domain]["reason"] = f"{count} bounced emails — domain blocked"
             with open(rep_file, "w") as f:
