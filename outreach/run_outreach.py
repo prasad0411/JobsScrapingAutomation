@@ -326,7 +326,9 @@ def phase_extract_and_draft(sheets, finder, mailer):
                                "source": "brain_cache", "name": _known_hm.get("name","")}
                     log.info(f"  Brain cache hit for {row['co']} HM: {_known_hm['email']}")
                 else:
-                    hm_res = finder.find(hm_name, row["co"], row["hli"], job_url_domain=jud)
+                    # Skip Google search placeholder URLs — they're not real LinkedIn profiles
+                    _hli = row["hli"] if row["hli"] and "linkedin.com/in/" in row["hli"] else ""
+                    hm_res = finder.find(hm_name, row["co"], _hli, job_url_domain=jud)
                 if hm_res["email"]:
                     if _is_blocked(hm_res["email"]):
                         log.warning(f"Blocked pre-send: {hm_res['email']} for {row['co']}")
@@ -366,8 +368,9 @@ def phase_extract_and_draft(sheets, finder, mailer):
             rec_emails = []
             rec_failed = False
             for rec_name in rec_names:
+                _rli = row["rli"] if row["rli"] and "linkedin.com/in/" in row["rli"] else ""
                 rec_res = finder.find(
-                    rec_name, row["co"], row["rli"], job_url_domain=jud
+                    rec_name, row["co"], _rli, job_url_domain=jud
                 )
                 if rec_res["email"]:
                     if _is_blocked(rec_res["email"]):
