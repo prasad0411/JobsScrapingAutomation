@@ -2090,6 +2090,21 @@ class LocationProcessor:
         # Fix "WA, DC" → "Washington, DC"
         if location.strip() in ("WA, DC", "WA DC"):
             location = "Washington, DC"
+        # Fix known abbreviations
+        _abbrev_fixes = {
+            "SFLA": "South Florida",
+            "SF": "San Francisco, CA",
+            "NYC": "New York, NY",
+            "LA": "Los Angeles, CA",
+            "DC": "Washington, DC",
+            "BOS": "Boston, MA",
+            "CHI": "Chicago, IL",
+            "ATL": "Atlanta, GA",
+            "SEA": "Seattle, WA",
+            "DFW": "Dallas, TX",
+        }
+        if location.strip() in _abbrev_fixes:
+            location = _abbrev_fixes[location.strip()]
         # Fix "+1" or "+2" multi-location suffix
         location = re.sub(r"\s*\+\d+\s*$", "", location).strip()
         # Fix "NY City Metropolitan Area (On, site)" → "New York, NY"
