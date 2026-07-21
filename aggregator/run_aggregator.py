@@ -2378,7 +2378,7 @@ class UnifiedJobAggregator:
             "location": location,
             "remote": remote,
             "url": search_url,
-            "job_id": linkedin_job_id or "N/A",
+            "job_id": "N/A",  # LinkedIn IDs are internal, not real job IDs
             "job_type": job_type,
             "sponsorship": "Unknown",
             "entry_date": self._format_date(),
