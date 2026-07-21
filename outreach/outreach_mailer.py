@@ -82,16 +82,36 @@ class Drafter:
             from outreach.outreach_config import REC_SUBJ, REC_BODIES, REC_BODY
             st = REC_SUBJ
             bt = REC_BODIES.get(resume_type, REC_BODY)
-        jid = job_id if job_id and job_id not in ("N/A", "") else ""
+        jid = job_id if job_id and job_id.strip() not in ("N/A", "", "N/a", "n/a") else ""
         subj, body = st, bt
         if not jid:
             subj = subj.replace(" | {job_id}", "")
             body = body.replace(" | {job_id}", "")
+            subj = subj.replace(" {job_id}", "")
+            body = body.replace(" {job_id}", "")
+        # Shorten company name for email (keep full name in sheet)
+        _short_co = company
+        _strip_suffixes = [
+            " Group Technologies", " Corporation", " Incorporated",
+            " Holdings", " Solutions", " Enterprises", " Partners",
+            " Services", " International",
+            ", Inc.", ", Inc", " Inc.", " Inc", " LLC", " Ltd", " Ltd.",
+            " Co.", " Corp.", " Corp", " LP", " L.P.",
+        ]
+        # Only strip suffix if remaining name is 3+ chars (avoid "Built Technologies" → "Built")
+        for _sfx in _strip_suffixes:
+            if _short_co.endswith(_sfx) and len(_short_co) - len(_sfx) >= 5:
+                _short_co = _short_co[:-len(_sfx)].strip()
+                break
+        # Handle "X and Y" patterns: "Rivian and Volkswagen Group" → "Rivian"
+        if " and " in _short_co and len(_short_co) > 20:
+            _short_co = _short_co.split(" and ")[0].strip()
+
         vals = {
             "first": first,
             "title": title,
             "job_id": jid,
-            "company": company,
+            "company": _short_co,
             "sender": SENDER_NAME,
         }
         for k, v in vals.items():
