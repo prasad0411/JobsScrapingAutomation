@@ -136,6 +136,24 @@ class TitleProcessor:
         # Strip garbage suffixes: "Start Date", "Apply Now", etc.
         title = re.sub(r"\s+Start Date\s*$", "", title, flags=re.I).strip()
         title = re.sub(r"\s+Apply Now\s*$", "", title, flags=re.I).strip()
+        # Clean pipe-separated metadata: "Group 2-24 | Co-Op | Title | Jun-Dec"
+        if " | " in title:
+            segments = [s.strip() for s in title.split(" | ")]
+            # Find the segment that looks most like a job title
+            _job_words = {"intern", "engineer", "developer", "analyst", "scientist",
+                          "co-op", "coop", "co op", "manager", "designer", "researcher"}
+            _best = []
+            for seg in segments:
+                seg_lower = seg.lower()
+                # Skip group/team codes: "Group 2-24", short codes
+                if re.match(r"^(Group|Team|Dept|Division)\s", seg, re.I):
+                    continue
+                # Skip date ranges: "Jun-Dec", "Jan-Jun 2026"
+                if re.match(r"^(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)", seg, re.I) and len(seg) < 20:
+                    continue
+                _best.append(seg)
+            if _best:
+                title = " | ".join(_best) if len(_best) <= 2 else _best[0]
         # Reject garbage titles that are just URL paths or button text
         _GARBAGE_TITLES = {"application", "apply", "apply now", "job", "careers",
             "sign in", "login", "home", "search", "page not found", "404",

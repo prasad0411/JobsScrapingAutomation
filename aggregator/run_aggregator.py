@@ -3530,7 +3530,11 @@ class UnifiedJobAggregator:
                 self.outcomes["skipped_duplicate_url"] += 1
                 logging.info(f"DUPLICATE (url) | {company} | {title} | {url[:60]}")
                 return True
-            norm_key = URLCleaner.normalize_text(f"{company}_{title}")
+            # Normalize company name for dedup: strip Inc., LLC, (SRA), etc.
+            import re as _dn_re
+            _co_clean = _dn_re.sub(r",?\s*(Inc\.?|LLC|Ltd\.?|Corp\.?|L\.?P\.?)\s*$", "", company, flags=_dn_re.I).strip()
+            _co_clean = _dn_re.sub(r"\s*\([^)]+\)\s*$", "", _co_clean).strip()  # Strip (SRA), (SIG) etc.
+            norm_key = URLCleaner.normalize_text(f"{_co_clean}_{title}")
             if norm_key in self.existing_jobs or norm_key in self.processing_lock:
                 self.outcomes["skipped_duplicate_company_title"] += 1
                 logging.info(f"DUPLICATE (company+title) | {company} | {title}")
