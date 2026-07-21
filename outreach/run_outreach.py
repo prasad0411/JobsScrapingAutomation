@@ -124,7 +124,7 @@ def phase_draft_existing(sheets, mailer):
                 email = hm_emails[idx_h] if idx_h < len(hm_emails) else None
                 if not email:
                     continue
-                draft = Drafter.draft(name, "hm", co, title, jid)
+                draft = Drafter.draft(name, "hm", co, title, jid, resume_type=resume_type)
                 location = sheets.get_location(co, title)
                 sa, _ = sheets.compute_send_at(location)
                 result = mailer.send(
@@ -155,7 +155,7 @@ def phase_draft_existing(sheets, mailer):
                 email = rec_emails[idx_r] if idx_r < len(rec_emails) else None
                 if not email:
                     continue
-                draft = Drafter.draft(name, "rec", co, title, jid)
+                draft = Drafter.draft(name, "rec", co, title, jid, resume_type=resume_type)
                 location = sheets.get_location(co, title)
                 sa, _ = sheets.compute_send_at(location)
                 result = mailer.send(

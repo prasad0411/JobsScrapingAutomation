@@ -70,10 +70,18 @@ def _get_or_create_folder(token: str, name: str) -> str:
 
 class Drafter:
     @staticmethod
-    def draft(name, contact_type, company, title, job_id=""):
+    def draft(name, contact_type, company, title, job_id="", resume_type="SDE"):
         parsed = NameParser.parse(name)
         first = parsed["first"] if parsed else (name.split()[0] if name.strip() else company)
-        st, bt = (HM_SUBJ, HM_BODY) if contact_type == "hm" else (REC_SUBJ, REC_BODY)
+        # Role-specific template selection
+        if contact_type == "hm":
+            from outreach.outreach_config import HM_SUBJ, HM_BODIES, HM_BODY
+            st = HM_SUBJ
+            bt = HM_BODIES.get(resume_type, HM_BODY)
+        else:
+            from outreach.outreach_config import REC_SUBJ, REC_BODIES, REC_BODY
+            st = REC_SUBJ
+            bt = REC_BODIES.get(resume_type, REC_BODY)
         jid = job_id if job_id and job_id not in ("N/A", "") else ""
         subj, body = st, bt
         if not jid:

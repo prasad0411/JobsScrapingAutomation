@@ -72,37 +72,106 @@ MS_CLIENT_ID = "d3590ed6-52b3-4102-aeff-aad2292ab01c"
 MS_AUTHORITY = "https://login.microsoftonline.com/common"
 MS_SCOPES = ["https://graph.microsoft.com/Mail.Send"]
 
+# ═══════════════════════════════════════════════════════════
+# ═══════════════════════════════════════════════════════════
+# ROLE-SPECIFIC EMAIL TEMPLATES
+# ═══════════════════════════════════════════════════════════
+
 HM_SUBJ = "Prasad Kanade \u2014 Application for {title} | {job_id}"
-HM_BODY = (
+
+_HM_BODY_SDE = (
     "Hi {first},\n\n"
-    "I hope you're doing well. I recently applied for the {title} | {job_id} role at {company} "
-    "and wanted to reach out personally because I am genuinely enthusiastic about this opportunity.\n\n"
-    "I am pursuing my Master's in Computer Science at Northeastern University and bring 1.5 years "
-    "of professional experience at Amdocs, where I built and optimized large-scale backend systems "
-    "and delivered measurable performance improvements in production environments.\n\n"
-    "I am driven by growth, accountability, and impact. Given the opportunity, I will approach this "
-    "role with full ownership and a commitment to delivering beyond expectations \u2014 learning quickly, "
-    "contributing immediately, and pushing myself to add real value to your team.\n\n"
-    "I have attached my resume and would truly appreciate the chance to connect.\n\n"
+    "I recently applied for the {title} | {job_id} role at {company} and wanted to reach out "
+    "directly. I've been following {company}'s engineering work closely and this role is exactly "
+    "where I want to be.\n\n"
+    "I bring around 2 years of production engineering experience building microservices, optimizing "
+    "databases, and deploying cloud infrastructure. Not just academic projects, but systems running "
+    "in production at scale. I'm also a published researcher (Springer) which shows I go beyond "
+    "surface level and deliver rigorous, impactful work.\n\n"
+    "I'm finishing my Master's in CS at Northeastern (3.66 GPA) and I'm ready to hit the ground "
+    "running. That experience directly translates here and I'm confident I can contribute from "
+    "day one.\n\n"
+    "I would love the opportunity to discuss this further and demonstrate what I can bring. "
+    "Resume attached.\n\n"
     "Best regards,\nPrasad Kanade"
 )
 
-REC_SUBJ = "Prasad Kanade \u2014 Application for {title} | {job_id}"
-REC_BODY = (
+_HM_BODY_ML = (
     "Hi {first},\n\n"
-    "I hope you're doing well. I recently applied for the {title} | {job_id} role at {company} "
-    "and wanted to reach out personally because I am genuinely enthusiastic about this opportunity.\n\n"
-    "I'm pursuing my Master's in Computer Science at Northeastern University and bring 1.5 years "
-    "of professional experience at Amdocs, where I worked on large-scale backend systems in "
-    "production environments and contributed to measurable performance improvements.\n\n"
-    "I am at a stage where I am eager to fully invest my skills and energy into the right "
-    "opportunity - one where I can grow within a strong team, take on real responsibility, and "
-    "make a meaningful impact from day one. I take my work seriously and approach every challenge "
-    "with discipline and drive.\n\n"
-    "I have attached my resume and would genuinely love the chance to discuss how I can contribute "
-    "and what the next steps look like.\n\n"
+    "I recently applied for the {title} | {job_id} role at {company} and wanted to reach out "
+    "directly. I've been following {company}'s work in AI/ML closely and this role is exactly "
+    "where I want to be.\n\n"
+    "I bring both published ML research (Springer) and around 2 years of production engineering "
+    "experience. I don't just build models, I build systems that ship. That combination of research "
+    "depth and real world delivery is what I'm bringing to this role.\n\n"
+    "I'm finishing my Master's in CS at Northeastern (3.66 GPA) and I'm ready to hit the ground "
+    "running. That experience directly translates here and I'm confident I can contribute from "
+    "day one.\n\n"
+    "I would love the opportunity to discuss this further and demonstrate what I can bring. Resume attached.\n\n"
     "Best regards,\nPrasad Kanade"
 )
+
+_HM_BODY_DA = (
+    "Hi {first},\n\n"
+    "I recently applied for the {title} | {job_id} role at {company} and wanted to reach out "
+    "directly. I've been following {company}'s approach to data closely and this role is exactly "
+    "where I want to be.\n\n"
+    "I bring around 2 years of production experience building data pipelines, optimizing query "
+    "performance, and delivering analytics that drive decisions. Not just coursework, but production "
+    "systems at enterprise scale. I also have published research applying ML to real world "
+    "datasets.\n\n"
+    "I'm finishing my Master's in CS at Northeastern (3.66 GPA) and I'm ready to hit the ground "
+    "running. That experience directly translates here and I'm confident I can contribute from "
+    "day one.\n\n"
+    "I would love the opportunity to discuss this further and demonstrate what I can bring. Resume attached.\n\n"
+    "Best regards,\nPrasad Kanade"
+)
+
+HM_BODIES = {"SDE": _HM_BODY_SDE, "ML": _HM_BODY_ML, "DA": _HM_BODY_DA}
+HM_BODY = _HM_BODY_SDE
+
+REC_SUBJ = "Prasad Kanade \u2014 Application for {title} | {job_id}"
+
+_REC_BODY_SDE = (
+    "Hi {first},\n\n"
+    "I applied for the {title} | {job_id} role at {company} and I'm genuinely excited about this "
+    "one. I've been following {company}'s engineering work and the direction the team is taking is "
+    "exactly what drew me to apply.\n\n"
+    "I have around 2 years of hands on production engineering experience combined with a Master's "
+    "in CS from Northeastern (3.66 GPA). My past work directly translates to this role and I'm "
+    "confident I can contribute from day one.\n\n"
+    "I would love the opportunity to discuss this further and demonstrate what I can bring. "
+    "Resume attached.\n\n"
+    "Best regards,\nPrasad Kanade"
+)
+
+_REC_BODY_ML = (
+    "Hi {first},\n\n"
+    "I applied for the {title} | {job_id} role at {company} and this is genuinely the opportunity "
+    "I've been looking for. I've been following {company}'s engineering work and the direction the "
+    "team is taking is exactly what drew me to apply.\n\n"
+    "I bring published ML research (Springer) combined with around 2 years of production "
+    "engineering. That combination of research and delivery is what I bring to the table. I'm "
+    "finishing my Master's in CS at Northeastern (3.66 GPA) and that experience directly translates "
+    "here. I'm confident I can contribute from day one.\n\n"
+    "I would love the opportunity to discuss this further and demonstrate what I can bring. Resume attached.\n\n"
+    "Best regards,\nPrasad Kanade"
+)
+
+_REC_BODY_DA = (
+    "Hi {first},\n\n"
+    "I applied for the {title} | {job_id} role at {company} and I'm genuinely excited about this "
+    "opportunity. I've been following {company}'s engineering work and the direction the team is "
+    "taking is exactly what drew me to apply.\n\n"
+    "I have around 2 years of production data engineering experience combined with published ML "
+    "research and a Master's in CS from Northeastern (3.66 GPA). That experience directly "
+    "translates here and I'm confident I can contribute from day one.\n\n"
+    "I would love the opportunity to discuss this further and demonstrate what I can bring. Resume attached.\n\n"
+    "Best regards,\nPrasad Kanade"
+)
+
+REC_BODIES = {"SDE": _REC_BODY_SDE, "ML": _REC_BODY_ML, "DA": _REC_BODY_DA}
+REC_BODY = _REC_BODY_SDE
 
 PAT_A = ["{first}.{last}", "{f}{last}", "{first}{last}"]
 PAT_B = [
