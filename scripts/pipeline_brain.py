@@ -27,7 +27,10 @@ from datetime import datetime, timedelta
 from collections import Counter
 
 log = logging.getLogger(__name__)
-BRAIN_FILE = ".local/brain.json"
+BRAIN_FILE = os.path.join(
+    os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+    ".local", "brain.json")
+BRAIN_LOCK = BRAIN_FILE + ".lock"
 
 
 class PipelineBrain:
@@ -59,8 +62,23 @@ class PipelineBrain:
             return
         try:
             os.makedirs(os.path.dirname(BRAIN_FILE), exist_ok=True)
-            with open(BRAIN_FILE, "w") as f:
-                json.dump(self.data, f, indent=2)
+            import fcntl, tempfile
+            with open(BRAIN_LOCK, "w") as _lk:
+                fcntl.flock(_lk, fcntl.LOCK_EX)
+                disk = {}
+                if os.path.exists(BRAIN_FILE):
+                    try:
+                        with open(BRAIN_FILE) as _f:
+                            disk = json.load(_f)
+                    except Exception:
+                        disk = {}
+                disk.update(self.data)
+                _fd, _tmp = tempfile.mkstemp(dir=os.path.dirname(BRAIN_FILE), suffix=".tmp")
+                with os.fdopen(_fd, "w") as _f:
+                    json.dump(disk, _f, indent=2)
+                os.replace(_tmp, BRAIN_FILE)
+                self.data = disk
+                fcntl.flock(_lk, fcntl.LOCK_UN)
             self._dirty = False
         except Exception as e:
             log.error(f"Brain save failed: {e}")
