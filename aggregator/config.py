@@ -2981,7 +2981,6 @@ TITLE_ENCODING_FIXES = {
     "&amp;": "&",
     "&lt;": "<",
     "&gt;": ">",
-    " a ": " - ",                    # "Applied a Reinforcement" spacing artifact
 }
 
 COMPANY_NAME_FIXES = {
