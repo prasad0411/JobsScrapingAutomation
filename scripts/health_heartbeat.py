@@ -206,6 +206,22 @@ def check_health():
     except Exception as e:
         log.debug(f"Sheet check failed: {e}")
 
+    # CHECK 7: ATS discovery producing companies?
+    try:
+        import json as _json
+        b = _json.load(open(os.path.join(BASE, ".local", "brain.json")))
+        disc = b.get("discovered_ats", {})
+        total_disc = sum(len(v) for v in disc.values() if isinstance(v, dict))
+        if total_disc < 20:
+            alerts.append(
+                f"ATS DISCOVERY WEAK: only {total_disc} companies discovered "
+                f"(expected 100+; extractor may be missing URL formats)"
+            )
+        state["last_discovered_count"] = total_disc
+        log.info(f"ATS discovery: {total_disc} companies in cache")
+    except Exception as e:
+        log.debug(f"ATS discovery check failed: {e}")
+
     # Save state
     state["last_check"] = now.isoformat()
     save_state(state)
