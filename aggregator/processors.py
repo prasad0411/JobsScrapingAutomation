@@ -168,7 +168,7 @@ class TitleProcessor:
 
         # Strip company name prefix from title: "Company - Title" or "Company: Title"
         import re as _prefix_re
-        _prefix_match = _prefix_re.match(r"^[A-Z][A-Za-z\s&.,'-]{2,30}\s*[-–—:]\s*(.+)$", title)
+        _prefix_match = _prefix_re.match(r"^[A-Z][A-Za-z\s&.,']{2,30}(?:\s+[-–—]\s+|:\s*)(.+)$", title)
         if _prefix_match:
             _remainder = _prefix_match.group(1).strip()
             # Only strip if remainder looks like a job title (has job words)
