@@ -346,10 +346,10 @@ class Sheets:
                     import urllib.parse as _up
                     _loc_clean = _v_location.replace(",", "").strip() if _v_location else ""
                     if not nr[C["hm_li"]] or nr[C["hm_li"]].startswith("https://www.google.com"):
-                        _q = f"{co} Software Engineering Manager {_loc_clean} LinkedIn".strip()
+                        _q = f'site:linkedin.com/in/ "{co}" (manager OR lead OR director) engineering'.strip()
                         nr[C["hm_li"]] = f"https://www.google.com/search?q={_up.quote_plus(_q)}"
                     if not nr[C["rec_li"]] or nr[C["rec_li"]].startswith("https://www.google.com"):
-                        _q = f"{co} Technical Recruiter LinkedIn".strip()
+                        _q = f'site:linkedin.com/in/ "{co}" (recruiter OR "talent acquisition" OR "university recruiter")'.strip()
                         nr[C["rec_li"]] = f"https://www.google.com/search?q={_up.quote_plus(_q)}"
                 # NEVER touch LinkedIn URL columns (F, J) — user enters these manually
                 # Explicitly preserve LinkedIn URLs from existing row
@@ -390,10 +390,10 @@ class Sheets:
                         import urllib.parse as _up
                         _loc_clean = _v_location.replace(",", "").strip() if _v_location else ""
                         if not nr[C["hm_li"]]:
-                            _q = f"{co} Software Engineering Manager {_loc_clean} LinkedIn".strip()
+                            _q = f'site:linkedin.com/in/ "{co}" (manager OR lead OR director) engineering'.strip()
                             nr[C["hm_li"]] = f"https://www.google.com/search?q={_up.quote_plus(_q)}"
                         if not nr[C["rec_li"]]:
-                            _q = f"{co} Technical Recruiter LinkedIn".strip()
+                            _q = f'site:linkedin.com/in/ "{co}" (recruiter OR "talent acquisition" OR "university recruiter")'.strip()
                             nr[C["rec_li"]] = f"https://www.google.com/search?q={_up.quote_plus(_q)}"
 
                     # AUTO-FILL: exact role match first
