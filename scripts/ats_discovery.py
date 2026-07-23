@@ -93,22 +93,22 @@ class ATSDiscoveryEngine:
             url_lower = url.lower()
 
             # Greenhouse: boards.greenhouse.io/{slug}/ or job-boards.greenhouse.io/{slug}/
-            gh_match = re.search(r"(?:boards|job-boards)\.greenhouse\.io/([a-z0-9_-]+)/", url_lower)
+            gh_match = re.search(r"(?:boards|job-boards|boards-api)\.greenhouse\.io/(?:v1/boards/)?([a-z0-9_-]+)", url_lower)
             if gh_match:
                 slug = gh_match.group(1)
-                if slug not in ("embed", "internal", "api"):
+                if slug not in ("embed", "internal", "api", "v1", "boards"):
                     new_slugs["greenhouse"].add(slug)
 
             # Lever: jobs.lever.co/{slug}/
-            lv_match = re.search(r"jobs\.lever\.co/([a-z0-9_-]+)/", url_lower)
+            lv_match = re.search(r"(?:jobs|api)\.lever\.co/(?:v0/postings/)?([a-z0-9_-]+)", url_lower)
             if lv_match:
                 new_slugs["lever"].add(lv_match.group(1))
 
             # Ashby: jobs.ashbyhq.com/{slug}/
-            ab_match = re.search(r"jobs\.ashbyhq\.com/([a-z0-9._-]+)/", url_lower)
+            ab_match = re.search(r"ashbyhq\.com/(?:posting-api/job-board/)?([a-z0-9._-]+)", url_lower)
             if ab_match:
                 slug = ab_match.group(1)
-                if slug not in ("api", "embed"):
+                if slug not in ("api", "embed", "posting-api", "job-board"):
                     new_slugs["ashby"].add(slug)
 
         return new_slugs
