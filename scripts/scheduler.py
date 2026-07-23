@@ -105,14 +105,45 @@ def wait_for_network(max_wait=300):
     log.warning("No network after 5min — proceeding anyway")
     return False
 
+def _lock_path(name):
+    return os.path.join(BASE, ".local", f"task_{name}.lock")
+
+def _acquire_disk_lock(name):
+    """Cross-process lock that survives scheduler restarts.
+    Returns True if we got the lock, False if task genuinely running."""
+    lp = _lock_path(name)
+    os.makedirs(os.path.dirname(lp), exist_ok=True)
+    if os.path.exists(lp):
+        try:
+            old_pid = int(open(lp).read().strip())
+            os.kill(old_pid, 0)  # raises if pid is dead
+            return False          # pid alive -> really running
+        except (ValueError, ProcessLookupError, PermissionError):
+            log.warning(f"Reclaiming stale lock for {name} (dead pid)")
+        except Exception:
+            return False
+    open(lp, "w").write(str(os.getpid()))
+    return True
+
+def _release_disk_lock(name):
+    try:
+        os.remove(_lock_path(name))
+    except Exception:
+        pass
+
 def run_job(job):
     name = job["name"]
     timeout = job.get("timeout", 600)
     with _running_lock:
         if _running.get(name):
-            log.info(f"⏭ Skipping {name} — already running")
+            log.info(f"⏭ Skipping {name} — already running (in-process)")
             return
         _running[name] = True
+    if not _acquire_disk_lock(name):
+        log.info(f"⏭ Skipping {name} — already running (another process)")
+        with _running_lock:
+            _running[name] = False
+        return
     try:
         wait_for_network(300)
         log.info(f"▶ Running: {name}")
@@ -132,6 +163,7 @@ def run_job(job):
     except Exception as e:
         log.error(f"✗ {name} error: {e}")
     finally:
+        _release_disk_lock(name)
         with _running_lock:
             _running[name] = False
 
