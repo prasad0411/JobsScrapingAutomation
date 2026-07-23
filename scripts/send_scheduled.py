@@ -402,7 +402,8 @@ def main():
         msg_id   = msg["id"]
         subject  = msg.get("subject", "")
         recips   = [r["emailAddress"]["address"]
-                    for r in msg.get("toRecipients", []) if r.get("emailAddress")]
+                    for r in msg.get("toRecipients", [])
+                    if r.get("emailAddress", {}).get("address")]
         to_email = recips[0] if recips else ""
 
         if not to_email:
