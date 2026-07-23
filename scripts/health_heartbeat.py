@@ -82,13 +82,18 @@ def check_health():
     lines = get_recent_log_lines(hours=12)
 
     # ── CHECK 1: Discarded writes working? ──
-    recent_rejections = sum(1 for l in lines if "REJECTED" in l and "SUMMARY" not in l)
     last_valid, last_discarded = get_last_summary(lines)
-
-    if recent_rejections > 10 and (last_discarded is not None and last_discarded == 0):
+    # Count rejections only AFTER the last SUMMARY line, so we compare the
+    # same run's rejections against that run's discarded count (not 12h of runs).
+    _last_summary_idx = max((i for i, l in enumerate(lines) if "SUMMARY:" in l), default=-1)
+    run_rejections = sum(1 for l in lines[_last_summary_idx+1:]
+                         if "REJECTED" in l and "SUMMARY" not in l)
+    # Also require the run produced NEW valid entries; an all-duplicate re-run
+    # legitimately writes 0 discarded.
+    if run_rejections > 10 and last_discarded == 0 and (last_valid or 0) > 0:
         alerts.append(
-            f"DISCARDED WRITES MAY BE BROKEN: {recent_rejections} rejections logged "
-            f"but {last_discarded} discarded written"
+            f"DISCARDED WRITES MAY BE BROKEN: {run_rejections} rejections in last run "
+            f"but 0 discarded written"
         )
 
     # ── CHECK 2: Valid writes working? ──
