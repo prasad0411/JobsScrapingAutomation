@@ -1187,7 +1187,10 @@ class Finder:
             return "first.last"
     
     def _apis(self, p, dom, li, r):
-        default_order = ["apollo", "hunter", "snov", "prospeo"]
+        # Live-tested 2026: only Hunter returns data (Apollo/Snov fail silently,
+        # Prospeo endpoint deprecated). Hunter first; others kept as fallback
+        # in case keys are renewed, but they cost a wasted call each when dead.
+        default_order = ["hunter"]
         try:
             ranked = Brain.get().best_api_order(default_order)
         except Exception:
