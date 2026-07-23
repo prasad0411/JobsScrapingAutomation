@@ -430,6 +430,37 @@ class ManualCleanup:
             time.sleep(2)
             print(f"  ✓ Reviewed sheet now has {1000 + available_rows} available rows")
 
+        # DEDUP GUARD: skip jobs already in the Reviewed tab.
+        _existing = set()
+        for _r in reviewed_data[1:]:
+            _jid = (_r[5].strip().lower() if len(_r) > 5 else "")
+            if _jid and _jid not in ("n/a", ""):
+                _existing.add(_jid)
+            else:
+                _existing.add((
+                    (_r[2].strip().lower() if len(_r) > 2 else ""),
+                    (_r[3].strip().lower() if len(_r) > 3 else ""),
+                    (_r[4].strip().lower() if len(_r) > 4 else ""),
+                ))
+        _fresh, _skipped = [], 0
+        for row in rows_to_move:
+            jid = self._get_cell(row, 5).strip().lower()
+            key = jid if jid and jid not in ("n/a", "") else (
+                self._get_cell(row, 2).strip().lower(),
+                self._get_cell(row, 3).strip().lower(),
+                self._get_cell(row, 6).strip().lower(),
+            )
+            if key in _existing:
+                _skipped += 1
+                continue
+            _existing.add(key)
+            _fresh.append(row)
+        if _skipped:
+            print(f"  Dedup guard: skipped {_skipped} already-reviewed jobs")
+        rows_to_move = _fresh
+        if not rows_to_move:
+            print("  All jobs already in Reviewed tab - nothing to move")
+            return
         next_row = len(reviewed_data) + 1
 
         reviewed_rows = [
