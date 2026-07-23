@@ -58,8 +58,11 @@ def fix_company_slug(company: str) -> str:
     """
     if not company:
         return company
-    learned = _brain().get("learned_slugs", {})
-    return learned.get(company.strip().lower(), company)
+    key = company.strip().lower()
+    b = _brain()
+    return (b.get("learned_slugs", {}).get(key)
+            or b.get("learned_company_names", {}).get(key)
+            or company)
 
 
 def is_learned_non_tech(title: str) -> bool:

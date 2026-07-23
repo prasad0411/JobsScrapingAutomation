@@ -3484,6 +3484,11 @@ class ValidationHelper:
         """ORIGINAL + FIX 5: strip leading The/trailing Companies/Group/Holdings"""
         if not company:
             return company
+        try:
+            from aggregator.apply_learned import fix_company_slug
+            company = fix_company_slug(company)
+        except Exception:
+            pass
         company = re.sub(r"^\d+\s+|^[A-Z]{2,4}[-\s]", "", company)
         company = re.sub(
             r",?\s+(Inc\.?|LLC\.?|Corp\.?|Ltd\.?)$", "", company, flags=re.I
