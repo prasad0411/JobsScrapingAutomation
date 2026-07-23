@@ -265,6 +265,16 @@ class Finder:
             else:
                 log.info(f"Name field was LinkedIn URL but extraction failed: {name}")
 
+        # Guard: reject search-placeholder / URL / garbage names BEFORE building any email.
+        # Prevents fake addresses like "search?q=ryder+recruiter+linkedin@ryder.com".
+        _nm = (name or "").strip()
+        if (not _nm or "http" in _nm.lower() or "search?q=" in _nm.lower()
+                or "/" in _nm or "+" in _nm or "@" in _nm
+                or "linkedin.com" in _nm.lower()):
+            log.info(f"Rejected non-name input (no email built): {name!r}")
+            r["error"] = "no valid name (URL/search placeholder)"
+            return r
+
         # Check Brain for previously verified contact for this company+role
         try:
             from outreach.brain import Brain
