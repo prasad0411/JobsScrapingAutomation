@@ -371,9 +371,26 @@ def main():
         _be = json.load(open(_BOUNCED_F))  if os.path.exists(_BOUNCED_F)  else {}
     except Exception:
         _bl, _be = {}, {}
+    # Also load pattern blacklist (bad-pattern domains that may not have hard-bounced)
+    _PBL_F = os.path.join(_LOCAL, "pattern_blacklist.json")
+    try:
+        _pbl = json.load(open(_PBL_F)) if os.path.exists(_PBL_F) else {}
+    except Exception:
+        _pbl = {}
     all_bounced = set(list(_bl.keys()) + list(_be.keys()))
+    _blacklisted_domains = {str(k).lower() for k in _pbl.keys()}
+    # Load confirmed email patterns so we can flag unconfirmed-domain guesses
+    _DPH_F = os.path.join(_LOCAL, "domain_pattern_history.json")
+    try:
+        _dph = json.load(open(_DPH_F)) if os.path.exists(_DPH_F) else {}
+    except Exception:
+        _dph = {}
+    _confirmed_domains = {str(k).lower() for k, v in _dph.items()
+                          if isinstance(v, dict) and v.get("confirmed_pattern")}
     if all_bounced:
         log.info(f"Bounce skip list: {len(all_bounced)} addresses loaded")
+    log.info(f"Blacklisted domains: {len(_blacklisted_domains)} | "
+             f"Confirmed-pattern domains: {len(_confirmed_domains)}")
 
     ws    = None  # lazy — only loaded if we actually send
 
@@ -432,6 +449,18 @@ def main():
         if to_email.lower() in all_bounced:
             log.info(f"Bounce skip: {to_email} (previously bounced)")
             print(f"  ⊘ Skipped (bounced): {to_email}")
+            skipped += 1; continue
+        _dom = to_email.split("@")[-1].lower()
+        # Skip blacklisted-pattern domains
+        if _dom in _blacklisted_domains:
+            log.info(f"Blacklist skip: {to_email} (domain {_dom} blacklisted)")
+            print(f"  ⊘ Skipped (blacklisted domain): {to_email}")
+            skipped += 1; continue
+        # Skip guessed addresses on domains whose pattern was never confirmed,
+        # unless confidence is high. Protects sender reputation from bad guesses.
+        if _dom not in _confirmed_domains and conf_val < 70:
+            log.info(f"Unconfirmed-domain skip: {to_email} conf={conf_val} (never confirmed {_dom})")
+            print(f"  ⊘ Skipped (unconfirmed domain, guess): {to_email}")
             skipped += 1; continue
 
         # Pre-send MX check: verify domain can still receive email
