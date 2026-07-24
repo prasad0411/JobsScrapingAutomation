@@ -1,3 +1,4 @@
+import re
 #!/usr/bin/env python3
 """Outreach Pipeline — Data Layer (Sheets, Credits, NameParser, PatternCache)."""
 from outreach.brain import Brain
@@ -310,6 +311,13 @@ class Sheets:
             _v_status = row[1].strip() if len(row) > 1 else ""
             _v_location = row[8].strip() if len(row) > 8 else ""
             _v_role = (row[9].strip().upper() if len(row) > 9 else "")
+            def _clean_city(loc):
+                if not loc or loc.strip().lower() in ("unknown", "n/a", ""):
+                    return ""
+                # split on comma OR mangled " - " ; take first part (the city)
+                c = re.split(r"\s*[,\-]\s*", loc.strip())[0].strip()
+                # drop if it's just a 2-letter state code
+                return "" if len(c) <= 2 else c
             _hm_term = {"ML": "machine learning manager", "DA": "analytics manager"}.get(_v_role, "engineering manager")
             # FILTER: Only include jobs that are Applied or previously tracked
             _has_existing = False
@@ -348,12 +356,12 @@ class Sheets:
                     import urllib.parse as _up
                     _loc_clean = _v_location.replace(",", "").strip() if _v_location else ""
                     if not nr[C["hm_li"]] or nr[C["hm_li"]].startswith("https://www.google.com"):
-                        _city = _v_location.split(",")[0].strip() if _v_location and _v_location.strip().lower() not in ("unknown","n/a","") else ""
+                        _city = _clean_city(_v_location)
                         _kw = f"{co} {_hm_term} {_city}".strip()
                         _geo = "&geoUrn=%5B%22103644278%22%5D"
                         nr[C["hm_li"]] = f"https://www.linkedin.com/search/results/people/?keywords={_up.quote_plus(_kw)}{_geo}"
                     if not nr[C["rec_li"]] or nr[C["rec_li"]].startswith("https://www.google.com"):
-                        _city = _v_location.split(",")[0].strip() if _v_location and _v_location.strip().lower() not in ("unknown","n/a","") else ""
+                        _city = _clean_city(_v_location)
                         _kw = f"{co} recruiter {_city}".strip()
                         _geo = "&geoUrn=%5B%22103644278%22%5D"
                         nr[C["rec_li"]] = f"https://www.linkedin.com/search/results/people/?keywords={_up.quote_plus(_kw)}{_geo}"
@@ -396,11 +404,11 @@ class Sheets:
                         import urllib.parse as _up
                         _loc_clean = _v_location.replace(",", "").strip() if _v_location else ""
                         if not nr[C["hm_li"]]:
-                            _city2 = _v_location.split(",")[0].strip() if _v_location and _v_location.strip().lower() not in ("unknown","n/a","") else ""
+                            _city2 = _clean_city(_v_location)
                             _kw2 = f"{co} {_hm_term} {_city2}".strip()
                             nr[C["hm_li"]] = f"https://www.linkedin.com/search/results/people/?keywords={_up.quote_plus(_kw2)}&geoUrn=%5B%22103644278%22%5D"
                         if not nr[C["rec_li"]]:
-                            _city3 = _v_location.split(",")[0].strip() if _v_location and _v_location.strip().lower() not in ("unknown","n/a","") else ""
+                            _city3 = _clean_city(_v_location)
                             _kw3 = f"{co} recruiter {_city3}".strip()
                             nr[C["rec_li"]] = f"https://www.linkedin.com/search/results/people/?keywords={_up.quote_plus(_kw3)}&geoUrn=%5B%22103644278%22%5D"
 
