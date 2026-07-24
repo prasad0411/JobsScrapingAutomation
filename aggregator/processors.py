@@ -130,6 +130,8 @@ class TitleProcessor:
     @lru_cache(maxsize=512)
     def clean_title_aggressive(title):
         title = re.sub(r"^[:\s]+", "", title).strip()  # strip leading colon/space
+        # collapse spaced compounds so prefix logic cannot eat them
+        title = re.sub(r"\b(Full|Back|Front|End|Co|Part)\s+-\s+(Stack|End|Front|Op|Time|Site)\b", r"\1-\2", title, flags=re.I)
         # Strip known garbage prefixes: "Pipeline RR:", "XMLNAME-", etc.
         title = re.sub(r"^Pipeline\s+\w+:\s*", "", title, flags=re.I).strip()
         title = re.sub(r"^XMLNAME[-\s]*", "", title, flags=re.I).strip()
