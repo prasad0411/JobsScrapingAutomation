@@ -309,6 +309,8 @@ class Sheets:
             # Get status and location from Valid Entries
             _v_status = row[1].strip() if len(row) > 1 else ""
             _v_location = row[8].strip() if len(row) > 8 else ""
+            _v_role = (row[9].strip().upper() if len(row) > 9 else "")
+            _hm_term = {"ML": "machine learning manager", "DA": "analytics manager"}.get(_v_role, "engineering manager")
             # FILTER: Only include jobs that are Applied or previously tracked
             _has_existing = False
             if jid_clean:
@@ -346,11 +348,15 @@ class Sheets:
                     import urllib.parse as _up
                     _loc_clean = _v_location.replace(",", "").strip() if _v_location else ""
                     if not nr[C["hm_li"]] or nr[C["hm_li"]].startswith("https://www.google.com"):
-                        _q = f'site:linkedin.com/in/ "{co}" (manager OR lead OR director) engineering'.strip()
-                        nr[C["hm_li"]] = f"https://www.google.com/search?q={_up.quote_plus(_q)}"
+                        _city = _v_location.split(",")[0].strip() if _v_location and _v_location.strip().lower() not in ("unknown","n/a","") else ""
+                        _kw = f"{co} {_hm_term} {_city}".strip()
+                        _geo = "&geoUrn=%5B%22103644278%22%5D"
+                        nr[C["hm_li"]] = f"https://www.linkedin.com/search/results/people/?keywords={_up.quote_plus(_kw)}{_geo}"
                     if not nr[C["rec_li"]] or nr[C["rec_li"]].startswith("https://www.google.com"):
-                        _q = f'site:linkedin.com/in/ "{co}" (recruiter OR "talent acquisition" OR "university recruiter")'.strip()
-                        nr[C["rec_li"]] = f"https://www.google.com/search?q={_up.quote_plus(_q)}"
+                        _city = _v_location.split(",")[0].strip() if _v_location and _v_location.strip().lower() not in ("unknown","n/a","") else ""
+                        _kw = f"{co} recruiter {_city}".strip()
+                        _geo = "&geoUrn=%5B%22103644278%22%5D"
+                        nr[C["rec_li"]] = f"https://www.linkedin.com/search/results/people/?keywords={_up.quote_plus(_kw)}{_geo}"
                 # NEVER touch LinkedIn URL columns (F, J) — user enters these manually
                 # Explicitly preserve LinkedIn URLs from existing row
                 for li_col in [C["hm_li"], C["rec_li"]]:
@@ -390,11 +396,13 @@ class Sheets:
                         import urllib.parse as _up
                         _loc_clean = _v_location.replace(",", "").strip() if _v_location else ""
                         if not nr[C["hm_li"]]:
-                            _q = f'site:linkedin.com/in/ "{co}" (manager OR lead OR director) engineering'.strip()
-                            nr[C["hm_li"]] = f"https://www.google.com/search?q={_up.quote_plus(_q)}"
+                            _city2 = _v_location.split(",")[0].strip() if _v_location and _v_location.strip().lower() not in ("unknown","n/a","") else ""
+                            _kw2 = f"{co} {_hm_term} {_city2}".strip()
+                            nr[C["hm_li"]] = f"https://www.linkedin.com/search/results/people/?keywords={_up.quote_plus(_kw2)}&geoUrn=%5B%22103644278%22%5D"
                         if not nr[C["rec_li"]]:
-                            _q = f'site:linkedin.com/in/ "{co}" (recruiter OR "talent acquisition" OR "university recruiter")'.strip()
-                            nr[C["rec_li"]] = f"https://www.google.com/search?q={_up.quote_plus(_q)}"
+                            _city3 = _v_location.split(",")[0].strip() if _v_location and _v_location.strip().lower() not in ("unknown","n/a","") else ""
+                            _kw3 = f"{co} recruiter {_city3}".strip()
+                            nr[C["rec_li"]] = f"https://www.linkedin.com/search/results/people/?keywords={_up.quote_plus(_kw3)}&geoUrn=%5B%22103644278%22%5D"
 
                     # AUTO-FILL: exact role match first
                     for _role, _col_name, _col_email in [
