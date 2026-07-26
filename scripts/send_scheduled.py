@@ -336,6 +336,17 @@ def _rec_sent(sl, email, subj):
 
 # ── main ──────────────────────────────────────────────────────────────────────
 
+
+_LIVE_FINDER = None
+def _get_live_finder():
+    global _LIVE_FINDER
+    if _LIVE_FINDER is None:
+        from outreach.outreach_data import Credits
+        from outreach.outreach_finder import Finder
+        _LIVE_FINDER = Finder(Credits())
+    return _LIVE_FINDER
+
+
 def main():
     # Run applied trigger first — sets Extract=yes for newly Applied jobs
     try:
@@ -456,12 +467,29 @@ def main():
             log.info(f"Blacklist skip: {to_email} (domain {_dom} blacklisted)")
             print(f"  ⊘ Skipped (blacklisted domain): {to_email}")
             skipped += 1; continue
-        # Skip guessed addresses on domains whose pattern was never confirmed,
-        # unless confidence is high. Protects sender reputation from bad guesses.
+        # Unconfirmed domain + low confidence: try LIVE verification before sending.
+        # Correctness over volume — only send if the mailbox is actually verified.
         if _dom not in _confirmed_domains and conf_val < 70:
-            log.info(f"Unconfirmed-domain skip: {to_email} conf={conf_val} (never confirmed {_dom})")
-            print(f"  ⊘ Skipped (unconfirmed domain, guess): {to_email}")
-            skipped += 1; continue
+            _verified_ok = False
+            try:
+                from outreach.outreach_data import Credits
+                from outreach.outreach_finder import Finder
+                _fin = _get_live_finder()
+                _vres = _fin.verifier.verify(to_email, _dom)
+                _vconf = _vres.get("confidence", 0)
+                _vsrc = _vres.get("source", "?")
+                if _vconf >= 75:
+                    _verified_ok = True
+                    log.info(f"Live-verified {to_email} conf={_vconf} ({_vsrc}) - sending")
+                    print(f"  ✓ Live-verified ({_vconf}, {_vsrc}): {to_email}")
+                else:
+                    log.info(f"Live-verify failed {to_email} conf={_vconf} ({_vsrc}) - skip")
+                    print(f"  ⊘ Skipped (unverified, conf={_vconf}): {to_email}")
+            except Exception as _ve:
+                log.warning(f"Live-verify error {to_email}: {_ve} - skip (safe)")
+                print(f"  ⊘ Skipped (verify error, safe): {to_email}")
+            if not _verified_ok:
+                skipped += 1; continue
 
         # Pre-send MX check: verify domain can still receive email
         try:
