@@ -2090,7 +2090,7 @@ class LocationProcessor:
         # Fix common location typos
         location = re.sub(r"St,\s", "St. ", location)  # "St, Louis" → "St. Louis"
         # Fix "WA, DC" → "Washington, DC"
-        if location.strip() in ("WA, DC", "WA DC"):
+        if location.strip() in ("WA, DC", "WA DC", "WA, D, C,", "WA, D, C", "WA, D. C."):
             location = "Washington, DC"
         # Fix known abbreviations
         _abbrev_fixes = {
