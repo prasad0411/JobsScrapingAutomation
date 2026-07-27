@@ -1208,6 +1208,20 @@ class Finder:
             res = fn()
             if res and res["status"] in ("Valid", "Manual Review"):
                 return res
+        # FALLBACK: try public web + company site (safe, no LinkedIn) as last resort.
+        try:
+            from outreach.public_email_finder import find_public_email
+            _dom_pf = dom or (job_url_domain or "")
+            if _dom_pf and p.get("fna") and p.get("lna"):
+                _full = f"{p['fna']} {p['lna']}"
+                _pub = find_public_email(_full, company, _dom_pf, verifier=getattr(self, 'verifier', None))
+                if _pub and _pub.get("email"):
+                    log.info(f"Public-web fallback found {_pub['email']} ({_pub['source']})")
+                    r["email"]=_pub["email"]; r["confidence"]=_pub["confidence"]
+                    r["source"]=_pub["source"]; r["status"]="Valid"; r["error"]=""
+                    return r
+        except Exception as _pfe:
+            log.debug(f"Public fallback error: {_pfe}")
         r["error"] = "All methods exhausted"
         return r
 
