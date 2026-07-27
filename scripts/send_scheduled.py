@@ -400,6 +400,14 @@ def main():
                           if isinstance(v, dict) and v.get("confirmed_pattern")}
     if all_bounced:
         log.info(f"Bounce skip list: {len(all_bounced)} addresses loaded")
+    # A/B verify mode: A=definitive-provider only (strict), B=also Reacher-safe-if-not-catchall
+    try:
+        import json as _json_m
+        _mode_data = _json_m.load(open(os.path.join(_LOCAL, "send_verify_mode.json")))
+        _VERIFY_MODE = _mode_data.get("mode", "A")
+    except Exception:
+        _VERIFY_MODE = "A"
+    log.info(f"Verify mode: {_VERIFY_MODE}")
     log.info(f"Blacklisted domains: {len(_blacklisted_domains)} | "
              f"Confirmed-pattern domains: {len(_confirmed_domains)}")
 
@@ -478,13 +486,45 @@ def main():
                 _vres = _fin.verifier.verify(to_email, _dom)
                 _vconf = _vres.get("confidence", 0)
                 _vsrc = _vres.get("source", "?")
-                if _vconf >= 75:
+                _vsrc_l = str(_vsrc).lower()
+                _vdef = any(x in _vsrc_l for x in ("google", "gxlu", "microsoft", "365"))
+                _vreacher_ok = ("reacher" in _vsrc_l and "catchall" not in _vsrc_l)
+                _v_accept = (_vconf >= 85 and _vdef) or (_VERIFY_MODE == "B" and _vconf >= 80 and _vreacher_ok)
+                if _v_accept:
                     _verified_ok = True
                     log.info(f"Live-verified {to_email} conf={_vconf} ({_vsrc}) - sending")
                     print(f"  ✓ Live-verified ({_vconf}, {_vsrc}): {to_email}")
                 else:
-                    log.info(f"Live-verify failed {to_email} conf={_vconf} ({_vsrc}) - skip")
-                    print(f"  ⊘ Skipped (unverified, conf={_vconf}): {to_email}")
+                    # Single address failed. Try a full pattern SWEEP for this
+                    # person+domain (right name, wrong format case). Reuses the
+                    # finder's catch-all-guarded sweep; sends corrected addr if found.
+                    _swept = None
+                    try:
+                        _local = to_email.split("@")[0]
+                        _name_guess = _local.replace(".", " ").replace("_", " ").replace("-", " ").strip()
+                        if _name_guess and len(_name_guess.split()) >= 2:
+                            _sweep = _get_live_finder().find(_name_guess, company, job_url_domain=_dom)
+                            _se = (_sweep.get("email") or "").lower()
+                            _sc = _sweep.get("confidence", 0)
+                            _ssrc = str(_sweep.get("source", "")).lower()
+                            # Only trust DEFINITIVE provider confirmation for auto-send.
+                            # Reacher "safe" alone false-positives on accept-then-bounce
+                            # domains (e.g. coherent.com), so it is NOT sufficient.
+                            _definitive = any(x in _ssrc for x in ("google", "gxlu", "microsoft", "365"))
+                            _reacher_ok = ("reacher" in _ssrc and "catchall" not in _ssrc)
+                            _sweep_accept = (_sc >= 85 and _definitive) or (_VERIFY_MODE == "B" and _sc >= 80 and _reacher_ok)
+                            if _se and _se != to_email and _sweep_accept:
+                                _swept = _se
+                                log.info(f"Pattern sweep found {_se} conf={_sc} (was {to_email})")
+                                print(f"  ↺ Sweep corrected {to_email} -> {_se} (conf={_sc})")
+                    except Exception as _swe:
+                        log.warning(f"Pattern sweep error for {to_email}: {_swe}")
+                    if _swept:
+                        to_email = _swept
+                        _verified_ok = True
+                    else:
+                        log.info(f"Live-verify + sweep failed {to_email} conf={_vconf} ({_vsrc}) - skip")
+                        print(f"  ⊘ Skipped (unverified + sweep failed): {to_email}")
             except Exception as _ve:
                 log.warning(f"Live-verify error {to_email}: {_ve} - skip (safe)")
                 print(f"  ⊘ Skipped (verify error, safe): {to_email}")
