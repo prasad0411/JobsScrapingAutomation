@@ -254,7 +254,11 @@ class SheetsManager:
                 job_id = row[6].strip() if len(row) > 6 else ""
 
                 if company and title:
-                    key = self._normalize(f"{company}_{title}")
+                    # Strip LLC/Inc/Corp/(...) to MATCH _is_duplicate key (dedup hole fix)
+                    import re as _cc
+                    _co_clean = _cc.sub(r",?\s*(Inc\.?|LLC|Ltd\.?|Corp\.?|L\.?P\.?)\s*$", "", company, flags=_cc.I).strip()
+                    _co_clean = _cc.sub(r"\s*\([^)]+\)\s*$", "", _co_clean).strip()
+                    key = self._normalize(f"{_co_clean}_{title}")
                     existing["jobs"].add(key)
                     existing["cache"][key] = {
                         "company": company,
