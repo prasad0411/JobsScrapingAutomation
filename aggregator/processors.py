@@ -1593,6 +1593,7 @@ class LocationProcessor:
         if not location:
             return "Unknown"
         loc = location.strip()
+        loc = re.sub(r"\s*\((?:On[,\s-]*site|Remote|Hybrid)\)\s*$", "", loc, flags=re.I).strip()
 
         # "Work from Home" variants → Remote
         wfh_patterns = [
