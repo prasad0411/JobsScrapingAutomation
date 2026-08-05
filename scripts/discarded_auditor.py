@@ -398,9 +398,13 @@ class DiscardedAuditor:
             remote = row_data[10] if len(row_data) > 10 else "Unknown"
             source = row_data[12] if len(row_data) > 12 else "Rescued"
 
+            # Entry Date gets a PROPER date (DD-Mon-YYYY, matching other rows);
+            # the rescue marker moves to Notes (col 14) so it never corrupts the date.
+            _entry_date = datetime.now().strftime("%d-%b-%Y")
+            _rescue_note = f"Rescued {self._format_date()}"
             new_row = [str(next_sr), "Not Applied", company, title, "N/A",
                       url, job_id, job_type, location, resume, remote,
-                      f"Rescued {self._format_date()}", source, "Unknown"]
+                      _entry_date, source, "Unknown", _rescue_note]
             rows_to_add.append(new_row)
             existing_keys.add(key)
 
