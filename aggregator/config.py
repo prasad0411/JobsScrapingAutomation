@@ -2079,7 +2079,7 @@ COMPANY_NAME_STOPWORDS = [
 ]
 
 JOB_ID_PATTERNS = [
-    (r"/jobs?/(\d{10})", 0.96),
+    (r"/jobs?/(\d{10,})", 0.96),
     (r"gh_jid=(\d{7,})", 0.96),
     (r"[?&]token=(\d{10})", 0.96),
     (r"/jobs?/(\d{6,})", 0.94),

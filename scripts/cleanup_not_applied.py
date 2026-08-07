@@ -50,7 +50,7 @@ class ManualCleanup:
         "Not Applied": {"red": 0.6, "green": 0.76, "blue": 1.0},
         "Applied": {"red": 0.58, "green": 0.93, "blue": 0.31},
         "Rejected": {"red": 0.97, "green": 0.42, "blue": 0.42},
-        "Screening": {"red": 1.0, "green": 0.85, "blue": 0.4},
+        "Screening": {"red": 0.71, "green": 0.49, "blue": 0.86},
         "OA Round 1": {"red": 1.0, "green": 0.95, "blue": 0.4},
         "OA Round 2": {"red": 1.0, "green": 0.95, "blue": 0.4},
         "Interview 1": {"red": 0.82, "green": 0.93, "blue": 0.94},

@@ -864,7 +864,8 @@ class JobIDExtractor:
 
         # Career sites often have misleading IDs in URLs (LinkedIn source IDs, etc.)
         # Lower confidence so page text extraction wins
-        career_domains = ["disneycareers.com", "careers.google.com", "careers.", "jobs.",
+        career_domains = ["disneycareers.com", "careers.google.com", "careers.",
+                          "eightfold.ai", "careers.microsoft", "jobs.",
                           "?source=LINKEDIN", "?utm_source="]
         is_career_site = any(cd in url.lower() for cd in career_domains)
 
