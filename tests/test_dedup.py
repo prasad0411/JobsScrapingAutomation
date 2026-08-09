@@ -42,3 +42,16 @@ class TestJobIDDedup:
     def test_empty_id_not_duplicate(self, brain):
         assert not brain.is_duplicate_job_id("")
         assert not brain.is_duplicate_job_id("N/A")
+
+
+class TestRunScopedJobIDDedup:
+    """Same numeric ID on two domains in one run must dedup (ByteDance jobs. vs join.)."""
+
+    def test_bytedance_cross_domain_same_id(self):
+        from outreach.brain import Brain
+        Brain.reset()
+        a = "https://jobs.bytedance.com/en/position/7668464504736876853/detail?utm_source=x"
+        b = "https://joinbytedance.com/search/7668464504736876853?utm_source=y"
+        import re
+        norm = lambda u: re.search(r"(\d{10,})", u).group(1)
+        assert norm(a) == norm(b)

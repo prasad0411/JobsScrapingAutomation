@@ -3525,6 +3525,20 @@ class UnifiedJobAggregator:
                         return True
                 except Exception:
                     pass
+            # Run-scoped job_id lock: catch same ID arriving twice in one run
+            # (e.g. ByteDance jobs.bytedance.com vs joinbytedance.com share a numeric ID)
+            if job_id and job_id not in ("N/A", "") and not job_id.startswith("HASH_"):
+                try:
+                    from outreach.brain import Brain
+                    _nid = "JID_" + Brain.get().normalize_job_id(job_id)
+                    if _nid != "JID_" and _nid in self.processing_lock:
+                        self.outcomes["skipped_duplicate_job_id"] += 1
+                        logging.info(f"DUPLICATE (job_id run) | {company} | {title}")
+                        return True
+                    if _nid != "JID_":
+                        self.processing_lock.add(_nid)
+                except Exception:
+                    pass
             clean_url = URLCleaner.clean_url(url)
             if clean_url in self.existing_urls or clean_url in self.processing_lock:
                 self.outcomes["skipped_duplicate_url"] += 1
