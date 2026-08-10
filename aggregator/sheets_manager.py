@@ -132,15 +132,31 @@ class SheetsManager:
             ],
         }
 
+        from gspread.exceptions import WorksheetNotFound as _WNF, APIError as _APIErr
         for sheet_name, headers in sheet_configs.items():
-            try:
+            sheet = None
+            for _attempt in range(3):
+                try:
+                    sheet = self.spreadsheet.worksheet(sheet_name)
+                    break
+                except _WNF:
+                    try:
+                        sheet = self.spreadsheet.add_worksheet(
+                            title=sheet_name, rows=1000, cols=len(headers)
+                        )
+                        sheet.append_row(headers)
+                        self._format_headers(sheet, len(headers))
+                        break
+                    except _APIErr as _e:
+                        if "already exists" in str(_e):
+                            sheet = self.spreadsheet.worksheet(sheet_name)
+                            break
+                        raise
+                except Exception:
+                    import time as _t
+                    _t.sleep(2)
+            if sheet is None:
                 sheet = self.spreadsheet.worksheet(sheet_name)
-            except:
-                sheet = self.spreadsheet.add_worksheet(
-                    title=sheet_name, rows=1000, cols=len(headers)
-                )
-                sheet.append_row(headers)
-                self._format_headers(sheet, len(headers))
 
             setattr(self, sheet_name.lower().replace(" ", "_").replace("-", "_"), sheet)
 
