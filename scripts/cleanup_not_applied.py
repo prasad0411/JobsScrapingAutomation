@@ -316,13 +316,28 @@ class ManualCleanup:
                 and self._get_cell(row, 1) == ""
             ]
 
+            # Keep any row that is NOT expired AND has real job data
+            # (a real status OR a URL). Never rely on Sr. No. (col 0), which
+            # can be blank after renumbering and would drop good rows.
             remaining_rows = [
                 row
                 for row in all_data[1:]
-                if not self._is_expired(row) and self._get_cell(row, 0)
+                if not self._is_expired(row)
+                and (self._get_cell(row, 1).strip() or self._get_cell(row, 5).strip())
             ]
 
             if expired_rows:
+                _total = max(1, len(all_data) - 1)
+                if len(expired_rows) > 0.20 * _total:
+                    print(
+                        f"ABORT: would move {len(expired_rows)} of {_total} rows "
+                        f"(>20%). Refusing to run. Investigate before cleaning."
+                    )
+                    return
+                self._snapshot_sheet(all_data, tag="expiry")
+                if getattr(self, "_dry_run", False):
+                    print(f"DRY RUN: would move {len(expired_rows)} rows, moving nothing.")
+                    return
                 print(f"Found {len(expired_rows)} expired jobs to move")
                 for row in expired_rows:
                     company = self._get_cell(row, 2)
@@ -414,6 +429,22 @@ class ManualCleanup:
 
         except Exception as e:
             print(f"✗ Cleanup error: {e}")
+
+    def _snapshot_sheet(self, all_data, tag="cleanup"):
+        """Write a timestamped CSV of the sheet to .local/snapshots/ before any move."""
+        import os as _os, csv as _csv, datetime as _dt
+        d = _os.path.join(_os.path.dirname(__file__), "..", ".local", "snapshots")
+        d = _os.path.abspath(d)
+        _os.makedirs(d, exist_ok=True)
+        ts = _dt.datetime.now().strftime("%Y%m%d_%H%M%S")
+        fp = _os.path.join(d, f"valid_entries_{tag}_{ts}.csv")
+        try:
+            with open(fp, "w", newline="", encoding="utf-8") as f:
+                _csv.writer(f).writerows(all_data)
+            print(f"  snapshot saved: {fp} ({len(all_data)} rows)")
+        except Exception as e:
+            print(f"  snapshot failed ({e}) - ABORTING move for safety")
+            raise
 
     def _move_to_reviewed(self, rows_to_move, reason="Does not match profile"):
         reviewed_data = self.reviewed_sheet.get_all_values()
@@ -814,7 +845,9 @@ def backup_to_private_repo():
 
 
 if __name__ == "__main__":
+    import sys as _sys
     cleaner = ManualCleanup()
+    cleaner._dry_run = "--dry-run" in _sys.argv
     # Auto-expand sheets if getting full
     for _ws_name in ["Discarded Entries", "Reviewed - Not Applied", "Valid Entries"]:
         try:
