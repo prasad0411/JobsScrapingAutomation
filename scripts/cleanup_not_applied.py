@@ -398,12 +398,26 @@ class ManualCleanup:
                 # Jobs < 48 hours old are kept in Valid Entries
             # Keep: all non-"Not Applied" rows + fresh "Not Applied" rows (< 48 hours)
             moved_set = set(id(row) for row in not_applied_rows)
+            # Keep any row not being moved that has real data (status OR url),
+            # never rely on Sr. No. (col 0) which can be blank after renumbering.
             remaining_rows = [
                 row for row in all_data[1:]
-                if self._get_cell(row, 0) and id(row) not in moved_set
+                if id(row) not in moved_set
+                and (self._get_cell(row, 1).strip() or self._get_cell(row, 5).strip())
             ]
 
             if not_applied_rows:
+                _total = max(1, len(all_data) - 1)
+                if len(not_applied_rows) > 0.20 * _total:
+                    print(
+                        f"ABORT: would move {len(not_applied_rows)} of {_total} rows "
+                        f"(>20%). Refusing to run. Investigate before cleaning."
+                    )
+                    return
+                self._snapshot_sheet(all_data, tag="notapplied")
+                if getattr(self, "_dry_run", False):
+                    print(f"DRY RUN: would move {len(not_applied_rows)} rows, moving nothing.")
+                    return
                 print(
                     f"Moving {len(not_applied_rows)} jobs, keeping {len(remaining_rows)}"
                 )
