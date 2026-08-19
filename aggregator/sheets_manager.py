@@ -549,7 +549,7 @@ class SheetsManager:
                                 {
                                     "userEnteredValue": {"stringValue": row[5]},
                                     "textFormatRuns": [
-                                        {"format": {"link": {"uri": row[5]}}}
+                                        {"startIndex": 0, "format": {"link": {"uri": row[5]}}}
                                     ],
                                 }
                             ]
@@ -607,7 +607,7 @@ class SheetsManager:
                                 {
                                     "userEnteredValue": {"stringValue": row[5]},
                                     "textFormatRuns": [
-                                        {"format": {"link": {"uri": row[5]}}}
+                                        {"startIndex": 0, "format": {"link": {"uri": row[5]}}}
                                     ],
                                 }
                             ]
