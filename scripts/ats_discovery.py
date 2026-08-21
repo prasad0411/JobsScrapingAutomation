@@ -238,6 +238,31 @@ class ATSDiscoveryEngine:
                 if len(row) > 5 and row[5].strip().startswith("http"):
                     all_urls.append(row[5].strip())
 
+            # Reviewed - Not Applied sheet (URLs that never reached Valid)
+            try:
+                rev = ss.worksheet("Reviewed - Not Applied").get_all_values()
+                for row in rev[1:]:
+                    if len(row) > 5 and row[5].strip().startswith("http"):
+                        all_urls.append(row[5].strip())
+            except Exception:
+                pass
+
+            # Raw skipped-jobs log: thousands of ATS URLs filtered out pre-sheet
+            try:
+                import re as _rre, os as _ros
+                _log_path = ".local/skipped_jobs.log"
+                if _ros.path.exists(_log_path):
+                    with open(_log_path, "r", errors="ignore") as _lf:
+                        _txt = _lf.read()
+                    _found = _rre.findall(r"https?://[^\s\"']+", _txt)
+                    _ats = [u for u in _found if any(d in u.lower() for d in
+                            ("greenhouse", "lever.co", "ashbyhq", "workable",
+                             "recruitee", "smartrecruiters"))]
+                    all_urls.extend(_ats)
+                    log.info(f"Added {len(_ats)} ATS URLs from skipped_jobs.log")
+            except Exception as _e:
+                log.debug(f"skipped_jobs.log scan failed: {_e}")
+
             log.info(f"Scanning {len(all_urls)} URLs for ATS company slugs")
             new_slugs = self.extract_slugs_from_urls(all_urls)
 
