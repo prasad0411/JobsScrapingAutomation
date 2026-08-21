@@ -861,6 +861,7 @@ class UnifiedJobAggregator:
             (VANSHB03_URL, "vanshb03"),
             (SPEEDYAPPLY_SWE_URL, "speedyapply_swe"),
             (SPEEDYAPPLY_AI_URL, "speedyapply_ai"),
+            (ZAPPLYJOBS_URL, "zapplyjobs_newgrad"),
 
             (VANSHB03_OFFSEASON_URL, "vanshb03_offseason"),
             (NEWGRAD_SIMPLIFY_URL, "simplify_newgrad"),
