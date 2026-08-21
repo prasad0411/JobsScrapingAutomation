@@ -37,9 +37,12 @@ def _fetch_json(url, timeout=5):
 
 
 def _has_intern_roles(jobs, platform="greenhouse"):
-    """Check if job list has intern/newgrad roles."""
-    kw = ["intern", "co-op", "coop", "new grad", "entry level", 
-          "junior", "early career", "apprentice"]
+    """Check if job list has relevant tech roles (intern, new grad, OR full-time SWE)."""
+    kw = ["intern", "co-op", "coop", "new grad", "entry level",
+          "junior", "early career", "apprentice",
+          "software engineer", "software developer", "swe", "sde",
+          "data engineer", "data scientist", "machine learning",
+          "full stack", "backend", "front end", "frontend", "developer"]
     for j in jobs:
         title = ""
         if platform == "greenhouse":
