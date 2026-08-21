@@ -593,6 +593,45 @@ def scrape_smartrecruiters() -> List[Dict]:
     return unique
 
 
+WORKABLE_COMPANIES = {}
+
+
+def scrape_workable() -> List[Dict]:
+    """Fetch intern/new-grad jobs from Workable company boards."""
+    jobs = []
+    for slug, company_name in WORKABLE_COMPANIES.items():
+        data = _fetch_json(
+            f"https://apply.workable.com/api/v1/widget/accounts/{slug}?details=true",
+            timeout=8,
+        )
+        if not data:
+            continue
+        for job in data.get("jobs", []):
+            title = job.get("title", "")
+            if not _is_intern_or_newgrad(title):
+                continue
+            location = job.get("location") or "Unknown"
+            if isinstance(location, dict):
+                city = location.get("city", "")
+                region = location.get("region", "")
+                location = ", ".join([x for x in (city, region) if x]) or "Unknown"
+            url = job.get("url") or job.get("application_url") or ""
+            if not url and job.get("shortcode"):
+                url = f"https://apply.workable.com/{slug}/j/{job['shortcode']}/"
+            jobs.append({
+                "company": company_name,
+                "title": title,
+                "location": location,
+                "url": url,
+                "job_id": str(job.get("shortcode", "N/A")),
+                "source": "workable_direct",
+                "age": "0d",
+                "is_closed": False,
+            })
+    log.info(f"Workable direct: {len(jobs)} jobs from {len(WORKABLE_COMPANIES)} companies")
+    return jobs
+
+
 def _load_discovered_companies():
     """Load auto-discovered companies from brain.json."""
     import os
@@ -611,6 +650,12 @@ def _load_discovered_companies():
             for slug, name in discovered.get("ashby", {}).items():
                 if slug not in ASHBY_COMPANIES:
                     ASHBY_COMPANIES[slug] = name
+            for slug, name in discovered.get("smartrecruiters", {}).items():
+                if slug not in SMARTRECRUITERS_COMPANIES:
+                    SMARTRECRUITERS_COMPANIES[slug] = name
+            for slug, name in discovered.get("workable", {}).items():
+                if slug not in WORKABLE_COMPANIES:
+                    WORKABLE_COMPANIES[slug] = name
     except Exception:
         pass
 
@@ -651,6 +696,11 @@ def fetch_all_direct_sources() -> List[Dict]:
         all_jobs.extend(scrape_smartrecruiters())
     except Exception as e:
         log.error(f"SmartRecruiters scrape failed: {e}")
+
+    try:
+        all_jobs.extend(scrape_workable())
+    except Exception as e:
+        log.error(f"Workable scrape failed: {e}")
     
     # Filter US-only
     us_jobs = [j for j in all_jobs if _is_us_location(j.get("location", "Unknown"))]
