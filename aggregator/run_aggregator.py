@@ -2769,6 +2769,12 @@ class UnifiedJobAggregator:
             if _m:
                 _job_id = _m.group(1)
                 break
+        # Dedup check BEFORE writing: this path previously appended blindly,
+        # re-adding the same job on every run (622 dupes in one day).
+        if self._is_duplicate(company, title, url):
+            logging.info(f"TRUSTED FALLBACK SKIP (dup): {company} | {title}")
+            return None
+
         logging.info(f"TRUSTED FALLBACK: {company} | {title} (HTTP failed, using source data)")
         result = {
             "company": company,
