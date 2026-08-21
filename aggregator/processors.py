@@ -162,7 +162,8 @@ class TitleProcessor:
             "let's confirm you are human", "your connection was interrupted",
             "career page", "job listings", "open positions"}
         if title.lower().strip() in _GARBAGE_TITLES:
-            return False, f"Garbage title: {title}"
+            # Return "" (not a tuple): callers treat empty as invalid.
+            return ""
         if not title or len(title) < 5:
             return title
 
