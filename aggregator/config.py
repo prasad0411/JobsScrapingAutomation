@@ -123,32 +123,32 @@ PROCESSED_EMAILS_FILE = os.path.join(".local", "processed_emails.json")
 FAILED_SIMPLIFY_CACHE = os.path.join(".local", "failed_simplify_urls.json")
 FAILED_URLS_FILE = os.path.join(".local", "failed_urls.json")
 
-SIMPLIFY_URL = "https://raw.githubusercontent.com/SimplifyJobs/Summer2026-Internships/master/README.md"
+SIMPLIFY_URL = "https://raw.githubusercontent.com/SimplifyJobs/Summer2027-Internships/dev/README.md"
 VANSHB03_URL = (
-    "https://raw.githubusercontent.com/vanshb03/Summer2026-Internships/main/README.md"
+    "https://raw.githubusercontent.com/vanshb03/Summer2027-Internships/dev/README.md"
 )
 SPEEDYAPPLY_SWE_URL = (
-    "https://raw.githubusercontent.com/speedyapply/2026-SWE-College-Jobs/main/README.md"
+    "https://raw.githubusercontent.com/speedyapply/2027-SWE-College-Jobs/main/README.md"
 )
 
 # ── New GitHub Sources (Fall 2026 / Spring 2027 / New Grad 2027) ──
 SPEEDYAPPLY_AI_URL = (
-    "https://raw.githubusercontent.com/speedyapply/2026-AI-College-Jobs/main/README.md"
+    "https://raw.githubusercontent.com/speedyapply/2027-AI-College-Jobs/main/README.md"
 )
 ZAPPLYJOBS_URL = (
-    "https://raw.githubusercontent.com/zapplyjobs/Internships-2026/main/README.md"
+    "https://raw.githubusercontent.com/zapplyjobs/New-Grad-Jobs-2027/main/README.md"
 )
 JOBRIGHT_GITHUB_URL = (
     "https://raw.githubusercontent.com/jobright-ai/2026-Engineer-Internship/master/README.md"
 )
 SIMPLIFY_OFFSEASON_URL = (
-    "https://raw.githubusercontent.com/SimplifyJobs/Summer2026-Internships/master/README-Off-Season.md"
+    "https://raw.githubusercontent.com/SimplifyJobs/Summer2027-Internships/dev/README-Off-Season.md"
 )
 VANSHB03_OFFSEASON_URL = (
     "https://raw.githubusercontent.com/vanshb03/Summer2027-Internships/dev/OFFSEASON_README.md"
 )
 NEWGRAD_SIMPLIFY_URL = (
-    "https://raw.githubusercontent.com/SimplifyJobs/New-Grad-Positions/master/README.md"
+    "https://raw.githubusercontent.com/SimplifyJobs/New-Grad-Positions/dev/README.md"
 )
 NEWGRAD_CVRVE_URL = (
     "https://raw.githubusercontent.com/cvrve/New-Grad/main/README.md"
