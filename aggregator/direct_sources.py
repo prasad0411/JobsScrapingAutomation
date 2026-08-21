@@ -167,7 +167,18 @@ ASHBY_COMPANIES = {
 # Title keywords that indicate intern/new-grad eligibility
 _INTERN_KW = re.compile(
     r"\b(?:intern|co-op|coop|new\s*grad|entry\s*level|junior|early\s*career"
-    r"|apprentice|fellow|rotational)\b",
+    r"|apprentice|fellow|rotational"
+    r"|software\s*engineer|software\s*developer|sde|swe"
+    r"|data\s*engineer|data\s*scientist|machine\s*learning\s*engineer"
+    r"|associate\s*engineer|graduate\s*engineer|backend\s*engineer"
+    r"|frontend\s*engineer|full\s*stack\s*engineer)\b",
+    re.I,
+)
+
+# Seniority markers that disqualify a role regardless of the keyword match
+_SENIOR_KW = re.compile(
+    r"\b(?:senior|sr\.?|staff|principal|lead|manager|director|head\s+of"
+    r"|architect|vp|distinguished|II|III|IV|2|3|4)\b",
     re.I,
 )
 
@@ -183,8 +194,13 @@ def _fetch_json(url: str, timeout: int = 5) -> Optional[dict]:
 
 
 def _is_intern_or_newgrad(title: str) -> bool:
-    """Check if title looks like intern/new-grad/entry-level."""
-    return bool(_INTERN_KW.search(title))
+    """Check if title is intern/new-grad OR entry-level full-time (not senior)."""
+    if not _INTERN_KW.search(title):
+        return False
+    # Always allow explicit intern/new-grad even if oddly worded
+    if re.search(r"\b(?:intern|co-op|coop|new\s*grad)\b", title, re.I):
+        return True
+    return not _SENIOR_KW.search(title)
 
 
 # ═══════════════════════════════════════════════════════════════════
