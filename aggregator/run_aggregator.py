@@ -533,10 +533,33 @@ class UnifiedJobAggregator:
                 dj["github_category"] = "Direct ATS API"
             if direct_jobs:
                 import concurrent.futures as _cf
+                from aggregator.extractors import (
+                    already_fetched, mark_fetched, save_fetched_urls,
+                )
+                # Skip job pages we already read in a previous run
+                _fresh = [_j for _j in direct_jobs
+                          if _j.get("url") and not already_fetched(_j["url"])]
+                logging.info(
+                    f"Direct ATS: {len(direct_jobs)} fetched, "
+                    f"{len(_fresh)} new (rest already seen)"
+                )
+
+                def _read_page(_j):
+                    """Open the real job page so every column is accurate."""
+                    try:
+                        self._process_single_job_comprehensive(
+                            _j["url"],
+                            company_hint=_j.get("company", ""),
+                            title_hint=_j.get("title", ""),
+                            location_hint=_j.get("location", ""),
+                            source=_j.get("source", "direct_ats"),
+                        )
+                    finally:
+                        mark_fetched(_j["url"])
+
                 _errs = 0
-                with _cf.ThreadPoolExecutor(max_workers=10) as _pool:
-                    _futs = {_pool.submit(self._process_single_github_job, _j): _j
-                             for _j in direct_jobs}
+                with _cf.ThreadPoolExecutor(max_workers=6) as _pool:
+                    _futs = {_pool.submit(_read_page, _j): _j for _j in _fresh}
                     for _f in _cf.as_completed(_futs):
                         try:
                             _f.result()
@@ -546,8 +569,9 @@ class UnifiedJobAggregator:
                                 f"Direct ATS job failed "
                                 f"{_futs[_f].get('company','?')}: {_e}"
                             )
+                save_fetched_urls()
                 logging.info(
-                    f"Direct ATS sources: {len(direct_jobs)} jobs processed "
+                    f"Direct ATS sources: {len(_fresh)} pages read "
                     f"({_errs} errors)"
                 )
         except Exception as e:

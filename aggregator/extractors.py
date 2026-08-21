@@ -9,6 +9,7 @@ import time
 import random
 import re
 import logging
+import threading
 import atexit
 from functools import lru_cache
 from contextlib import contextmanager
@@ -217,7 +218,113 @@ def safe_parse_html(html_content, preferred_parser=None):
     return None, None
 
 
+# ── Politeness: per-domain rate limit so we never hammer one ATS ──
+_DOMAIN_LAST_HIT = {}
+_DOMAIN_LOCK = threading.Lock()
+_MIN_DOMAIN_INTERVAL = 1.0  # seconds between requests to the SAME domain
+
+
+def _polite_wait(url):
+    """Sleep just enough that we hit any single domain at most 1x/sec."""
+    try:
+        from urllib.parse import urlparse
+        host = (urlparse(url).netloc or "").lower()
+        if not host:
+            return
+        with _DOMAIN_LOCK:
+            last = _DOMAIN_LAST_HIT.get(host, 0.0)
+            wait = _MIN_DOMAIN_INTERVAL - (time.time() - last)
+            if wait > 0:
+                time.sleep(wait)
+            _DOMAIN_LAST_HIT[host] = time.time()
+    except Exception:
+        pass
+
+
+# ── Permanent "already fetched" cache: never re-fetch a job page ──
+_FETCHED_URLS_FILE = os.path.join(".local", "fetched_urls.json")
+_FETCHED_URLS = None
+_FETCHED_LOCK = threading.Lock()
+
+
+def _load_fetched_urls():
+    global _FETCHED_URLS
+    if _FETCHED_URLS is None:
+        try:
+            with open(_FETCHED_URLS_FILE) as f:
+                _FETCHED_URLS = set(json.load(f))
+        except Exception:
+            _FETCHED_URLS = set()
+    return _FETCHED_URLS
+
+
+def already_fetched(url):
+    """True if this job page was fetched in a previous run."""
+    return url in _load_fetched_urls()
+
+
+def mark_fetched(url):
+    with _FETCHED_LOCK:
+        _load_fetched_urls().add(url)
+
+
+def save_fetched_urls():
+    """Persist the fetched-URL set (call at end of run)."""
+    try:
+        os.makedirs(os.path.dirname(_FETCHED_URLS_FILE), exist_ok=True)
+        with _FETCHED_LOCK:
+            data = list(_load_fetched_urls())
+        tmp = _FETCHED_URLS_FILE + ".tmp"
+        with open(tmp, "w") as f:
+            json.dump(data, f)
+        os.replace(tmp, _FETCHED_URLS_FILE)
+    except Exception as e:
+        logging.debug(f"save_fetched_urls failed: {e}")
+
+
+# ── Permanent "already fetched" cache: never re-fetch a job page ──
+_FETCHED_URLS_FILE = os.path.join(".local", "fetched_urls.json")
+_FETCHED_URLS = None
+_FETCHED_LOCK = threading.Lock()
+
+
+def _load_fetched_urls():
+    global _FETCHED_URLS
+    if _FETCHED_URLS is None:
+        try:
+            with open(_FETCHED_URLS_FILE) as f:
+                _FETCHED_URLS = set(json.load(f))
+        except Exception:
+            _FETCHED_URLS = set()
+    return _FETCHED_URLS
+
+
+def already_fetched(url):
+    """True if this job page was fetched in a previous run."""
+    return url in _load_fetched_urls()
+
+
+def mark_fetched(url):
+    with _FETCHED_LOCK:
+        _load_fetched_urls().add(url)
+
+
+def save_fetched_urls():
+    """Persist the fetched-URL set (call at end of run)."""
+    try:
+        os.makedirs(os.path.dirname(_FETCHED_URLS_FILE), exist_ok=True)
+        with _FETCHED_LOCK:
+            data = list(_load_fetched_urls())
+        tmp = _FETCHED_URLS_FILE + ".tmp"
+        with open(tmp, "w") as f:
+            json.dump(data, f)
+        os.replace(tmp, _FETCHED_URLS_FILE)
+    except Exception as e:
+        logging.debug(f"save_fetched_urls failed: {e}")
+
+
 def retry_request(url, method="GET", max_retries=MAX_RETRIES, **kwargs):
+    _polite_wait(url)
     for attempt in range(max_retries):
         try:
             if method.upper() == "GET":
