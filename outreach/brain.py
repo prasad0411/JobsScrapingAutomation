@@ -120,10 +120,23 @@ class Brain:
         """Atomic write with exclusive lock. Also prunes stale data on save."""
         try:
             self._prune_stale()
+            # Preserve top-level keys written by OTHER processes (e.g.
+            # ats_discovery writes discovered_ats / known_ats_slugs).
+            # Without this, Brain's in-memory copy silently erases them.
+            _out = dict(self._data)
+            try:
+                if os.path.exists(self._path):
+                    with open(self._path) as _cf:
+                        _current = json.load(_cf)
+                    for _k, _v in _current.items():
+                        if _k not in _out:
+                            _out[_k] = _v
+            except Exception:
+                pass
             tmp = self._path + ".tmp"
             with open(tmp, "w") as f:
                 fcntl.flock(f, fcntl.LOCK_EX)
-                json.dump(self._data, f, indent=2)
+                json.dump(_out, f, indent=2)
                 fcntl.flock(f, fcntl.LOCK_UN)
             os.replace(tmp, self._path)
             # Daily backup — keep last 7 days
