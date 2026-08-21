@@ -1844,7 +1844,14 @@ class UnifiedJobAggregator:
                 _hint_norm = re.sub(r"[^a-z0-9]", "", _company_hint.lower())
                 # If extracted company shares <40% of chars with hint, prefer hint
                 _common = sum(1 for c in _hint_norm if c in _extracted_norm)
-                if _hint_norm and _common / len(_hint_norm) < 0.4:
+                # The job PAGE is authoritative. If the extracted company matches
+                # the org slug in the URL, trust it and ignore the email hint.
+                _url_slug = re.sub(r"[^a-z0-9]", "", 
+                    (re.search(r"(?:greenhouse\.io|lever\.co|ashbyhq\.com)/([a-z0-9_.-]+)",
+                     (resolved_url or "").lower()) or type("x",(),{"group":lambda s,n:""})()).group(1))
+                _page_matches_url = bool(_url_slug) and (
+                    _extracted_norm in _url_slug or _url_slug in _extracted_norm)
+                if _hint_norm and _common / len(_hint_norm) < 0.4 and not _page_matches_url:
                     logging.info(
                         f"SWE List company mismatch: extracted='{result['company']}' "
                         f"hint='{_company_hint}' — using hint"
