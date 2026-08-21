@@ -3830,6 +3830,10 @@ class UnifiedJobAggregator:
         if "offseason" in sl or "off_season" in sl:
             return "Internship"
 
+        # Direct ATS boards list ALL open roles. If no intern/co-op
+        # signal matched above, this is a full-time posting.
+        if "_direct" in sl or "direct_ats" in sl:
+            return "Full Time"
         return "Internship"
 
     @staticmethod

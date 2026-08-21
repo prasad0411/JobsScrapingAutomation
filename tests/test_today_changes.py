@@ -88,3 +88,22 @@ def test_cap_blocks_oversized_sweep():
     assert expired > 0.20 * total          # would abort
     small = 10
     assert not (small > 0.20 * total)      # would proceed
+
+
+class TestDirectATSJobType:
+    """Direct ATS boards list all roles; only intern titles are internships."""
+
+    def test_direct_ats_defaults_to_full_time(self):
+        from aggregator.run_aggregator import UnifiedJobAggregator as U
+        assert U._detect_job_type("Software Engineer, Backend", "ashby_direct") == "Full Time"
+        assert U._detect_job_type("Data Engineer", "greenhouse_direct") == "Full Time"
+
+    def test_direct_ats_still_detects_interns(self):
+        from aggregator.run_aggregator import UnifiedJobAggregator as U
+        assert U._detect_job_type("Software Engineer Intern, Robotics", "greenhouse_direct") == "Internship"
+        assert U._detect_job_type("Neuroengineer Intern", "greenhouse_direct") == "Internship"
+
+    def test_non_direct_sources_unchanged(self):
+        from aggregator.run_aggregator import UnifiedJobAggregator as U
+        assert U._detect_job_type("Software Engineer Intern", "vanshb03") == "Internship"
+        assert U._detect_job_type("New Grad: Software Engineer", "cvrve_newgrad") == "Full Time"
