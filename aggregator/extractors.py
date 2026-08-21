@@ -170,7 +170,7 @@ _EMOJI_PATTERN = re.compile(
     re.UNICODE,
 )
 _HEADER_PATTERN = re.compile(
-    r"Company.*(?:Role|Position|Job.?Title).*Location.*(?:Application|Link|Posting|Posted|Date|Age|Apply|Model)", re.I
+    r"Company.*(?:Role|Position|Job.?Title).*Location.*(?:Application|Link|Posting|Posted|Date|Age|Apply|Model|Visa)", re.I
 )
 _HTML_LINK_PATTERN = re.compile(r'<a\s+href="(https?://[^"]+)"')
 _MD_LINK_PATTERN = re.compile(r"\[.*?\]\((https?://[^\)]+)\)")
@@ -2714,15 +2714,19 @@ class SimplifyGitHubScraper:
                     continue  # FIX 6: skip continuation rows with no known parent company
             title = _EMOJI_PATTERN.sub("", parts[1]).strip()
             location = _EMOJI_PATTERN.sub("", parts[2]).strip()
-            # Handle optional Salary column (SpeedyApply has 6 cols, others have 5)
-            # Detect by checking if parts[3] looks like a salary ($xx/hr) or a link
-            has_salary = parts[3].strip().startswith("$") or "/hr" in parts[3]
-            if has_salary and len(parts) >= 6:
-                link_cell = parts[4]
-                age = parts[5] if len(parts) > 5 else ""
-            else:
-                link_cell = parts[3]
-                age = parts[4] if len(parts) > 4 else ""
+            # Find the apply link by scanning cells from the end (link is always
+            # in the last populated cell; column count varies by source: Visa, Salary, etc.)
+            link_cell = ""
+            age = ""
+            for _cell in reversed(parts[2:]):
+                if _HTML_LINK_PATTERN.search(_cell) or _MD_LINK_PATTERN.search(_cell) or _cell.startswith("http"):
+                    link_cell = _cell
+                    break
+            # age = first cell after location that looks like a short duration
+            for _cell in parts[3:]:
+                if re.match(r"^\d+[dhmw]", _cell.strip()):
+                    age = _cell.strip()
+                    break
             match = _HTML_LINK_PATTERN.search(link_cell) or _MD_LINK_PATTERN.search(
                 link_cell
             )
@@ -2778,11 +2782,16 @@ class SimplifyGitHubScraper:
                 title = _EMOJI_PATTERN.sub("", cells[1].get_text(strip=True))
                 location = _EMOJI_PATTERN.sub("", cells[2].get_text(strip=True))
                 age = cells[4].get_text(strip=True)
-                apply_link = cells[3].find("a", href=True)
+                apply_link = None
+                for _c in cells[2:]:
+                    _a = _c.find("a", href=True)
+                    if _a and _a.get("href", "").startswith("http"):
+                        apply_link = _a
+                        break
                 if not apply_link:
                     continue
                 url = apply_link.get("href", "")
-                is_closed = "🔒" in str(cells[3])
+                is_closed = "🔒" in str(row)
                 jobs.append(
                     {
                         "company": company,

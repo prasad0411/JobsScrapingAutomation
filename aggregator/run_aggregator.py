@@ -21,6 +21,8 @@ from aggregator.config import (
     ZAPPLYJOBS_URL,
     JOBRIGHT_GITHUB_URL,
     SIMPLIFY_OFFSEASON_URL,
+    SIMPLIFY_2026_URL,
+    ZAPPLYJOBS_2026_URL,
     VANSHB03_OFFSEASON_URL,
     NEWGRAD_SIMPLIFY_URL,
     NEWGRAD_CVRVE_URL,
@@ -862,6 +864,9 @@ class UnifiedJobAggregator:
             (SPEEDYAPPLY_SWE_URL, "speedyapply_swe"),
             (SPEEDYAPPLY_AI_URL, "speedyapply_ai"),
             (ZAPPLYJOBS_URL, "zapplyjobs_newgrad"),
+            (SIMPLIFY_OFFSEASON_URL, "simplify_offseason"),
+            (SIMPLIFY_2026_URL, "SimplifyJobs_2026"),
+            (ZAPPLYJOBS_2026_URL, "zapplyjobs_2026"),
 
             (VANSHB03_OFFSEASON_URL, "vanshb03_offseason"),
             (NEWGRAD_SIMPLIFY_URL, "simplify_newgrad"),

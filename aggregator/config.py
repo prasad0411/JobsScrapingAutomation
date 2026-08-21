@@ -153,6 +153,12 @@ NEWGRAD_SIMPLIFY_URL = (
 NEWGRAD_CVRVE_URL = (
     "https://raw.githubusercontent.com/cvrve/New-Grad/main/README.md"
 )
+SIMPLIFY_2026_URL = (
+    "https://raw.githubusercontent.com/SimplifyJobs/Summer2026-Internships/master/README.md"
+)
+ZAPPLYJOBS_2026_URL = (
+    "https://raw.githubusercontent.com/zapplyjobs/Internships-2026/main/README.md"
+)
 
 
 MAX_JOB_AGE_DAYS = 3
