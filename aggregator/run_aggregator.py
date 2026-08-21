@@ -1555,15 +1555,15 @@ class UnifiedJobAggregator:
                     # e.g. "uk" must not match "Milwaukee", ", in" must not match "Indianapolis, IN"
                     import re as _intl_re
                     _intl_patterns = [
-                        r"canada", r"india(?!na)", r"germany", r"france",
-                        r"japan", r"australia", r"brazil", r"mexico(?!\s*,)",
-                        r"china", r"singapore", r"toronto", r"vancouver",
-                        r"london", r"berlin", r"tokyo", r"beijing",
-                        r"shanghai", r"mumbai", r"bangalore", r"hyderabad",
-                        r"dublin", r"sydney", r"melbourne", r"calgary",
-                        r"montreal", r"ON,?\s*Canada", r"BC,?\s*Canada",
-                        r"Bucuresti", r"Romania", r"Croatia",
-                        r",\s*UK", r",\s*United Kingdom",
+                        r"\bcanada\b", r"\bindia\b(?!na)", r"\bgermany\b", r"\bfrance\b",
+                        r"\bjapan\b", r"\baustralia\b", r"\bbrazil\b", r"\bmexico\b(?!\s*,)",
+                        r"\bchina\b", r"\bsingapore\b", r"\btoronto\b", r"\bvancouver\b",
+                        r"\blondon\b", r"\bberlin\b", r"\btokyo\b", r"\bbeijing\b",
+                        r"\bshanghai\b", r"\bmumbai\b", r"\bbangalore\b", r"\bhyderabad\b",
+                        r"\bdublin\b", r"\bsydney\b", r"\bmelbourne\b", r"\bcalgary\b",
+                        r"\bmontreal\b", r"\bON,?\s*Canada\b", r"\bBC,?\s*Canada\b",
+                        r"\bBucuresti\b", r"\bRomania\b", r"\bCroatia\b",
+                        r",\s*UK\b", r",\s*United Kingdom\b",
                     ]
                     _loc_ok = not any(_intl_re.search(p, _true_original_location, _intl_re.I) for p in _intl_patterns)
                     _tech_ok = TitleProcessor.is_cs_engineering_role(_true_original_title)
@@ -3349,7 +3349,7 @@ class UnifiedJobAggregator:
             # Normalize city-only locations to "City, ST" format
             if location and location != "Unknown":
                 import re as _reloc
-                if not _reloc.search(r',\s*[A-Z]{2}', location):
+                if not _reloc.search(r',\s*[A-Z]{2}\b', location):
                     try:
                         from aggregator.config import CITY_TO_STATE_EXTRA
                         _llow = location.lower().strip()

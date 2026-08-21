@@ -247,7 +247,7 @@ def extract_title_from_url(url):
         title = slug.replace("-", " ").replace("_", " ").strip()
 
         # Remove noise words
-        title = re.sub(r"(utm source|ref|simplify|apply|application)", "", title, flags=re.I).strip()
+        title = re.sub(r"\b(utm source|ref|simplify|apply|application)\b", "", title, flags=re.I).strip()
 
         if len(title) >= 8:
             return title.title()

@@ -352,8 +352,8 @@ class TitleProcessor:
                 return False, "University-specific co-op"
 
         # Reject senior-level scientist/engineer roles (II, III, IV = not entry level)
-        if re.search(r"(?:scientist|engineer|developer|analyst)\s+(?:II|III|IV|V)", title, re.I):
-            if not re.search(r"intern|co-?op|new\s+grad|entry|junior", title, re.I):
+        if re.search(r"(?:scientist|engineer|developer|analyst)\s+(?:II|III|IV|V)\b", title, re.I):
+            if not re.search(r"\bintern\b|\bco-?op\b|\bnew\s+grad\b|\bentry\b|\bjunior\b", title, re.I):
                 return False, f"Senior role (Roman numeral level): {title[:30]}"
 
         # Reject education institutions
@@ -805,7 +805,7 @@ class TitleProcessor:
             for pat in spring_page_patterns:
                 if re.search(pat, limited_text.lower()):
                     # Only reject if no summer signal anywhere
-                    if not re.search(r"summer", limited_text.lower()):
+                    if not re.search(r"\bsummer\b", limited_text.lower()):
                         return False, "Wrong season: Spring start date (April/March)"
 
         combined = (title + " " + limited_text).lower()
@@ -835,8 +835,8 @@ class TitleProcessor:
         if max_year < 2026:
             # Only reject if title explicitly mentions old season
             # Don't reject based on page text years alone (copyright, founded dates slip through)
-            title_has_old_year = bool(re.search(r"20(?:2[0-5])", title_lower))
-            title_has_old_season = bool(re.search(r"(?:summer|fall|spring|winter)\s*20(?:2[0-5])", title_lower))
+            title_has_old_year = bool(re.search(r"\b20(?:2[0-5])\b", title_lower))
+            title_has_old_season = bool(re.search(r"\b(?:summer|fall|spring|winter)\s*20(?:2[0-5])\b", title_lower))
             if title_has_old_season:
                 return False, f"Wrong season: {max_year}"
             if title_has_old_year and "summer" not in title_lower and "fall" not in title_lower:
@@ -1341,7 +1341,7 @@ class LocationProcessor:
         if len(location_text) > 80:
             # Try to salvage a city,state pattern from the beginning
             import re as _loc_re
-            quick_match = _loc_re.match(r"^([A-Z][a-z]+(?:\s+[A-Z][a-z]+)*,\s*[A-Z]{2})", location_text.strip())
+            quick_match = _loc_re.match(r"^([A-Z][a-z]+(?:\s+[A-Z][a-z]+)*,\s*[A-Z]{2})\b", location_text.strip())
             if quick_match:
                 return quick_match.group(1)
             return "Unknown"
@@ -1599,7 +1599,7 @@ class LocationProcessor:
 
         # "Work from Home" variants → Remote
         wfh_patterns = [
-            r"work\s+from\s+home", r"wfh", r"work\s+at\s+home",
+            r"work\s+from\s+home", r"\bwfh\b", r"work\s+at\s+home",
             r"telecommut", r"telework", r"virtual\s+location",
             r"^remote\s+in\s+usa$", r"^in\s+usa$", r"^usa$",
             r"^united\s+states$", r"^us$",
@@ -2091,7 +2091,7 @@ class LocationProcessor:
         if _ss_match and "," not in location:
             location = _ss_match.group(1).strip()
         # Fix common location typos
-        location = re.sub(r"St,\s", "St. ", location)  # "St, Louis" → "St. Louis"
+        location = re.sub(r"\bSt,\s", "St. ", location)  # "St, Louis" → "St. Louis"
         # Fix "WA, DC" → "Washington, DC"
         if location.strip() in ("WA, DC", "WA DC", "WA, D, C,", "WA, D, C", "WA, D. C."):
             location = "Washington, DC"
@@ -2833,7 +2833,7 @@ class ValidationHelper:
                 r"(?:associate|associates|aa|as)\s+(?:or|and)\s+bachelor",
                 r"(?:associate|aa)\s+degree.*only",
                 r"no\s+(?:prior\s+)?experience.*bachelor.*program",
-                r"graduating.*with\s+(?:a\s+)?(?:ba|bs|ba/bs|bs/ba|b\.s\.|b\.a\.)",
+                r"graduating.*with\s+(?:a\s+)?(?:ba|bs|ba/bs|bs/ba|b\.s\.|b\.a\.)\b",
                 r"with\s+(?:a\s+)?(?:ba/bs|bs/ba)\s*,?\s*majoring",
                 r"graduating.*(?:ba|bs|ba/bs|bs/ba)\s*,?\s*majoring",
                 r"receive\s+(?:a\s+)?(?:ba|bs|ba/bs)\s+(?:by|before|prior)",
@@ -3023,8 +3023,8 @@ class ValidationHelper:
                 r"not\s+(?:now|currently).*require.*sponsorship.*future",
                 r"no\s+visa\s+sponsorship.*(?:now|future|available)",
                 r"students?\s+must\s+be\s+authorized\s+to\s+work\s+in\s+the\s+u\.?s\.?\s+without",
-                r"u\.?s\.?\s+citizen(?!\s+or\s+permanent)",  # "U.S. Citizen" alone
-                r"u\.?s\.?\s+citizenship",
+                r"u\.?s\.?\s+citizen\b(?!\s+or\s+permanent)",  # "U.S. Citizen" alone
+                r"\bu\.?s\.?\s+citizenship\b",
                 r"must\s+be\s+a\s+u\.?s\.?\s+citizen",
                 r"candidates?\s+must\s+be\s+u\.?s\.?\s+citizens?",
                 r"this\s+role\s+is\s+not\s+eligible\s+for.*sponsor",
@@ -3269,8 +3269,8 @@ class ValidationHelper:
                             has_geo = True
                             break
                     # Check 2-letter state codes
-                    if not has_geo and re.search(r'[A-Z]{2}', required_location):
-                        code = re.search(r'([A-Z]{2})', required_location)
+                    if not has_geo and re.search(r'\b[A-Z]{2}\b', required_location):
+                        code = re.search(r'\b([A-Z]{2})\b', required_location)
                         if code and validate_us_state_code(code.group(1)):
                             has_geo = True
                     # Check city names and region words
