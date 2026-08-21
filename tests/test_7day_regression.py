@@ -213,14 +213,20 @@ try:
 except Exception as e: skip("93-100 cleanup/writer", e)
 
 # ─────────────────────────────────────────────────────────────
-print(f"\n{'='*70}")
-print(f"PASSED: {len(P)}   FAILED: {len(F)}   SKIPPED: {len(SKIP)}")
-print("="*70)
-if F:
-    print("\nFAILURES (expected vs actual):")
-    for n,g,w in F:
-        print(f"  ✗ {n}\n      actual  : {g!r}\n      expected: {w!r}")
-if SKIP:
-    print("\nSKIPPED:")
-    for s in SKIP: print("  ⊘", s)
-sys.exit(1 if F else 0)
+
+
+def test_7day_regression_all_pass():
+    """All 7-day changes must hold. Failures list expected vs actual."""
+    assert not F, "\n" + "\n".join(
+        f"{n}: actual={g!r} expected={w!r}" for n, g, w in F
+    )
+
+
+def test_no_sections_skipped():
+    """Every section must import cleanly (a skip means broken imports)."""
+    assert not SKIP, "\n" + "\n".join(SKIP)
+
+
+def test_expected_case_count():
+    """Guard against silently losing coverage."""
+    assert len(P) + len(F) >= 100, f"only {len(P)+len(F)} cases ran"
