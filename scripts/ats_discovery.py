@@ -86,13 +86,18 @@ class ATSDiscoveryEngine:
         return {}
 
     def _save_brain(self):
-        self.brain["discovered_ats"] = self.discovered
-        # Convert sets to lists for JSON
-        self.brain["known_ats_slugs"] = {
+        # Re-read current brain so we never clobber writes made by other
+        # processes (outreach Brain) while discovery was running.
+        current = self._load_brain() or {}
+        current["discovered_ats"] = self.discovered
+        current["known_ats_slugs"] = {
             k: list(v) for k, v in self.known_slugs.items()
         }
-        with open(BRAIN_FILE, "w") as f:
-            json.dump(self.brain, f, indent=2)
+        self.brain = current
+        tmp = BRAIN_FILE + ".tmp"
+        with open(tmp, "w") as f:
+            json.dump(current, f, indent=2)
+        os.replace(tmp, BRAIN_FILE)
 
     def extract_slugs_from_urls(self, urls):
         """Extract ATS company slugs from a list of URLs."""
