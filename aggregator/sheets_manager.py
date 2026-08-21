@@ -799,18 +799,18 @@ class SheetsManager:
             column_limits = {
                 0: 80,
                 1: 400,
-                2: 350,
-                3: 500,
-                4: 150,
-                5: 115,
+                2: 230,   # Company  -5 chars
+                3: 300,   # Title    -10 chars
+                4: 134,   # Date Applied -5 +3
+                5: 91,    # Job URL  -3
                 6: 120,
-                7: 120,
-                8: 220,
-                9: 80,
-                10: 200,
-                11: 190,
+                7: 96,    # Job Type -3
+                8: 196,   # Location -3
+                9: 96,    # Resume +2
+                10: 120,  # Remote   -7 -3
+                11: 126,  # Entry Date -5 -3
                 12: 130,
-                13: 150,
+                13: 126,  # Sponsorship -3
             }
 
             widths = []
