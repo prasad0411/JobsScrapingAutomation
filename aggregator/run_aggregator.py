@@ -2844,6 +2844,16 @@ class UnifiedJobAggregator:
                 logging.info(f"GATE REJECT | {_co_hint} | Blacklisted company")
                 return None
 
+            # ── GATE 1b: Y Combinator batch companies ──
+            # YC startups carry a batch code: "Sixtyfour (X25)", "Agave (W22)".
+            # Their links are usually unresolvable, and they rarely sponsor.
+            if re.search(r"\((?:[SWXFsw xf]\s*\d{2})\)", _co_hint) or \
+               re.search(r"\b(?:ycombinator|workatastartup)\b", url.lower()):
+                self._add_discarded(_co_hint, _ti_hint, location_hint or "Unknown", "Unknown",
+                    url, "N/A", "Internship", source, f"Y Combinator company: {_co_hint}")
+                logging.info(f"GATE REJECT | {_co_hint} | Y Combinator batch company")
+                return None
+
             # ── GATE 2: Title blacklist (non-tech, garbage, PM) ──
             _BLACKLIST_TITLES = [
                 "people operations", "aircraft technician", "aircraft mechanic",
