@@ -51,6 +51,12 @@ def _has_intern_roles(jobs, platform="greenhouse"):
             title = j.get("text", "")
         elif platform == "ashby":
             title = j.get("title", "")
+        elif platform == "workable":
+            title = j.get("title", "")
+        elif platform == "recruitee":
+            title = j.get("title", "")
+        elif platform == "smartrecruiters":
+            title = j.get("name", "")
         if any(k in title.lower() for k in kw):
             return True
     return False
@@ -90,7 +96,8 @@ class ATSDiscoveryEngine:
 
     def extract_slugs_from_urls(self, urls):
         """Extract ATS company slugs from a list of URLs."""
-        new_slugs = {"greenhouse": set(), "lever": set(), "ashby": set()}
+        new_slugs = {"greenhouse": set(), "lever": set(), "ashby": set(),
+                     "workable": set(), "recruitee": set(), "smartrecruiters": set()}
 
         for url in urls:
             url_lower = url.lower()
@@ -113,6 +120,24 @@ class ATSDiscoveryEngine:
                 slug = ab_match.group(1)
                 if slug not in ("api", "embed", "posting-api", "job-board"):
                     new_slugs["ashby"].add(slug)
+
+            # Workable: {slug}.workable.com or apply.workable.com/{slug}
+            wk_match = re.search(r"(?:apply\.workable\.com/|([a-z0-9_-]+)\.workable\.com)", url_lower)
+            if wk_match:
+                slug = wk_match.group(1) or re.search(r"apply\.workable\.com/([a-z0-9_-]+)", url_lower)
+                slug = slug if isinstance(slug, str) else (slug.group(1) if slug else None)
+                if slug and slug not in ("www", "apply", "api"):
+                    new_slugs["workable"].add(slug)
+
+            # Recruitee: {slug}.recruitee.com
+            rc_match = re.search(r"([a-z0-9_-]+)\.recruitee\.com", url_lower)
+            if rc_match and rc_match.group(1) not in ("www", "api"):
+                new_slugs["recruitee"].add(rc_match.group(1))
+
+            # SmartRecruiters: careers.smartrecruiters.com/{slug} or jobs.smartrecruiters.com/{slug}
+            sr_match = re.search(r"(?:careers|jobs|api)\.smartrecruiters\.com/(?:v1/companies/)?([a-z0-9_-]+)", url_lower)
+            if sr_match and sr_match.group(1) not in ("v1", "companies", "api"):
+                new_slugs["smartrecruiters"].add(sr_match.group(1))
 
         return new_slugs
 
@@ -153,6 +178,21 @@ class ATSDiscoveryEngine:
                     data = _fetch_json(f"https://api.ashbyhq.com/posting-api/job-board/{slug}", timeout=3)
                     if data and data.get("jobs"):
                         has_roles = _has_intern_roles(data["jobs"], "ashby")
+
+                elif platform == "workable":
+                    data = _fetch_json(f"https://apply.workable.com/api/v1/widget/accounts/{slug}", timeout=3)
+                    if data and data.get("jobs"):
+                        has_roles = _has_intern_roles(data["jobs"], "workable")
+
+                elif platform == "recruitee":
+                    data = _fetch_json(f"https://{slug}.recruitee.com/api/offers/", timeout=3)
+                    if data and data.get("offers"):
+                        has_roles = _has_intern_roles(data["offers"], "recruitee")
+
+                elif platform == "smartrecruiters":
+                    data = _fetch_json(f"https://api.smartrecruiters.com/v1/companies/{slug}/postings", timeout=3)
+                    if data and data.get("content"):
+                        has_roles = _has_intern_roles(data["content"], "smartrecruiters")
 
                 # Track this slug as known (even if no intern roles — don't recheck)
                 self.known_slugs.setdefault(platform, set()).add(slug)
