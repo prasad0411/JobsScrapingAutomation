@@ -532,8 +532,24 @@ class UnifiedJobAggregator:
                 dj["_source_name"] = dj.get("source", "direct")
                 dj["github_category"] = "Direct ATS API"
             if direct_jobs:
-                self._process_github_jobs(direct_jobs, source="direct_ats")
-                logging.info(f"Direct ATS sources: {len(direct_jobs)} jobs fetched")
+                import concurrent.futures as _cf
+                _errs = 0
+                with _cf.ThreadPoolExecutor(max_workers=10) as _pool:
+                    _futs = {_pool.submit(self._process_single_github_job, _j): _j
+                             for _j in direct_jobs}
+                    for _f in _cf.as_completed(_futs):
+                        try:
+                            _f.result()
+                        except Exception as _e:
+                            _errs += 1
+                            logging.error(
+                                f"Direct ATS job failed "
+                                f"{_futs[_f].get('company','?')}: {_e}"
+                            )
+                logging.info(
+                    f"Direct ATS sources: {len(direct_jobs)} jobs processed "
+                    f"({_errs} errors)"
+                )
         except Exception as e:
             logging.error(f"Direct ATS sources failed: {e}")
 
