@@ -633,7 +633,8 @@ class Finder:
                 dns.resolver.resolve(domain, "A")
                 b.set_mx(domain, True, "")
                 return True
-            except:
+            except Exception as _e:
+                logging.debug("suppressed: %s", _e)
                 b.set_mx(domain, False, "")
                 return False
         else:
@@ -642,7 +643,8 @@ class Finder:
                 socket.getaddrinfo(domain, None)
                 b.set_mx(domain, True, "")
                 return True
-            except:
+            except Exception as _e:
+                logging.debug("suppressed: %s", _e)
                 b.set_mx(domain, False, "")
                 return False
 
@@ -836,7 +838,8 @@ class Finder:
         try:
             resp = requests.get(REACHER_URL.replace("/v0/check_email", "/"), timeout=3)
             self._reacher = resp.status_code in (200, 404, 405)
-        except:
+        except Exception as _e:
+            logging.debug("suppressed: %s", _e)
             # Auto-start Docker Desktop + Reacher on macOS
             log.info("Reacher not running — attempting to start Docker Desktop...")
             try:
@@ -1237,7 +1240,8 @@ class Finder:
             except requests.Timeout:
                 if i < API_RETRIES - 1:
                     time.sleep(2**i)
-            except:
+            except Exception as _e:
+                logging.debug("suppressed: %s", _e)
                 break
         return None
 

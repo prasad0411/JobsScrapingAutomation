@@ -39,7 +39,8 @@ try:
 
     US_ZIPCODE_AVAILABLE = True
     _search_engine = SearchEngine()
-except:
+except Exception as _e:
+    logging.debug("suppressed: %s", _e)
     US_ZIPCODE_AVAILABLE = False
     _search_engine = None
 
@@ -47,42 +48,48 @@ try:
     import pycountry
 
     PYCOUNTRY_AVAILABLE = True
-except:
+except Exception as _e:
+    logging.debug("suppressed: %s", _e)
     PYCOUNTRY_AVAILABLE = False
 
 try:
     import us as us_library
 
     US_LIBRARY_AVAILABLE = True
-except:
+except Exception as _e:
+    logging.debug("suppressed: %s", _e)
     US_LIBRARY_AVAILABLE = False
 
 try:
     import tldextract
 
     TLDEXTRACT_AVAILABLE = True
-except:
+except Exception as _e:
+    logging.debug("suppressed: %s", _e)
     TLDEXTRACT_AVAILABLE = False
 
 try:
     from rapidfuzz import fuzz, process
 
     RAPIDFUZZ_AVAILABLE = True
-except:
+except Exception as _e:
+    logging.debug("suppressed: %s", _e)
     RAPIDFUZZ_AVAILABLE = False
 
 try:
     from dateutil import parser as dateutil_parser
 
     DATEUTIL_AVAILABLE = True
-except:
+except Exception as _e:
+    logging.debug("suppressed: %s", _e)
     DATEUTIL_AVAILABLE = False
 
 try:
     import validators
 
     VALIDATORS_AVAILABLE = True
-except:
+except Exception as _e:
+    logging.debug("suppressed: %s", _e)
     VALIDATORS_AVAILABLE = False
 
 try:
@@ -90,7 +97,8 @@ try:
 
     PGEOCODE_AVAILABLE = True
     _pgeocode_nomi = pgeocode.Nominatim("us")
-except:
+except Exception as _e:
+    logging.debug("suppressed: %s", _e)
     PGEOCODE_AVAILABLE = False
     _pgeocode_nomi = None
 
@@ -98,7 +106,8 @@ try:
     from unidecode import unidecode as unidecode_func
 
     UNIDECODE_AVAILABLE = True
-except:
+except Exception as _e:
+    logging.debug("suppressed: %s", _e)
     UNIDECODE_AVAILABLE = False
 
 SHEET_NAME = "H1B visa"
@@ -2612,7 +2621,8 @@ def get_state_for_city(city_name):
                     from collections import Counter
 
                     return Counter(states).most_common(1)[0][0]
-        except:
+        except Exception as _e:
+            logging.debug("suppressed: %s", _e)
             pass
     return CITY_TO_STATE_FALLBACK.get(city_name.lower())
 
@@ -2621,7 +2631,8 @@ def validate_us_state_code(state_code):
     if US_LIBRARY_AVAILABLE:
         try:
             return us_library.states.lookup(state_code) is not None
-        except:
+        except Exception as _e:
+            logging.debug("suppressed: %s", _e)
             pass
     return state_code.upper() in US_STATES_FALLBACK
 
@@ -2633,7 +2644,8 @@ def get_canadian_province(text):
                 code = subdivision.code.split("-")[1]
                 if code in text.upper() or subdivision.name.lower() in text.lower():
                     return code
-        except:
+        except Exception as _e:
+            logging.debug("suppressed: %s", _e)
             pass
     for province_name, code in CANADA_PROVINCE_NAMES.items():
         if province_name in text.lower():
@@ -2646,7 +2658,8 @@ def extract_domain_and_subdomain(url):
         try:
             extracted = tldextract.extract(url)
             return extracted.subdomain, f"{extracted.domain}.{extracted.suffix}"
-        except:
+        except Exception as _e:
+            logging.debug("suppressed: %s", _e)
             pass
     import re
 
@@ -2663,7 +2676,8 @@ def fuzzy_match_company(candidate, known_companies, threshold=85):
     try:
         result = process.extractOne(candidate, known_companies, scorer=fuzz.ratio)
         return result[0] if result and result[1] >= threshold else None
-    except:
+    except Exception as _e:
+        logging.debug("suppressed: %s", _e)
         return None
 
 
@@ -2672,7 +2686,8 @@ def parse_date_flexible(date_string):
         return None
     try:
         return dateutil_parser.parse(date_string, fuzzy=True)
-    except:
+    except Exception as _e:
+        logging.debug("suppressed: %s", _e)
         return None
 
 
@@ -2680,7 +2695,8 @@ def is_valid_url(url):
     if VALIDATORS_AVAILABLE:
         try:
             return validators.url(url) == True
-        except:
+        except Exception as _e:
+            logging.debug("suppressed: %s", _e)
             pass
     import re
 
@@ -2691,7 +2707,8 @@ def normalize_unicode(text):
     if UNIDECODE_AVAILABLE:
         try:
             return unidecode_func(text)
-        except:
+        except Exception as _e:
+            logging.debug("suppressed: %s", _e)
             pass
     return text.replace("é", "e").replace("è", "e").replace("à", "a").replace("ô", "o")
 
@@ -2702,7 +2719,8 @@ def get_city_state_from_zipcode(zipcode):
             result = _pgeocode_nomi.query_postal_code(zipcode)
             if result is not None and not result.isna().all():
                 return result.get("place_name"), result.get("state_code")
-        except:
+        except Exception as _e:
+            logging.debug("suppressed: %s", _e)
             pass
     return None, None
 

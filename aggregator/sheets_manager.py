@@ -874,7 +874,8 @@ class SheetsManager:
                     "backgroundColor": {"red": 0.7, "green": 0.9, "blue": 0.7},
                 },
             )
-        except:
+        except Exception as _e:
+            logging.debug("suppressed: %s", _e)
             pass
 
 

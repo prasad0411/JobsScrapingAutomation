@@ -1212,7 +1212,8 @@ class Sheets:
                             row[V_TITLE].strip().lower(),
                         )
                         Sheets._location_cache[key] = row[8].strip()
-            except:
+            except Exception as _e:
+                logging.debug("suppressed: %s", _e)
                 Sheets._location_cache = {}
         return Sheets._location_cache.get(
             (company.strip().lower(), title.strip().lower()), ""
@@ -1248,7 +1249,8 @@ class Sheets:
                                 Sheets._url_domain_cache[key] = domain
                         except Exception as _e:
                             pass  # suppressed: use log.debug(_e) to investigate
-            except:
+            except Exception as _e:
+                logging.debug("suppressed: %s", _e)
                 Sheets._url_domain_cache = {}
         return Sheets._url_domain_cache.get(
             (company.strip().lower(), title.strip().lower()), ""
@@ -1734,6 +1736,7 @@ def _ascii(text):
         n = unicodedata.normalize("NFKD", text)
         a = n.encode("ASCII", "ignore").decode("ASCII")
         return a if a else text
-    except:
+    except Exception as _e:
+        logging.debug("suppressed: %s", _e)
         return text
 

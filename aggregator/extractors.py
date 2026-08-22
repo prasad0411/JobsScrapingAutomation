@@ -159,7 +159,8 @@ def _cleanup_selenium_driver():
         try:
             _SELENIUM_DRIVER.quit()
             logging.info("Selenium driver cleaned up")
-        except:
+        except Exception as _e:
+            logging.debug("suppressed: %s", _e)
             pass
         _SELENIUM_DRIVER = None
 
@@ -340,7 +341,8 @@ def retry_request(url, method="GET", max_retries=MAX_RETRIES, **kwargs):
             else:
                 logging.warning(f"HTTP {response.status_code} for {url}")
                 return response
-        except:
+        except Exception as _e:
+            logging.debug("suppressed: %s", _e)
             time.sleep(RETRY_DELAY_SECONDS * (BACKOFF_MULTIPLIER**attempt))
     return None
 
@@ -355,7 +357,8 @@ class SimplifyRedirectResolver:
             try:
                 with open(FAILED_SIMPLIFY_CACHE, "r") as f:
                     return json.load(f)
-            except:
+            except Exception as _e:
+                logging.debug("suppressed: %s", _e)
                 return {}
         return {}
 
@@ -364,7 +367,8 @@ class SimplifyRedirectResolver:
         try:
             with open(FAILED_SIMPLIFY_CACHE, "w") as f:
                 json.dump(cache, f, indent=2)
-        except:
+        except Exception as _e:
+            logging.debug("suppressed: %s", _e)
             pass
 
     _success_cache = {}  # Only cache successful resolutions
@@ -520,7 +524,8 @@ class SimplifyRedirectResolver:
                     if SimplifyRedirectResolver._is_valid_job_url(redirect_url):
                         return redirect_url
 
-        except:
+        except Exception as _e:
+            logging.debug("suppressed: %s", _e)
             pass
         return None
 
@@ -572,7 +577,8 @@ class SimplifyRedirectResolver:
             if _SELENIUM_DRIVER:
                 try:
                     _SELENIUM_DRIVER.quit()
-                except:
+                except Exception as _e:
+                    logging.debug("suppressed: %s", _e)
                     pass
                 _SELENIUM_DRIVER = None
 
@@ -836,10 +842,12 @@ class SimplifyRedirectResolver:
                         )
                         if SimplifyRedirectResolver._is_valid_job_url(actual_url):
                             return actual_url
-                except:
+                except Exception as _e:
+                    logging.debug("suppressed: %s", _e)
                     pass
 
-        except:
+        except Exception as _e:
+            logging.debug("suppressed: %s", _e)
             pass
         return None
 
@@ -877,7 +885,8 @@ class SimplifyRedirectResolver:
                             if "simplify.jobs" not in url and job_id not in url:
                                 if SimplifyRedirectResolver._is_valid_job_url(url):
                                     return url
-        except:
+        except Exception as _e:
+            logging.debug("suppressed: %s", _e)
             pass
         return None
 
@@ -1115,7 +1124,8 @@ class JobrightRedirectResolver:
                     logging.debug(f"Jobright Selenium button click: {apply_url[:80]}")
                     return apply_url
 
-            except:
+            except Exception as _e:
+                logging.debug("suppressed: %s", _e)
                 pass
 
             current_url = _SELENIUM_DRIVER.current_url
@@ -1316,7 +1326,8 @@ class JobrightAuthenticator:
             if driver:
                 try:
                     driver.quit()
-                except:
+                except Exception as _e:
+                    logging.debug("suppressed: %s", _e)
                     pass
 
 
@@ -1334,7 +1345,8 @@ class EmailExtractor:
                 logging.warning(f"Corrupted token file: {e}")
                 try:
                     os.remove(GMAIL_TOKEN_FILE)
-                except:
+                except Exception as _e:
+                    logging.debug("suppressed: %s", _e)
                     pass
                 creds = None
         if creds and not creds.valid:
@@ -1346,7 +1358,8 @@ class EmailExtractor:
                     print("⚠️  Gmail token expired - re-authenticating...")
                     try:
                         os.remove(GMAIL_TOKEN_FILE)
-                    except:
+                    except Exception as _e:
+                        logging.debug("suppressed: %s", _e)
                         pass
                     creds = None
         if not creds:
@@ -1828,7 +1841,8 @@ class PageFetcher:
                         cls._failed_urls = json.load(f)
                 else:
                     cls._failed_urls = {}
-            except:
+            except Exception as _e:
+                logging.debug("suppressed: %s", _e)
                 cls._failed_urls = {}
         return cls._failed_urls
 
@@ -1869,7 +1883,8 @@ class PageFetcher:
             from aggregator.config import FAILED_URLS_FILE
             with open(FAILED_URLS_FILE, "w") as f:
                 json.dump(failed, f, indent=2)
-        except:
+        except Exception as _e:
+            logging.debug("suppressed: %s", _e)
             pass
 
     def fetch_page(self, url):
@@ -2002,7 +2017,8 @@ class PageFetcher:
                 WebDriverWait(_SELENIUM_DRIVER, max_wait).until(
                     lambda d: d.execute_script("return document.readyState") == "complete"
                 )
-            except:
+            except Exception as _e:
+                logging.debug("suppressed: %s", _e)
                 pass
             # Short extra wait for JS rendering
             extra = 3 if ("oracle" in url_lower or "workday" in url_lower) else 1
@@ -2012,7 +2028,8 @@ class PageFetcher:
                 WebDriverWait(_SELENIUM_DRIVER, 5).until(
                     EC.presence_of_element_located((By.CSS_SELECTOR, "h1, h2, [data-automation-id], .job-title, .posting-headline"))
                 )
-            except:
+            except Exception as _e:
+                logging.debug("suppressed: %s", _e)
                 pass
 
             _SELENIUM_DRIVER.execute_script(
@@ -2030,7 +2047,8 @@ class PageFetcher:
             if _SELENIUM_DRIVER:
                 try:
                     _SELENIUM_DRIVER.quit()
-                except:
+                except Exception as _e:
+                    logging.debug("suppressed: %s", _e)
                     pass
                 _SELENIUM_DRIVER = None
 
@@ -2063,7 +2081,8 @@ class PageParser:
                         title = data["title"]
                         if 5 < len(title) < 200:
                             candidates.append((title, 100))
-                except:
+                except Exception as _e:
+                    logging.debug("suppressed: %s", _e)
                     pass
 
             meta_title = soup.find("meta", {"property": "og:title"})
@@ -2100,7 +2119,8 @@ class PageParser:
                         title = elem.get_text().strip()
                         if 5 < len(title) < 200:
                             candidates.append((title, priority))
-                except:
+                except Exception as _e:
+                    logging.debug("suppressed: %s", _e)
                     pass
 
             h1_tags = soup.find_all("h1", limit=3)
@@ -2182,7 +2202,8 @@ class PageParser:
                 if days > MAX_REASONABLE_AGE_DAYS or days < 0:
                     return None
             return days
-        except:
+        except Exception as _e:
+            logging.debug("suppressed: %s", _e)
             return None
 
     @staticmethod
@@ -2269,7 +2290,8 @@ class JobTypeExtractor:
                 data = json.loads(script.string)
                 emp_type = data.get("employmentType", "")
                 return JobTypeExtractor._normalize_type(emp_type)
-        except:
+        except Exception as _e:
+            logging.debug("suppressed: %s", _e)
             pass
         return "Unknown"
 
@@ -2285,7 +2307,8 @@ class JobTypeExtractor:
                 meta = soup.find("meta", {"name": name})
                 if meta and meta.get("content"):
                     return JobTypeExtractor._normalize_type(meta.get("content"))
-        except:
+        except Exception as _e:
+            logging.debug("suppressed: %s", _e)
             pass
         return "Unknown"
 
@@ -2307,7 +2330,8 @@ class JobTypeExtractor:
                     normalized = JobTypeExtractor._normalize_type(text)
                     if normalized != "Unknown":
                         return normalized
-        except:
+        except Exception as _e:
+            logging.debug("suppressed: %s", _e)
             pass
         return "Unknown"
 
@@ -2325,7 +2349,8 @@ class JobTypeExtractor:
                 match = re.search(pattern, text, re.I)
                 if match:
                     return JobTypeExtractor._normalize_type(match.group(group))
-        except:
+        except Exception as _e:
+            logging.debug("suppressed: %s", _e)
             pass
         return "Unknown"
 
@@ -2339,7 +2364,8 @@ class JobTypeExtractor:
                 return "Co-op"
             if "/fellowship/" in url_lower:
                 return "Fellowship"
-        except:
+        except Exception as _e:
+            logging.debug("suppressed: %s", _e)
             pass
         return "Unknown"
 
@@ -2661,7 +2687,8 @@ class ZipRecruiterResolver:
                 final = response.url
                 if "ziprecruiter.com" not in final:
                     return final
-        except:
+        except Exception as _e:
+            logging.debug("suppressed: %s", _e)
             pass
         return None
 
