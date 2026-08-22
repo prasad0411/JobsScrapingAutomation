@@ -570,6 +570,16 @@ class SheetsManager:
         return len(jobs)
 
     def _batch_write(self, sheet, start_row, rows_data, is_valid_sheet):
+        # CAPACITY GUARD: ensure_sufficient_rows() existed but was never
+        # called, so the sheet silently filled up and writes were lost.
+        try:
+            self.ensure_sufficient_rows(
+                sheet, min_available=max(250, len(rows_data) + 50)
+            )
+        except Exception as _ce:
+            import logging as _cl
+            _cl.warning('capacity check failed: %s', _ce)
+        
         if not rows_data:
             return
 
@@ -670,7 +680,7 @@ class SheetsManager:
                 "range": {"sheetId": sheet.id, "startRowIndex": start_row+i-1, "endRowIndex": start_row+i,
                           "startColumnIndex": 9, "endColumnIndex": 10},
                 "rule": {"condition": {"type": "ONE_OF_LIST",
-                         "values": [{"userEnteredValue": "SDE"}, {"userEnteredValue": "ML"}, {"userEnteredValue": "DA"}]},
+                         "values": [{"userEnteredValue": "SDE"}, {"userEnteredValue": "ML"}, {"userEnteredValue": "DA"}, {"userEnteredValue": "Tailored"}]},
                          "showCustomUi": True, "strict": False},
             }
         } for i in range(num_rows)]
