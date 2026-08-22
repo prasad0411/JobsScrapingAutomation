@@ -55,6 +55,8 @@ def _has_intern_roles(jobs, platform="greenhouse"):
             title = j.get("title", "")
         elif platform == "recruitee":
             title = j.get("title", "")
+        elif platform == "rippling":
+            title = j.get("name", "")
         elif platform == "smartrecruiters":
             title = j.get("name", "")
         if any(k in title.lower() for k in kw):
@@ -102,7 +104,8 @@ class ATSDiscoveryEngine:
     def extract_slugs_from_urls(self, urls):
         """Extract ATS company slugs from a list of URLs."""
         new_slugs = {"greenhouse": set(), "lever": set(), "ashby": set(),
-                     "workable": set(), "recruitee": set(), "smartrecruiters": set()}
+                     "workable": set(), "recruitee": set(), "smartrecruiters": set(),
+                     "rippling": set()}
 
         for url in urls:
             url_lower = url.lower()
@@ -133,6 +136,11 @@ class ATSDiscoveryEngine:
                 slug = slug if isinstance(slug, str) else (slug.group(1) if slug else None)
                 if slug and slug not in ("www", "apply", "api"):
                     new_slugs["workable"].add(slug)
+
+            # Rippling: ats.rippling.com/{slug}/jobs/... (skip locale prefixes)
+            rp_match = re.search(r"ats\.rippling\.com/(?:[a-z]{2}-[a-z0-9]+/)?([a-z0-9_-]+)", url_lower)
+            if rp_match and rp_match.group(1) not in ("jobs", "api", "rippling"):
+                new_slugs["rippling"].add(rp_match.group(1))
 
             # Recruitee: {slug}.recruitee.com
             rc_match = re.search(r"([a-z0-9_-]+)\.recruitee\.com", url_lower)
@@ -193,6 +201,11 @@ class ATSDiscoveryEngine:
                     data = _fetch_json(f"https://{slug}.recruitee.com/api/offers/", timeout=3)
                     if data and data.get("offers"):
                         has_roles = _has_intern_roles(data["offers"], "recruitee")
+
+                elif platform == "rippling":
+                    data = _fetch_json(f"https://api.rippling.com/platform/api/ats/v1/board/{slug}/jobs", timeout=5)
+                    if isinstance(data, list) and data:
+                        has_roles = _has_intern_roles(data, "rippling")
 
                 elif platform == "smartrecruiters":
                     data = _fetch_json(f"https://api.smartrecruiters.com/v1/companies/{slug}/postings", timeout=3)

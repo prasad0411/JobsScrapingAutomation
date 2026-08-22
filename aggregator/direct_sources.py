@@ -648,6 +648,39 @@ def scrape_workable() -> List[Dict]:
     return jobs
 
 
+RIPPLING_COMPANIES = {}
+
+
+def scrape_rippling() -> List[Dict]:
+    """Fetch jobs from Rippling ATS company boards."""
+    jobs = []
+    for slug, company_name in RIPPLING_COMPANIES.items():
+        data = _fetch_json(
+            f"https://api.rippling.com/platform/api/ats/v1/board/{slug}/jobs",
+            timeout=8,
+        )
+        if not isinstance(data, list):
+            continue
+        for job in data:
+            title = job.get("name", "")
+            if not _is_intern_or_newgrad(title):
+                continue
+            loc = job.get("workLocation") or {}
+            location = loc.get("label") or "Unknown" if isinstance(loc, dict) else "Unknown"
+            jobs.append({
+                "company": company_name,
+                "title": title,
+                "location": location,
+                "url": job.get("url", ""),
+                "job_id": str(job.get("uuid", "N/A")),
+                "source": "rippling_direct",
+                "age": "0d",
+                "is_closed": False,
+            })
+    log.info(f"Rippling direct: {len(jobs)} jobs from {len(RIPPLING_COMPANIES)} companies")
+    return jobs
+
+
 def _load_discovered_companies():
     """Load auto-discovered companies from brain.json."""
     import os
@@ -672,6 +705,9 @@ def _load_discovered_companies():
             for slug, name in discovered.get("workable", {}).items():
                 if slug not in WORKABLE_COMPANIES:
                     WORKABLE_COMPANIES[slug] = name
+            for slug, name in discovered.get("rippling", {}).items():
+                if slug not in RIPPLING_COMPANIES:
+                    RIPPLING_COMPANIES[slug] = name
     except Exception:
         pass
 
@@ -717,6 +753,11 @@ def fetch_all_direct_sources() -> List[Dict]:
         all_jobs.extend(scrape_workable())
     except Exception as e:
         log.error(f"Workable scrape failed: {e}")
+
+    try:
+        all_jobs.extend(scrape_rippling())
+    except Exception as e:
+        log.error(f"Rippling scrape failed: {e}")
     
     # Filter US-only
     us_jobs = [j for j in all_jobs if _is_us_location(j.get("location", "Unknown"))]
