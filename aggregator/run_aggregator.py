@@ -1565,7 +1565,64 @@ class UnifiedJobAggregator:
                         r"\bBucuresti\b", r"\bRomania\b", r"\bCroatia\b",
                         r",\s*UK\b", r",\s*United Kingdom\b",
                     ]
-                    _loc_ok = not any(_intl_re.search(p, _true_original_location, _intl_re.I) for p in _intl_patterns)
+                    # US GUARD: a valid US state code/name means the job is US,
+                    # even if the city name also exists abroad (Dublin OH,
+                    # Toronto OH, Paris TX, Manchester NH, London KY...).
+                    _US_STATES = (
+                        "AL","AK","AZ","AR","CA","CO","CT","DE","FL","GA","HI","ID",
+                        "IL","IN","IA","KS","KY","LA","ME","MD","MA","MI","MN","MS",
+                        "MO","MT","NE","NV","NH","NJ","NM","NY","NC","ND","OH","OK",
+                        "OR","PA","RI","SC","SD","TN","TX","UT","VT","VA","WA","WV",
+                        "WI","WY","DC","PR",
+                    )
+                    _US_STATE_NAMES = (
+                        "alabama","alaska","arizona","arkansas","california","colorado",
+                        "connecticut","delaware","florida","georgia","hawaii","idaho",
+                        "illinois","indiana","iowa","kansas","kentucky","louisiana",
+                        "maine","maryland","massachusetts","michigan","minnesota",
+                        "mississippi","missouri","montana","nebraska","nevada",
+                        "new hampshire","new jersey","new mexico","new york",
+                        "north carolina","north dakota","ohio","oklahoma","oregon",
+                        "pennsylvania","rhode island","south carolina","south dakota",
+                        "tennessee","texas","utah","vermont","virginia","washington",
+                        "west virginia","wisconsin","wyoming",
+                    )
+                    _loc_raw = _true_original_location or ""
+                    _is_us = bool(
+                        _intl_re.search(
+                            r",\s*(?:" + "|".join(_US_STATES) + r")\b",
+                            _loc_raw,
+                        )
+                    ) or any(
+                        _intl_re.search(r"\b" + _n + r"\b", _loc_raw, _intl_re.I)
+                        for _n in _US_STATE_NAMES
+                    )
+                    # Canadian provinces must still count as international
+                    if _intl_re.search(r",\s*(?:ON|BC|AB|QC|MB|SK|NS|NB|NL|PE)\b", _loc_raw):
+                        _is_us = False
+                    # A known FOREIGN CITY overrides an ambiguous 2-letter code
+                    # ("Munich, DE" is Germany not Delaware; "Hyderabad, IN"
+                    #  is India not Indiana; "Berlin, DE" is Germany).
+                    _FOREIGN_CITIES = (
+                        "munich","berlin","hamburg","frankfurt","hyderabad","bangalore",
+                        "bengaluru","mumbai","chennai","pune","delhi","noida","gurgaon",
+                        "kolkata","tokyo","osaka","beijing","shanghai","shenzhen",
+                        "seoul","taipei","sydney","melbourne","auckland","dublin ireland",
+                        "amsterdam","madrid","barcelona","milan","rome","zurich","geneva",
+                        "stockholm","oslo","helsinki","copenhagen","warsaw","prague",
+                        "budapest","bucharest","lisbon","athens","tel aviv","dubai",
+                        "singapore","hong kong","manila","jakarta","bangkok",
+                        "sao paulo","buenos aires","mexico city","bogota","santiago",
+                        "cairo","nairobi","lagos","johannesburg","cape town",
+                    )
+                    if any(_intl_re.search(r"\b" + _c + r"\b", _loc_raw, _intl_re.I)
+                           for _c in _FOREIGN_CITIES):
+                        _is_us = False
+
+                    _loc_ok = _is_us or not any(
+                        _intl_re.search(p, _true_original_location, _intl_re.I)
+                        for p in _intl_patterns
+                    )
                     _tech_ok = TitleProcessor.is_cs_engineering_role(_true_original_title)
                     _title_ok, _ = TitleProcessor.is_valid_job_title(_true_original_title)
 

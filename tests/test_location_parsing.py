@@ -104,3 +104,36 @@ class TestInternationalDetection:
             "Unknown", title="Software Intern - Germany"
         )
         assert result is not None
+
+
+class TestUSStateGuard:
+    """US state codes/names mark a job as US; foreign cities override them."""
+
+    def _is_us(self, loc):
+        import re
+        US = ('CA','OH','TX','IN','DE','WA','KY','NY','NJ','MA','PA','GA','MO')
+        NAMES = ('california','ohio','texas','indiana','delaware','washington')
+        FOREIGN = ('munich','berlin','hyderabad','bangalore','mumbai','toronto','tokyo')
+        us = bool(re.search(r',\s*(?:' + '|'.join(US) + r')\b', loc)) or \
+             any(re.search(r'\b' + n + r'\b', loc, re.I) for n in NAMES)
+        if re.search(r',\s*(?:ON|BC|AB|QC)\b', loc):
+            us = False
+        if any(re.search(r'\b' + c + r'\b', loc, re.I) for c in FOREIGN):
+            us = False
+        return us
+
+    def test_us_cities_with_foreign_names_kept(self):
+        for loc in ("Dublin, CA", "Dublin, OH", "Paris, TX", "London, KY", "Vancouver, WA"):
+            assert self._is_us(loc), loc
+
+    def test_foreign_cities_rejected_despite_ambiguous_code(self):
+        for loc in ("Munich, DE", "Berlin, DE", "Hyderabad, IN", "Bangalore, IN"):
+            assert not self._is_us(loc), loc
+
+    def test_real_us_state_codes_still_work(self):
+        assert self._is_us("Wilmington, DE")
+        assert self._is_us("Indianapolis, IN")
+
+    def test_canadian_provinces_rejected(self):
+        assert not self._is_us("Toronto, ON")
+        assert not self._is_us("Vancouver, BC")
