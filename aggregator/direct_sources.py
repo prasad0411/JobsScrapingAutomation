@@ -681,6 +681,66 @@ def scrape_rippling() -> List[Dict]:
     return jobs
 
 
+WORKDAY_TENANTS = {}
+
+
+def _workday_fetch(tenant, wd, site, query, limit=20):
+    """POST to a Workday tenant's public job search API."""
+    import requests as _rq
+    url = f"https://{tenant}.{wd}.myworkdayjobs.com/wday/cxs/{tenant}/{site}/jobs"
+    body = {"appliedFacets": {}, "limit": limit, "offset": 0, "searchText": query}
+    try:
+        r = _rq.post(url, json=body, timeout=12, headers={
+            "User-Agent": "Mozilla/5.0",
+            "Content-Type": "application/json",
+            "Accept": "application/json",
+        })
+        if r.status_code != 200:
+            return None
+        return r.json().get("jobPostings", [])
+    except Exception as e:
+        log.debug(f"workday {tenant} failed: {e}")
+        return None
+
+
+def scrape_workday_tenants() -> List[Dict]:
+    """Fetch entry-level jobs from discovered Workday tenants."""
+    jobs = []
+    queries = ["software engineer", "intern", "new grad", "data engineer"]
+    for key, company_name in WORKDAY_TENANTS.items():
+        try:
+            tenant, wd, site = key.split("|")
+        except ValueError:
+            continue
+        seen_paths = set()
+        for q in queries:
+            posts = _workday_fetch(tenant, wd, site, q)
+            if not posts:
+                continue
+            for jp in posts:
+                title = jp.get("title", "")
+                path = jp.get("externalPath", "")
+                if not title or not path or path in seen_paths:
+                    continue
+                if not _is_intern_or_newgrad(title):
+                    continue
+                seen_paths.add(path)
+                loc = jp.get("locationsText", "Unknown")
+                bullets = jp.get("bulletFields") or []
+                jobs.append({
+                    "company": company_name,
+                    "title": title,
+                    "location": loc,
+                    "url": f"https://{tenant}.{wd}.myworkdayjobs.com/{site}{path}",
+                    "job_id": str(bullets[0]) if bullets else "N/A",
+                    "source": "workday_tenant",
+                    "age": "0d",
+                    "is_closed": False,
+                })
+    log.info(f"Workday tenants: {len(jobs)} jobs from {len(WORKDAY_TENANTS)} tenants")
+    return jobs
+
+
 def _load_discovered_companies():
     """Load auto-discovered companies from brain.json."""
     import os
@@ -708,6 +768,9 @@ def _load_discovered_companies():
             for slug, name in discovered.get("rippling", {}).items():
                 if slug not in RIPPLING_COMPANIES:
                     RIPPLING_COMPANIES[slug] = name
+            for key, name in discovered.get("workday_tenants", {}).items():
+                if key not in WORKDAY_TENANTS:
+                    WORKDAY_TENANTS[key] = name
     except Exception:
         pass
 
@@ -758,6 +821,11 @@ def fetch_all_direct_sources() -> List[Dict]:
         all_jobs.extend(scrape_rippling())
     except Exception as e:
         log.error(f"Rippling scrape failed: {e}")
+
+    try:
+        all_jobs.extend(scrape_workday_tenants())
+    except Exception as e:
+        log.error(f"Workday tenants scrape failed: {e}")
     
     # Filter US-only
     us_jobs = [j for j in all_jobs if _is_us_location(j.get("location", "Unknown"))]
