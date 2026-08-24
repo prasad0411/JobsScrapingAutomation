@@ -2858,8 +2858,13 @@ class SimplifyGitHubScraper:
                     break
             # age = first cell after location that looks like a short duration
             for _cell in parts[3:]:
-                if re.match(r"^\d+[dhmw]", _cell.strip()):
-                    age = _cell.strip()
+                _cs = _cell.strip()
+                if re.match(r"^\d+[dhmw]", _cs):
+                    age = _cs
+                    break
+                # calendar date column: "Aug 05", "Oct 22", "2026-08-01"
+                if re.match(r"^[A-Za-z]{3}\s+\d{1,2}$", _cs) or re.match(r"^\d{4}-\d{2}-\d{2}$", _cs):
+                    age = _cs
                     break
             match = _HTML_LINK_PATTERN.search(link_cell) or _MD_LINK_PATTERN.search(
                 link_cell
@@ -2891,6 +2896,16 @@ class SimplifyGitHubScraper:
         last_company = ""
         for table in soup.find_all("table"):
             github_category = ""
+            # Map the "Date Posted"/"Age" column by header name (not fixed index).
+            _date_col = None
+            _hdr_row = table.find("tr")
+            if _hdr_row:
+                _hdr_cells = _hdr_row.find_all(["th", "td"])
+                for _hi, _hc in enumerate(_hdr_cells):
+                    _htxt = _hc.get_text(strip=True).lower()
+                    if "date" in _htxt or "posted" in _htxt or _htxt == "age":
+                        _date_col = _hi
+                        break
             prev = table.find_previous(["h2", "h3"])
             if prev:
                 ht = prev.get_text(strip=True).lower()
@@ -2915,7 +2930,12 @@ class SimplifyGitHubScraper:
                         continue
                 title = _EMOJI_PATTERN.sub("", cells[1].get_text(strip=True))
                 location = _EMOJI_PATTERN.sub("", cells[2].get_text(strip=True))
-                age = cells[4].get_text(strip=True)
+                if _date_col is not None and _date_col < len(cells):
+                    age = cells[_date_col].get_text(strip=True)
+                elif len(cells) >= 5:
+                    age = cells[4].get_text(strip=True)
+                else:
+                    age = ""
                 apply_link = None
                 for _c in cells[2:]:
                     _a = _c.find("a", href=True)

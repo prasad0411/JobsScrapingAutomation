@@ -945,7 +945,10 @@ class UnifiedJobAggregator:
             fresh, skipped_old = [], 0
             for job in jobs:
                 age_days = self._parse_github_age(job["age"])
-                if age_days is not None and age_days > MAX_JOB_AGE_DAYS:
+                # DROP stale AND undated rows. Previously `is not None` let every
+                # unparseable/blank date slip through, which is why weeks-old
+                # postings were being accepted.
+                if age_days is None or age_days > MAX_JOB_AGE_DAYS:
                     skipped_old += 1
                 else:
                     job["_source_name"] = source_name
