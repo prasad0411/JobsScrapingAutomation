@@ -919,8 +919,6 @@ class UnifiedJobAggregator:
         import concurrent.futures
 
         _all_sources = [
-            (SIMPLIFY_URL, "SimplifyJobs"),
-            (VANSHB03_URL, "vanshb03"),
             (SPEEDYAPPLY_SWE_URL, "speedyapply_swe"),
             (SPEEDYAPPLY_AI_URL, "speedyapply_ai"),
             (ZAPPLYJOBS_URL, "zapplyjobs_newgrad"),
@@ -965,6 +963,24 @@ class UnifiedJobAggregator:
         def _process_github_batch(jobs, source_name):
             fresh, skipped_old = [], 0
             for job in jobs:
+                # TERM FILTER: drop ONLY unambiguous Summer 2027 internships.
+                # Full-time, Fall, Spring, Winter and anything ambiguous are
+                # kept. An exception here keeps the job — never drops it.
+                try:
+                    from aggregator.term_filter import should_drop_summer
+                    if should_drop_summer(
+                        job.get("title", ""),
+                        job_type=self._detect_job_type(job.get("title", ""), source_name),
+                        company=job.get("company", ""),
+                        source=source_name,
+                    ):
+                        self.outcomes["skipped_summer_2027"] = (
+                            self.outcomes.get("skipped_summer_2027", 0) + 1
+                        )
+                        continue
+                except Exception as _tfe:
+                    logging.debug(f"term filter error (keeping job): {_tfe}")
+
                 age_days = self._parse_github_age(job["age"])
                 # DROP stale AND undated rows. Previously `is not None` let every
                 # unparseable/blank date slip through, which is why weeks-old
