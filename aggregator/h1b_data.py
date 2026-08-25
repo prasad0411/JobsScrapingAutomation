@@ -61,6 +61,95 @@ def normalize(name):
     return n
 
 
+LOCAL_DIR = os.path.join(BASE, ".local", "h1b")
+
+# The Tableau "Download to Excel -> CSV" export differs from the direct
+# fiscal-year CSVs: UTF-16, TAB separated, and approvals split across six
+# columns instead of two. It is the only way to get FY2024+ since those
+# direct files are no longer published.
+_APPROVAL_COLS = ("New Employment Approval", "Continuation Approval",
+                  "Change with Same Employer Approval", "New Concurrent Approval",
+                  "Change of Employer Approval", "Amended Approval",
+                  "Initial Approval", "Continuing Approval")
+
+
+def _load_local_exports():
+    """Read any Tableau exports dropped in .local/h1b/. Returns {} if none."""
+    if not os.path.isdir(LOCAL_DIR):
+        return {}, []
+    files = [f for f in os.listdir(LOCAL_DIR) if f.lower().endswith((".csv", ".tsv"))]
+    if not files:
+        return {}, []
+
+    sponsors, years = {}, set()
+    for fname in files:
+        path = os.path.join(LOCAL_DIR, fname)
+        text = None
+        for enc in ("utf-16", "utf-16-le", "utf-8-sig", "latin-1"):
+            try:
+                with open(path, encoding=enc) as fh:
+                    text = fh.read()
+                if "\t" in text[:4000] or "," in text[:4000]:
+                    break
+            except Exception:
+                continue
+        if not text:
+            log.warning("h1b local: could not decode %s", fname)
+            continue
+
+        delim = "\t" if text.count("\t") > text.count(",") else ","
+        try:
+            rows = list(csv.DictReader(io.StringIO(text), delimiter=delim))
+        except Exception as e:
+            log.warning("h1b local: parse failed for %s: %s", fname, str(e)[:60])
+            continue
+
+        for r in rows:
+            emp = ""
+            for k in r:
+                if k and "Employer" in k:
+                    emp = (r.get(k) or "").strip()
+                    break
+            if not emp or emp.lower() == "null":
+                continue
+            key = normalize(emp)
+            if len(key) < 3:
+                continue
+
+            total = 0
+            for col in _APPROVAL_COLS:
+                v = (r.get(col) or "0").replace(",", "").strip()
+                try:
+                    total += int(float(v))
+                except Exception:
+                    pass
+            if total <= 0:
+                continue
+
+            # The Tableau export prefixes a "Line by line" column, so the
+            # header key may carry a BOM or leading text. Match by suffix.
+            fy = ""
+            for k in r:
+                if k and k.strip().endswith("Fiscal Year"):
+                    fy = (r.get(k) or "").strip()
+                    break
+            if fy.isdigit():
+                years.add(int(fy))
+
+            prev = sponsors.get(key)
+            if prev is None:
+                sponsors[key] = [total, emp]
+            else:
+                prev[0] += total
+                if len(emp) > len(prev[1]):
+                    prev[1] = emp
+
+        log.info("h1b local: %s -> %d rows, %d employers so far",
+                 fname, len(rows), len(sponsors))
+
+    return sponsors, sorted(years, reverse=True)
+
+
 def _cache_read():
     try:
         with open(CACHE_FILE, encoding="utf-8") as f:
@@ -84,7 +173,15 @@ def build_cache(force=False):
         if cached and cached.get("sponsors"):
             return cached
 
-    sponsors, years_used = {}, []
+    # Local Tableau exports first - they are the only route to FY2024+.
+    sponsors, years_used = _load_local_exports()
+    if sponsors:
+        log.info("h1b: using LOCAL export - %d employers, FY%s",
+                 len(sponsors), ", FY".join(str(y) for y in years_used))
+        data = {"sponsors": sponsors, "years": years_used, "source": "local"}
+        _cache_write(data)
+        return data
+
     for year in _YEARS:
         url = _URL.format(year)
         try:
