@@ -308,47 +308,6 @@ def save_fetched_urls():
         logging.debug(f"save_fetched_urls failed: {e}")
 
 
-# ── Permanent "already fetched" cache: never re-fetch a job page ──
-_FETCHED_URLS_FILE = os.path.join(".local", "fetched_urls.json")
-_FETCHED_URLS = None
-_FETCHED_LOCK = threading.Lock()
-
-
-def _load_fetched_urls():
-    global _FETCHED_URLS
-    if _FETCHED_URLS is None:
-        try:
-            with open(_FETCHED_URLS_FILE) as f:
-                _FETCHED_URLS = set(json.load(f))
-        except Exception:
-            _FETCHED_URLS = set()
-    return _FETCHED_URLS
-
-
-def already_fetched(url):
-    """True if this job page was fetched in a previous run."""
-    return url in _load_fetched_urls()
-
-
-def mark_fetched(url):
-    with _FETCHED_LOCK:
-        _load_fetched_urls().add(url)
-
-
-def save_fetched_urls():
-    """Persist the fetched-URL set (call at end of run)."""
-    try:
-        os.makedirs(os.path.dirname(_FETCHED_URLS_FILE), exist_ok=True)
-        with _FETCHED_LOCK:
-            data = list(_load_fetched_urls())
-        tmp = _FETCHED_URLS_FILE + ".tmp"
-        with open(tmp, "w") as f:
-            json.dump(data, f)
-        os.replace(tmp, _FETCHED_URLS_FILE)
-    except Exception as e:
-        logging.debug(f"save_fetched_urls failed: {e}")
-
-
 def retry_request(url, method="GET", max_retries=MAX_RETRIES, **kwargs):
     _polite_wait(url)
     for attempt in range(max_retries):
@@ -1913,8 +1872,11 @@ class PageFetcher:
             pass
 
     def fetch_page(self, url):
-        if url in _HTTP_RESPONSE_CACHE:
-            cached = _HTTP_RESPONSE_CACHE[url]
+        # Was `if url in _HTTP_RESPONSE_CACHE`, which BYPASSED the 6-hour TTL
+        # that _http_cache_get() enforces - a stale page could be served as
+        # fresh, and a stale page means a stale posting date.
+        cached = _http_cache_get(url)
+        if cached is not None:
             return cached["response"], cached["final_url"], cached["page_source"]
 
         # Check failed URL cache (skip URLs that failed before today)

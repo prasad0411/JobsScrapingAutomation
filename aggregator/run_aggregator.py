@@ -603,6 +603,21 @@ class UnifiedJobAggregator:
                                 f"{_futs[_f].get('company','?')}: {_e}"
                             )
                 save_fetched_urls()
+                # Persist the HTTP response cache too. _save_http_cache() was
+                # written with a 6-hour TTL and a 500-entry cap, then never
+                # called - so the cache only ever lived inside a single run
+                # and was thrown away at exit. Persisting it means the 15:00
+                # and 21:00 runs reuse pages fetched at 08:00.
+                try:
+                    from aggregator.extractors import (
+                        _save_http_cache, _HTTP_RESPONSE_CACHE,
+                    )
+                    _save_http_cache(_HTTP_RESPONSE_CACHE)
+                    logging.info(
+                        f"HTTP cache persisted: {len(_HTTP_RESPONSE_CACHE)} entries"
+                    )
+                except Exception as _ce:
+                    logging.debug(f"http cache save failed: {_ce}")
                 logging.info(
                     f"Direct ATS sources: {len(_fresh)} pages read "
                     f"({_errs} errors)"

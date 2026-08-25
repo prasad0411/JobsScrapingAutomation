@@ -87,37 +87,13 @@ def _next_best_email(original_email: str, name: str, brain) -> str | None:
     return None
 
 
-def _load_fail_counts():
-    """Load send fail counts — Brain is source of truth, file is fallback."""
-    fc_file = os.path.join(_LOCAL, "send_fail_counts.json")
-    try:
-        file_fc = json.load(open(fc_file)) if os.path.exists(fc_file) else {}
-    except Exception:
-        file_fc = {}
-    try:
-        from outreach.brain import Brain
-        brain_fc = Brain.get()._data.get("send_fail_counts", {})
-        # Merge — take max of file and Brain
-        for k, v in brain_fc.items():
-            file_fc[k] = max(file_fc.get(k, 0), v)
-    except Exception:
-        pass
-    return file_fc
+# send_fail_counts was a 4th failure-tracking mechanism, written and
+# never called. record_pattern_failure (wrong email format), bounce_log
+# (hard bounces) and bounced_emails (dead addresses) already cover this,
+# and they ARE wired. A 4th tracker means a 4th source of truth that can
+# disagree with the other three. Removed - the brain key was never even
+# created and the file held an empty {}.
 
-
-def _save_fail_counts(fc):
-    """Save fail counts to both file and Brain."""
-    try:
-        json.dump(fc, open(os.path.join(_LOCAL, "send_fail_counts.json"), "w"), indent=2)
-    except Exception as e:
-        log.error(f"fail count file save: {e}")
-    try:
-        from outreach.brain import Brain
-        b = Brain.get()
-        b._data["send_fail_counts"] = fc
-        b.save()
-    except Exception as e:
-        log.error(f"fail count Brain save: {e}")
 
 
 
