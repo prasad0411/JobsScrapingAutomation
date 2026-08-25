@@ -170,6 +170,32 @@ ZAPPLYJOBS_2026_URL = (
 )
 
 
+# ── Missing high-value feeds ──────────────────────────────────────────
+# speedyapply publishes FOUR files per repo; we were only reading README.md
+# (internships). NEW_GRAD_USA.md is 728 SWE + 397 AI full-time roles that
+# were never fetched — and full-time new grad is the actual goal.
+SPEEDYAPPLY_SWE_NEWGRAD_URL = (
+    "https://raw.githubusercontent.com/speedyapply/2027-SWE-College-Jobs/main/NEW_GRAD_USA.md"
+)
+SPEEDYAPPLY_AI_NEWGRAD_URL = (
+    "https://raw.githubusercontent.com/speedyapply/2027-AI-College-Jobs/main/NEW_GRAD_USA.md"
+)
+# vanshb03 runs a SEPARATE new-grad repo from the internship one.
+VANSHB03_NEWGRAD_URL = (
+    "https://raw.githubusercontent.com/vanshb03/New-Grad-2027/dev/README.md"
+)
+# zapplyjobs: two more US-scoped repos on the same daily pipeline.
+ZAPPLYJOBS_IT_URL = (
+    "https://raw.githubusercontent.com/zapplyjobs/New-Grad-IT-Jobs-2027/main/README.md"
+)
+ZAPPLYJOBS_ML_INTERN_URL = (
+    "https://raw.githubusercontent.com/zapplyjobs/awesome-ml-internships/main/README.md"
+)
+ZAPPLYJOBS_INTERNSHIPS_2027_URL = (
+    "https://raw.githubusercontent.com/zapplyjobs/Internships-2027/main/README.md"
+)
+
+
 MAX_JOB_AGE_DAYS = 3
 MAX_REASONABLE_AGE_DAYS = 365
 PAGE_AGE_THRESHOLD_DAYS = 3

@@ -26,6 +26,12 @@ from aggregator.config import (
     VANSHB03_OFFSEASON_URL,
     NEWGRAD_SIMPLIFY_URL,
     NEWGRAD_CVRVE_URL,
+    SPEEDYAPPLY_SWE_NEWGRAD_URL,
+    SPEEDYAPPLY_AI_NEWGRAD_URL,
+    VANSHB03_NEWGRAD_URL,
+    ZAPPLYJOBS_IT_URL,
+    ZAPPLYJOBS_ML_INTERN_URL,
+    ZAPPLYJOBS_INTERNSHIPS_2027_URL,
     MAX_JOB_AGE_DAYS,
     PAGE_AGE_THRESHOLD_DAYS,
     MIN_QUALITY_SCORE,
@@ -919,12 +925,16 @@ class UnifiedJobAggregator:
             (SPEEDYAPPLY_AI_URL, "speedyapply_ai"),
             (ZAPPLYJOBS_URL, "zapplyjobs_newgrad"),
             (SIMPLIFY_OFFSEASON_URL, "simplify_offseason"),
-            (SIMPLIFY_2026_URL, "SimplifyJobs_2026"),
-            (ZAPPLYJOBS_2026_URL, "zapplyjobs_2026"),
 
             (VANSHB03_OFFSEASON_URL, "vanshb03_offseason"),
             (NEWGRAD_SIMPLIFY_URL, "simplify_newgrad"),
             (NEWGRAD_CVRVE_URL, "cvrve_newgrad"),
+            # Full-time new-grad lists — 1,125 roles never fetched before
+            (SPEEDYAPPLY_SWE_NEWGRAD_URL, "speedyapply_swe_newgrad"),
+            (SPEEDYAPPLY_AI_NEWGRAD_URL, "speedyapply_ai_newgrad"),
+            (ZAPPLYJOBS_IT_URL, "zapplyjobs_it"),
+            (ZAPPLYJOBS_ML_INTERN_URL, "zapplyjobs_ml_intern"),
+            (ZAPPLYJOBS_INTERNSHIPS_2027_URL, "zapplyjobs_intern_2027"),
         ]
 
         _results = {}
@@ -990,7 +1000,10 @@ class UnifiedJobAggregator:
         # alone is ~644 roles.
         for _src_name in ["speedyapply_ai", "vanshb03_offseason", "simplify_newgrad",
                           "cvrve_newgrad", "zapplyjobs_newgrad", "simplify_offseason",
-                          "SimplifyJobs_2026", "zapplyjobs_2026"]:
+                          "SimplifyJobs_2026", "zapplyjobs_2026",
+                          "speedyapply_swe_newgrad", "speedyapply_ai_newgrad",
+                          "vanshb03_newgrad", "zapplyjobs_it",
+                          "zapplyjobs_ml_intern", "zapplyjobs_intern_2027"]:
             _src_jobs = _results.get(_src_name, [])
             if _src_jobs:
                 print(f"\n  Processing {_src_name} ({len(_src_jobs)} listings)...")

@@ -785,6 +785,16 @@ def fetch_all_direct_sources() -> List[Dict]:
     
     log.info("Fetching direct sources: Greenhouse, Lever, Ashby, HackerNews")
     
+    # Indeed via JobSpy. Narrow scope on purpose: LinkedIn/Glassdoor need
+    # proxies and block hard, but Indeed has no rate limiting and covers
+    # employers who never post to Greenhouse/Lever or the GitHub lists.
+    # Wrapped so a missing package or a bad response cannot break a run.
+    try:
+        from aggregator.jobspy_source import scrape_indeed
+        all_jobs.extend(scrape_indeed())
+    except Exception as e:
+        log.error(f"Indeed (JobSpy) scrape failed: {e}")
+
     try:
         all_jobs.extend(scrape_greenhouse())
     except Exception as e:
