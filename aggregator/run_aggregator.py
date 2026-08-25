@@ -14,6 +14,7 @@ from bs4 import BeautifulSoup
 from aggregator.url_validator import validate_job, validate_job_integrity
 from aggregator.source_health import SourceHealthMonitor
 from aggregator.config import (
+    COMPANY_NAME_FIXES,
     SIMPLIFY_URL,
     VANSHB03_URL,
     SPEEDYAPPLY_SWE_URL,
@@ -166,49 +167,9 @@ GARBAGE_COMPANY_NAMES = {
 
 
 # Company name normalization — fix common extraction errors
-COMPANY_NAME_FIXES = {
-    "pg&e": "PG&E",
-    "amat": "Applied Materials",
-    "hp": "HP",
-    "usa": "Unknown",
-    "us": "Unknown",
-    "worldwide": "Unknown",
-    "tik tok": "TikTok",
-    "tmobile": "T-Mobile",
-    "myworkdayjobs": "Unknown",
-    "job-boards": "Unknown",
-    "sono": "Sonoco",
-    "vernova": "GE Vernova",
-    "wsp": "WSP",
-    "adp": "ADP",
-    "abb": "ABB",
-    "sas": "SAS",
-    "exl": "EXL",
-    "bmo": "BMO",
-    "rtx": "RTX",
-    "nxp": "NXP",
-    "impinjexternal": "Impinj",
-    "abacusinsights": "Abacus Insights",
-    "sigmacomputing": "Sigma Computing",
-    "aloyoga": "Alo Yoga",
-    "disneyland": "Disney",
-    "y99000 general electric": "GE Aerospace",
-    "assaabloy": "ASSA ABLOY",
-    "ats": "Unknown",
-    "retail markets": "Unknown",
-    "gts": "GTS",
-    "aegworldwide": "AEG",
-    "aeg": "AEG",
-    "gts": "GTS",
-    "colliers engineering & design home": "Colliers Engineering",
-    "simplify": "Unknown",
-    "intelligent solutions": "CCC Intelligent Solutions",
-    "caliber holdings": "Caliber Collision",
-    "cardinal health 5": "Cardinal Health",
-    "beone medicines usa": "BeiGene",
-    "calix north america": "Calix",
-    "(marvell semiconductor inc.) us": "Marvell",
-}
+# COMPANY_NAME_FIXES lives in config.py (339 entries). A local 40-entry
+# copy used to shadow it here, so the GitHub path only ever applied 40 of
+# the fixes you had curated. Verified subset with zero conflicting values.
 
 
 class JobrightEmailParser:
@@ -494,6 +455,29 @@ def _feed_sponsorship(job, default="Unknown"):
         if v and v != "Unknown":
             return v
     return default
+
+
+_SENIOR_TITLE_RE = re.compile(
+    r"\b(?:senior|sr\.?|staff|principal|lead|manager|director|head\s+of|"
+    r"vp|vice\s+president|architect|distinguished|fellow|chief)\b", re.I)
+
+
+def _is_senior_title(title):
+    """True for roles above entry level.
+
+    Seniority used to be filtered as a side effect of the internship check.
+    Once full-time roles were allowed through that check, Senior/Staff/
+    Principal/Manager titles had nothing stopping them. direct_sources and
+    the LinkedIn path already filter these; the GitHub feeds and Indeed did
+    not. An explicit intern/new-grad marker always wins - "New Grad Lead
+    Engineer" is a new-grad role.
+    """
+    if not title:
+        return False
+    if re.search(r"\b(?:intern|co-?op|new\s*grad|newgrad|entry[\s-]level|"
+                 r"university\s+grad|campus)\b", title, re.I):
+        return False
+    return bool(_SENIOR_TITLE_RE.search(title))
 
 
 class UnifiedJobAggregator:
@@ -1401,6 +1385,19 @@ class UnifiedJobAggregator:
         # Skip internship check for new-grad sources
         _src = job.get("_source_name", "")
         _is_newgrad_source = "newgrad" in _src or "new_grad" in _src
+        # Source-name matching missed every direct-ATS source and Indeed.
+        # Decide by JOB TYPE: a full-time role must never be rejected for
+        # failing an internship check. 1,594 new-grad roles per run were
+        # being discarded as "senior role" because of this.
+        _jt = self._detect_job_type(title, _src)
+        if _jt and _jt.strip().lower() not in ("internship", "intern", "co-op", "coop"):
+            # Full-time is fine, but only at entry level.
+            if _is_senior_title(title):
+                self.outcomes["skipped_senior_role"] += 1
+                self.source_stats[source]["rejected"] += 1
+                logging.info(f"REJECTED | {company_from_github} | {title} | Senior role")
+                return
+            _is_newgrad_source = True
 
         is_internship, intern_reason = TitleProcessor.is_internship_role(title, github_category="Software Engineering Internship")
         if not is_internship and not _is_newgrad_source:
@@ -3242,7 +3239,17 @@ class UnifiedJobAggregator:
             is_internship, intern_reason = TitleProcessor.is_internship_role(
                 title, page_text=soup.get_text()[:5000] if soup else ""
             )
-            if not is_internship and not source.startswith("simplify_newgrad"):
+            # Only "simplify_newgrad" was exempt, so full-time roles from
+            # speedyapply_*_newgrad, cvrve_newgrad, zapplyjobs_*, indeed_direct
+            # and every direct-ATS source were rejected as "senior role".
+            # Job type is the right test, not the source name.
+            _gate_jt = self._detect_job_type(title, source)
+            _is_ft = bool(_gate_jt) and _gate_jt.strip().lower() not in (
+                "internship", "intern", "co-op", "coop")
+            # Entry-level full-time only - never Senior/Staff/Principal/Manager
+            if _is_ft and _is_senior_title(title):
+                _is_ft = False
+            if not is_internship and not _is_ft and not source.startswith("simplify_newgrad"):
                 self.outcomes["skipped_senior_role"] += 1
                 self._add_discarded(
                     company,

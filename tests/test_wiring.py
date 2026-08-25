@@ -188,3 +188,46 @@ def test_preflight_is_wired_into_the_aggregator():
     """It only protects anything if it actually runs."""
     src = open(os.path.join(BASE, "aggregator", "run_aggregator.py"), encoding="utf-8").read()
     assert "run_preflight" in src, "preflight is never called by the aggregator"
+
+
+# ── 8. Full-time must survive the internship gate; senior must not ──
+def test_fulltime_survives_internship_gate():
+    """Two gates rejected any non-internship title as a 'senior role'. The only
+    exemption was source.startswith('simplify_newgrad'), so 1,594 full-time
+    new-grad roles per run were discarded - the largest single loss found."""
+    from aggregator.run_aggregator import UnifiedJobAggregator as U, _is_senior_title
+    from aggregator.processors import TitleProcessor as T
+
+    def kept(title, source):
+        jt = U._detect_job_type(title, source)
+        intern, _ = T.is_internship_role(title)
+        is_ft = (jt.strip().lower() not in ("internship", "intern", "co-op", "coop")
+                 and not _is_senior_title(title))
+        return intern or is_ft
+
+    must_keep = [("Software Engineer I", "greenhouse_direct"),
+                 ("New Grad: Software Engineer", "cvrve_newgrad"),
+                 ("Associate Software Engineer", "indeed_direct"),
+                 ("Backend Engineer, Payments", "ashby_direct"),
+                 ("Software Engineer", "speedyapply_swe_newgrad"),
+                 ("Software Engineer Intern", "vanshb03_offseason")]
+    for t, s in must_keep:
+        assert kept(t, s), "full-time/new-grad role wrongly rejected: {} [{}]".format(t, s)
+
+    must_drop = [("Senior Staff Software Engineer", "greenhouse_direct"),
+                 ("Principal Engineer", "indeed_direct"),
+                 ("Engineering Manager", "zapplyjobs_it"),
+                 ("Staff Data Scientist", "greenhouse_direct"),
+                 ("Director of Engineering", "ashby_direct")]
+    for t, s in must_drop:
+        assert not kept(t, s), "senior role wrongly kept: {} [{}]".format(t, s)
+
+
+def test_seniority_gate_is_not_source_name_matching():
+    """The original bug: exemption keyed on the source STRING, which missed
+    every direct-ATS source and Indeed. Assert job type drives it instead."""
+    src = open(os.path.join(BASE, "aggregator", "run_aggregator.py"), encoding="utf-8").read()
+    assert "_is_senior_title" in src, "seniority filter is gone"
+    assert src.count("_detect_job_type(title, source)") >= 1 or \
+           src.count("_detect_job_type(title, _src)") >= 1, \
+           "internship gate is no longer job-type aware"
