@@ -249,7 +249,7 @@ class SheetsManager:
     def _ensure_status_dropdowns(self):
         """One-time: set dropdown validation on entire Status column."""
         try:
-            _STATUS_VALUES = ["Not Applied", "Applied", "Rejected", "Screening",
+            _STATUS_VALUES = ["Not Applied", "Tailor", "Applied", "Rejected", "Screening",
                 "OA Round 1", "OA Round 2", "Interview 1", "Interview 2",
                 "Assessment", "Offer accepted"]
             self.spreadsheet.batch_update({"requests": [{

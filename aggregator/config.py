@@ -2627,6 +2627,7 @@ JOB_BOARD_DOMAINS = [
 
 STATUS_COLORS = {
     "Not Applied":  {"red": 0.6,  "green": 0.76, "blue": 1.0},
+    "Tailor":       {"red": 1.0,  "green": 0.65, "blue": 0.3},   # orange - resume needs tailoring
     "Applied":      {"red": 0.58, "green": 0.93, "blue": 0.31},
     "Rejected":     {"red": 0.97, "green": 0.42, "blue": 0.42},
     "Screening":    {"red": 1.0,  "green": 0.85, "blue": 0.4},
