@@ -466,6 +466,25 @@ def _claude_sponsorship_check(company, title):
         return "unknown"
 
 
+def _h1b_sponsorship(company, feed_value="Unknown"):
+    """Sponsorship verdict, feed signal first then official USCIS records.
+
+    Order matters: the feed's Visa column reflects THIS posting, while USCIS
+    reflects the company historically. A posting that says "does not sponsor"
+    outranks the fact that the parent company sponsors elsewhere.
+    """
+    if feed_value and feed_value != "Unknown":
+        return feed_value
+    try:
+        from aggregator.h1b_data import lookup
+        verdict, approvals, _matched = lookup(company)
+        if verdict == "Yes":
+            return "Yes"
+    except Exception as _he:
+        logging.debug(f"h1b lookup failed for {company}: {_he}")
+    return "Unknown"
+
+
 def _feed_sponsorship(job, default="Unknown"):
     """Use the sponsorship the feed gave us (zapplyjobs Visa column, or the
     legend emoji other repos use) instead of blanking it to Unknown. The
@@ -1334,7 +1353,7 @@ class UnifiedJobAggregator:
                     "url": "URL_SHIFTED",
                     "job_id": "N/A",
                     "job_type": self._detect_job_type(_true_original_title, job.get("_source_name", "")),
-                    "sponsorship": _feed_sponsorship(job),
+                    "sponsorship": _h1b_sponsorship(job.get("company", ""), _feed_sponsorship(job)),
                     "entry_date": self._format_date(),
                     "source": source,
                     "_hint_preserved": True,
@@ -1749,7 +1768,7 @@ class UnifiedJobAggregator:
                             "url": _conflict_url,
                             "job_id": "N/A",
                             "job_type": self._detect_job_type(_true_original_title, job.get("_source_name", "")),
-                            "sponsorship": _feed_sponsorship(job),
+                            "sponsorship": _h1b_sponsorship(job.get("company", ""), _feed_sponsorship(job)),
                             "entry_date": self._format_date(),
                             "source": source,
                         }
@@ -2359,7 +2378,7 @@ class UnifiedJobAggregator:
                 "url": url,
                 "job_id": "N/A",
                 "job_type": "Internship",
-                "sponsorship": "Unknown",
+                "sponsorship": _h1b_sponsorship(company),
                 "entry_date": self._format_date(),
                 "source": sender,
             }
@@ -2553,7 +2572,7 @@ class UnifiedJobAggregator:
             "url": search_url,
             "job_id": "N/A",  # LinkedIn IDs are internal, not real job IDs
             "job_type": job_type,
-            "sponsorship": "Unknown",
+            "sponsorship": _h1b_sponsorship(company),
             "entry_date": self._format_date(),
             "source": source_name,
         }
@@ -2920,7 +2939,7 @@ class UnifiedJobAggregator:
             "url": url,
             "job_id": _job_id,
             "job_type": self._detect_job_type(title, source),
-            "sponsorship": "Unknown",
+            "sponsorship": _h1b_sponsorship(company),
             "entry_date": self._format_date(),
             "source": source,
         }
@@ -3816,7 +3835,7 @@ class UnifiedJobAggregator:
                     "source": source,
                     "reason": reason,
                     "entry_date": self._format_date(),
-                    "sponsorship": "Unknown",
+                    "sponsorship": _h1b_sponsorship(company),
                 }
             )
             self.outcomes["discarded"] += 1
