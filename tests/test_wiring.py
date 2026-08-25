@@ -231,3 +231,50 @@ def test_seniority_gate_is_not_source_name_matching():
     assert src.count("_detect_job_type(title, source)") >= 1 or \
            src.count("_detect_job_type(title, _src)") >= 1, \
            "internship gate is no longer job-type aware"
+
+
+# ── 9. Fuzzy dedup must not collapse distinct roles ──
+def test_fuzzy_dedup_keeps_specialisations_and_levels():
+    """TF-IDF averages away the one token that carries the meaning:
+    "Software Engineer II" scored 1.00 against "Software Engineer I", and
+    "DeFi Algorithmic Trader" scored 0.99 against "Algorithmic Trader".
+    Both were dropped as duplicates. The guard is word-set based, not
+    positional, so reorderings still merge."""
+    from analytics.similarity import _differs_on_discriminator as D
+
+    must_differ = [
+        ("Software Engineer II", "Software Engineer I"),
+        ("DeFi Algorithmic Trader", "Algorithmic Trader"),
+        ("Research Scientist - Agents", "Research Scientist"),
+        ("Pharmacy Technician Back End", "Pharmacy Technician"),
+        ("Data Scientist Intern - NLP", "Data Scientist Intern"),
+        ("Backend Engineer, Payments", "Frontend Engineer, Payments"),
+    ]
+    for a, b in must_differ:
+        assert D(a, b), "distinct roles wrongly merged: {!r} vs {!r}".format(a, b)
+
+    must_match = [
+        ("Software Engineer Intern", "Software Engineering Intern"),
+        ("Single-Family Software Developer Intern",
+         "Software Developer Intern - Single-Family"),
+        ("Operations Analyst - US Government Services",
+         "Operations Analyst - US Government"),
+        ("Aerospace Algorithms Engineer Co-op",
+         "Aerospace Algorithms Engineer Graduate Co-op"),
+    ]
+    for a, b in must_match:
+        assert not D(a, b), "same role wrongly split: {!r} vs {!r}".format(a, b)
+
+
+def test_non_identifying_urls_are_not_dedup_keys():
+    """clean_url strips the query string, so all 306 google-search rows
+    collapse to one key. Deduping on it would drop the next fallback job of
+    any company as a duplicate of an unrelated one."""
+    from aggregator.utils import is_identifying_url as I, URLCleaner
+    a = "https://www.google.com/search?q=AMD+Data+Analyst"
+    b = "https://www.google.com/search?q=Disney+SWE"
+    assert URLCleaner.clean_url(a) == URLCleaner.clean_url(b), \
+        "premise changed: these no longer collide"
+    assert not I(a) and not I(b), "search URLs must not be dedup keys"
+    assert I("https://job-boards.greenhouse.io/twitch/jobs/8459320002"), \
+        "real job URLs must remain dedup keys"

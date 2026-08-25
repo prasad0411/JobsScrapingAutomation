@@ -353,6 +353,36 @@ class RoleCategorizer:
 # ============================================================================
 
 
+def is_identifying_url(url):
+    """False for URLs that do NOT identify a single posting.
+
+    clean_url() strips the query string, so every Google-search fallback
+    collapses to "https://google.com/search" - 306 sheet rows share that one
+    string today. Using it as a dedup key would drop the next fallback job of
+    ANY company as a duplicate of an unrelated one. Search/listing URLs must
+    fall back to company+title instead.
+    """
+    if not url:
+        return False
+    u = str(url).lower()
+    NON_IDENTIFYING = (
+        "google.com/search", "bing.com/search", "duckduckgo.com",
+        "linkedin.com/jobs/search", "indeed.com/jobs?", "glassdoor.com/Job/",
+        "/search?", "/jobs/search", "/careers/search",
+    )
+    if any(s in u for s in NON_IDENTIFYING):
+        return False
+    # a bare domain with no path identifies a company, not a job
+    from urllib.parse import urlparse
+    try:
+        p = urlparse(u)
+        if not p.path or p.path.strip("/") == "":
+            return False
+    except Exception:
+        pass
+    return True
+
+
 class URLCleaner:
     _CLEAN_PATTERN = re.compile(r"[?#].*$")
 

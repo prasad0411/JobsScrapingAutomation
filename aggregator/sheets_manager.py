@@ -309,7 +309,15 @@ class SheetsManager:
                     }
 
                 if url and "http" in url:
-                    existing["urls"].add(self._clean_url(url))
+                    # Only seed URLs that identify ONE posting. A google
+                    # search URL is shared by 306 rows; seeding it would make
+                    # every future fallback job look like a duplicate.
+                    try:
+                        from aggregator.utils import is_identifying_url
+                        if is_identifying_url(url):
+                            existing["urls"].add(self._clean_url(url))
+                    except Exception:
+                        existing["urls"].add(self._clean_url(url))
 
                 if (
                     job_id
@@ -1198,10 +1206,23 @@ class SheetsManager:
     @staticmethod
     @lru_cache(maxsize=2048)
     def _clean_url(url):
+        """Delegate to URLCleaner - ONE definition of "same URL".
+
+        This used to be a second, subtly different implementation: it did NOT
+        strip "www.", while URLCleaner does. The sheet was seeded with
+        "www.google.com/search" and dedup looked up "google.com/search", so
+        those URLs could never match and the same job was rewritten every run.
+        Two implementations of one concept, silently disagreeing - the same
+        root cause as the shadowed constants.
+        """
         if not url:
             return ""
-        if "jobright.ai/jobs/info/" in url.lower():
-            match = re.search(r"(jobright\.ai/jobs/info/[a-f0-9]+)", url, re.I)
-            if match:
-                return match.group(1).lower()
-        return re.sub(r"[?#].*$", "", url).lower().rstrip("/")
+        try:
+            from aggregator.utils import URLCleaner
+            return URLCleaner.clean_url(url)
+        except Exception:
+            if "jobright.ai/jobs/info/" in url.lower():
+                match = re.search(r"(jobright\.ai/jobs/info/[a-f0-9]+)", url, re.I)
+                if match:
+                    return match.group(1).lower()
+            return re.sub(r"[?#].*$", "", url).lower().rstrip("/")

@@ -34,6 +34,69 @@ class SimilarityMatch:
     company: str = ""
 
 
+_LEVEL_TOKENS = {
+    "i": 1, "1": 1, "ii": 2, "2": 2, "iii": 3, "3": 3, "iv": 4, "4": 4, "v": 5, "5": 5,
+    "sr": 90, "senior": 90, "staff": 91, "principal": 92,
+    "jr": 10, "junior": 10, "associate": 11,
+}
+
+# Words that carry no distinguishing meaning in a job title. Position is not
+# the signal - "DeFi Algorithmic Trader" differs from "Algorithmic Trader"
+# because of a WORD, wherever it sits, while "X Intern - Y" and "Y X Intern"
+# are the same title reordered.
+_FILLER = {
+    "the","a","an","of","for","and","or","in","at","to","with","on",
+    "services","service","group","team","teams","department","division",
+    "program","programs","co","op","coop","intern","internship","graduate",
+    "grad","new","student","students","us","usa","united","states","remote",
+    "hybrid","onsite","full","part","time","summer","fall","spring","winter",
+    "20\\d\\d","position","role","opportunity","opportunities","job","jobs",
+    "engineer","engineering","developer","development","analyst","scientist",
+    "software","technology","technical","technologies",
+}
+
+
+def _words(title):
+    """Meaningful, distinguishing words in a title."""
+    import re as _re
+    toks = _re.split(r"[^a-z0-9]+", str(title).lower())
+    out = set()
+    for t in toks:
+        if not t or len(t) < 2:
+            continue
+        if t in _FILLER or t in _LEVEL_TOKENS:
+            continue
+        if t.isdigit() and len(t) == 4:      # a year
+            continue
+        out.add(t)
+    return out
+
+
+def _levels(title):
+    import re as _re
+    return {_LEVEL_TOKENS[t] for t in _re.split(r"[^a-z0-9]+", str(title).lower())
+            if t in _LEVEL_TOKENS}
+
+
+def _differs_on_discriminator(a, b):
+    """True when two titles must NOT be merged despite a high similarity score.
+
+    Two rules, both word-based rather than positional:
+      1. different LEVEL markers  -> different jobs (SWE I vs SWE II)
+      2. one title has a meaningful word the other lacks -> a specialisation
+         ("DeFi" Algorithmic Trader, Pharmacy Technician "Back End")
+
+    Reordering is NOT a difference: "Single-Family SW Dev Intern" and
+    "SW Dev Intern - Single-Family" have identical word sets.
+    """
+    if _levels(a) != _levels(b):
+        return True
+    wa, wb = _words(a), _words(b)
+    if not wa or not wb:
+        return False
+    return bool(wa ^ wb)        # symmetric difference: any word unique to one
+
+
 class TitleSimilarity:
     """
     TF-IDF based title similarity engine.
@@ -187,7 +250,20 @@ class TitleSimilarity:
             title, threshold=threshold, max_results=1,
             same_company=company
         )
-        return matches[0] if matches else None
+        if not matches:
+            return None
+
+        # DISCRIMINATOR GUARD.
+        # TF-IDF scores whole titles, so the one token that carries the
+        # meaning gets averaged away: "Software Engineer II" scored >0.90
+        # against "Software Engineer I" and was dropped as a duplicate, and
+        # "Data Scientist Intern - NLP" was dropped against "Data Scientist
+        # Intern". Those are different jobs. If two titles disagree on a
+        # LEVEL token, or one carries a specialisation the other lacks, they
+        # are never duplicates no matter what the score says.
+        if _differs_on_discriminator(title, matches[0].title):
+            return None
+        return matches[0]
 
     @property
     def size(self) -> int:

@@ -3180,14 +3180,29 @@ class UnifiedJobAggregator:
                     logging.info(f"Title override: page={title!r} hint={title_hint!r}")
                     title = _hint_clean
 
-            # Duplicate check: only check existing_urls/jobs, NOT processing_lock
-            # (processing_lock was already set by the caller for this URL)
+            # Duplicate check. This used to skip processing_lock on the
+            # assumption that "the caller already set it for this URL" - it
+            # does not. existing_urls is the sheet snapshot from startup, so
+            # when N threads process the same posting concurrently, none of
+            # them is in it yet and ALL N pass. Seven identical speedyapply_ai
+            # rows reached the sheet that way in a single run.
+            #
+            # Now: check the in-progress set as well, and CLAIM the url inside
+            # the same locked block so the check and the claim are atomic.
             _clean = URLCleaner.clean_url(final_url or url)
             _norm_co = TitleProcessor.normalize_company_for_dedup(company) if hasattr(TitleProcessor, "normalize_company_for_dedup") else company.lower()
             _norm = URLCleaner.normalize_text(f"{_norm_co}_{title}")
             with getattr(self, "_github_lock", _NOOP_LOCK):
-                _url_dup = _clean in self.existing_urls
-                _job_dup = _norm in self.existing_jobs
+                _ident_ok = _ident(final_url or url)
+                _url_dup = _ident_ok and (_clean in self.existing_urls
+                                          or _clean in self.processing_lock)
+                _job_dup = (_norm in self.existing_jobs
+                            or _norm in self.processing_lock)
+                if not _url_dup and not _job_dup:
+                    # claim both keys before releasing the lock
+                    if _ident_ok:
+                        self.processing_lock.add(_clean)
+                    self.processing_lock.add(_norm)
             if _url_dup:
                 logging.info(f"DUPLICATE (url, post-fetch) | {company} | {title} | {_clean[:60]}")
                 return None
@@ -3724,7 +3739,13 @@ class UnifiedJobAggregator:
                 except Exception:
                     pass
             clean_url = URLCleaner.clean_url(url)
-            if clean_url in self.existing_urls or clean_url in self.processing_lock:
+            # A non-identifying URL (google search, listing page) is shared by
+            # hundreds of unrelated jobs - never dedup on it. company+title
+            # below still catches genuine repeats.
+            from aggregator.utils import is_identifying_url as _ident
+            _url_is_key = _ident(url)
+            if _url_is_key and (clean_url in self.existing_urls
+                                or clean_url in self.processing_lock):
                 self.outcomes["skipped_duplicate_url"] += 1
                 logging.info(f"DUPLICATE (url) | {company} | {title} | {url[:60]}")
                 return True
