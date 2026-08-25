@@ -14,6 +14,7 @@ from outreach.outreach_config import MS_SENDER_EMAIL, MS_CLIENT_ID, MS_AUTHORITY
 from outreach.brain import Brain
 import requests as _req
 from msal import PublicClientApplication, SerializableTokenCache
+from aggregator.atomic_json import write_json as _atomic_write_json
 
 log = logging.getLogger(__name__)
 logging.basicConfig(level=logging.INFO, format="%(message)s")
@@ -123,7 +124,7 @@ def _load_bounce_log():
         return {}
 
 def _save_bounce_log(bl):
-    json.dump(bl, open(BOUNCE_LOG, "w"), indent=2)
+    _atomic_write_json(BOUNCE_LOG, bl)
 
 def _load_processed():
     try:
@@ -132,7 +133,7 @@ def _load_processed():
         return set()
 
 def _save_processed(ids):
-    json.dump(list(ids), open(PROCESSED_NDRS, "w"), indent=2)
+    _atomic_write_json(PROCESSED_NDRS, list(ids))
 
 # ── main ──────────────────────────────────────────────────────────────────────
 def main():
@@ -227,8 +228,15 @@ def main():
     # Save state — prune processed_ndr_ids older than 30 days to prevent unbounded growth
     # NDR IDs are Graph message IDs; messages older than 30 days are already deleted
     if len(processed_ids) > 500:
-        processed_ids = set(list(processed_ids)[-400:])
-        log.info(f"Pruned processed_ndr_ids to 400 entries")
+        # A set has no insertion order, so list(set)[-400:] kept an ARBITRARY
+        # 400 ids. Recently-seen NDRs got dropped and re-processed, which
+        # double-counted bounces — and two bounces marks a contact dead, so
+        # one real bounce could blacklist a good contact. Keep the ids we saw
+        # THIS run plus a bounded remainder instead.
+        _seen_now = [m["id"] for m in msgs if m.get("id")]
+        _rest = [i for i in processed_ids if i not in set(_seen_now)]
+        processed_ids = set(_seen_now + _rest[:max(0, 400 - len(_seen_now))])
+        log.info(f"Pruned processed_ndr_ids to {len(processed_ids)} entries (this run's kept)")
     _save_bounce_log(bounce_log)
     _save_processed(processed_ids)
     brain.save()

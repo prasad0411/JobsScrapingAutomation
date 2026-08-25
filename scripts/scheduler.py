@@ -30,6 +30,10 @@ logging.basicConfig(
 )
 log = logging.getLogger(__name__)
 
+# Types the dispatch loop in main() actually handles.
+# A type not listed here will NEVER be scheduled.
+KNOWN_JOB_TYPES = {"times", "interval", "post_write"}
+
 JOBS = [
     {"name":"aggregator","module":"aggregator","type":"times","times":[(8,0),(15,0),(21,0)],"timeout":5400,"max_gap":8*3600},
     {"name":"send_scheduled","module":"scripts/send_scheduled","type":"times","times":[(9,0),(10,30),(11,30),(12,30)],"timeout":300,"max_gap":24*3600},
@@ -56,6 +60,12 @@ def _validate_jobs_config():
         name = job.get("name", "UNNAMED")
         if "type" not in job:
             log.error(f"Config error: job '{name}' has no 'type' key")
+        elif job["type"] not in KNOWN_JOB_TYPES:
+            log.error(
+                f"Config error: job '{name}' has type '{job['type']}' which the "
+                f"dispatch loop does not handle - IT WILL NEVER RUN. "
+                f"Known types: {sorted(KNOWN_JOB_TYPES)}"
+            )
         if job.get("type") == "interval":
             if not any(k in job for k in ("interval", "interval_hours", "interval_minutes")):
                 log.error(f"Config error: job '{name}' has type=interval but no interval/interval_hours key")
@@ -169,33 +179,64 @@ def run_job(job):
 
 _job_failures: dict = {}  # tracks consecutive failures per job
 
+def run_post_write_jobs(state):
+    """Run every type=post_write job. Called after a successful aggregator run.
+
+    Before this existed, the main() dispatch loop only handled "times" and
+    "interval", so quality_gate and health_heartbeat never executed at all.
+    """
+    for pj in JOBS:
+        if pj.get("type") != "post_write":
+            continue
+        try:
+            log.info(f"post_write: running {pj['name']}")
+            run_job(pj)
+            state[pj["name"]] = datetime.datetime.now().isoformat()
+            save_state(state)
+        except Exception as e:
+            log.error(f"post_write job {pj['name']} failed: {e}")
+
+
 def run_job_async(job, state):
     name = job["name"]
+
     def _run():
         run_job(job)
-        # Check if job actually succeeded by reading health file
         health_f = f"{BASE}/.local/health_{name}.json"
+        succeeded = True
         try:
             import json as _j
             h = _j.load(open(health_f))
             if h.get("exit_code", 1) != 0:
+                succeeded = False
                 _job_failures[name] = _job_failures.get(name, 0) + 1
                 if _job_failures[name] == 1:
-                    log.warning(f"↻ {name} failed — will retry in 30 min")
+                    log.warning(f"{name} failed - will retry in 30 min")
                     time.sleep(1800)
-                    log.info(f"↻ Retrying {name} (attempt 2)")
+                    log.info(f"Retrying {name} (attempt 2)")
                     run_job(job)
+                    try:
+                        h2 = _j.load(open(health_f))
+                        succeeded = h2.get("exit_code", 1) == 0
+                    except Exception:
+                        succeeded = False
                 else:
-                    log.warning(f"✗ {name} failed twice — skipping until next window")
+                    log.warning(f"{name} failed twice - skipping until next window")
                     _job_failures[name] = 0
             else:
                 _job_failures[name] = 0
         except Exception:
             pass
+
         state[name] = datetime.datetime.now().isoformat()
         save_state(state)
+
+        if name == "aggregator" and succeeded:
+            run_post_write_jobs(state)
+
     t = threading.Thread(target=_run, name=f"job-{name}", daemon=True)
     t.start()
+
 
 def should_run_timed(job, state, now):
     name = job["name"]

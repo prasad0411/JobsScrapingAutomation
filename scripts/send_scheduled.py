@@ -15,6 +15,7 @@ from outreach.outreach_data import _cl
 from outreach.brain import Brain
 import requests as _req, gspread
 from oauth2client.service_account import ServiceAccountCredentials
+from aggregator.atomic_json import write_json as _atomic_write_json
 
 log = logging.getLogger(__name__)
 logging.basicConfig(level=logging.INFO, format="%(message)s")
@@ -315,7 +316,7 @@ def _load_sl():
 
 def _save_sl(sl):
     try:
-        json.dump(sl, open(SENT_LOG_FILE, "w"), indent=2)
+        _atomic_write_json(SENT_LOG_FILE, sl)
     except Exception as e:
         log.error(f"Sent log save: {e}")
 

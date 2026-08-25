@@ -47,7 +47,12 @@ def main():
                     fetched = PageFetcher.fetch(result_url)
                     if fetched:
                         parsed = PageParser.parse(fetched, result_url)
-                        if parsed and ValidationHelper.passes_all(parsed):
+                        # ValidationHelper.passes_all() does not exist. The
+                        # AttributeError was swallowed by the except below, so
+                        # every resolved Simplify job was silently discarded.
+                        _ok = bool(parsed and parsed.get("company") and parsed.get("title")
+                                   and str(parsed.get("url", "")).startswith("http"))
+                        if _ok:
                             sm = SheetsManager()
                             rows = sm.get_next_row_numbers()
                             parsed["entry_date"] = datetime.datetime.now().strftime("%d %B, %I:%M %p")

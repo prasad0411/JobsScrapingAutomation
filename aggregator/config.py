@@ -184,7 +184,9 @@ MAX_RETRIES = 3
 RETRY_DELAY_SECONDS = 2
 BACKOFF_MULTIPLIER = 2
 
-BLACKLIST_DOMAINS = ["workatastartup.com"    "youtube.com",
+BLACKLIST_DOMAINS = [
+    "workatastartup.com",
+    "youtube.com",
     "youtu.be",
 ]
 

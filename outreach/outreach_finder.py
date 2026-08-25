@@ -25,6 +25,7 @@ from outreach.outreach_data import NameParser, PatternCache, Credits
 from outreach.brain import Brain
 from outreach.outreach_provider import ProviderVerifier
 from outreach.outreach_verifier import EmailVerifier, is_suspicious_email as verify_suspicious, CircuitBreaker, DomainHistory, AUTO_SEND_THRESHOLD
+from aggregator.atomic_json import write_json as _atomic_write_json
 
 log = logging.getLogger(__name__)
 try:
@@ -54,7 +55,7 @@ def _load_domain_cache():
 
 def _save_domain_cache(cache):
     try:
-        json.dump(cache, open(_DOMAIN_CACHE_FILE, "w"), indent=2)
+        _atomic_write_json(_DOMAIN_CACHE_FILE, cache)
     except Exception as e:
         log.debug(f"domain_cache save failed: {e}")
 
@@ -477,7 +478,7 @@ class Finder:
                 del rt[k]
                 log.info(f"Retry expired (3d TTL): {k}")
             if expired:
-                json.dump(rt, open(RETRY_FILE, "w"), indent=2)
+                _atomic_write_json(RETRY_FILE, rt)
         except Exception:
             pass
         # Email verify cache trim (keep newest 1000)
@@ -487,7 +488,7 @@ class Finder:
             if len(ev) > 1000:
                 # Keep last 1000 entries (dict order = insertion order in Python 3.7+)
                 trimmed = dict(list(ev.items())[-1000:])
-                json.dump(trimmed, open(ev_path, "w"), indent=2)
+                _atomic_write_json(ev_path, trimmed)
                 log.info(f"Email cache trimmed: {len(ev)} -> 1000")
         except Exception:
             pass
@@ -797,7 +798,7 @@ class Finder:
         retries[company_key]["error"] = error[:200]
         retries[company_key]["ts"] = time.time()
         try:
-            json.dump(retries, open(RETRY_FILE, "w"), indent=2)
+            _atomic_write_json(RETRY_FILE, retries)
         except Exception as _e:
             log.debug(f"finder op failed: {_e}")
 
@@ -807,7 +808,7 @@ class Finder:
         if company_key in retries:
             del retries[company_key]
             try:
-                json.dump(retries, open(RETRY_FILE, "w"), indent=2)
+                _atomic_write_json(RETRY_FILE, retries)
             except Exception as _e:
                 log.debug(f"finder op failed: {_e}")
 

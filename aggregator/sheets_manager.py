@@ -37,6 +37,31 @@ from aggregator.config import (
 )
 
 
+# ── Google Sheets circuit breaker ──────────────────────────────────────
+# Sheets has hard rate limits. Without a breaker the pipeline keeps hammering
+# a 429-ing API for the rest of the run. aggregator/circuit_breaker.py was
+# written for exactly this and had zero callers.
+try:
+    from aggregator.circuit_breaker import CircuitBreakerRegistry as _CBR
+    _SHEETS_CB = _CBR.get("google_sheets", failure_threshold=5, reset_timeout=60)
+except Exception:
+    _SHEETS_CB = None
+
+
+def _cb_allows():
+    return _SHEETS_CB.allow_request() if _SHEETS_CB else True
+
+
+def _cb_ok():
+    if _SHEETS_CB:
+        _SHEETS_CB.record_success()
+
+
+def _cb_fail():
+    if _SHEETS_CB:
+        _SHEETS_CB.record_failure()
+
+
 class SheetsManager:
     def __init__(self):
         scope = [
@@ -583,12 +608,28 @@ class SheetsManager:
         if not rows_data:
             return
 
+        # CIRCUIT BREAKER: Sheets has hard rate limits. After 5 consecutive
+        # failures the breaker opens and we stop hammering a 429-ing API for
+        # the rest of the run, then retry once after 60s.
+        if not _cb_allows():
+            import logging as _cl
+            _cl.warning(
+                "Google Sheets circuit OPEN - skipping write of %d rows "
+                "(will retry next run)", len(rows_data)
+            )
+            return
+
         end_row = start_row + len(rows_data) - 1
-        sheet.update(
-            values=rows_data,
-            range_name=f"A{start_row}:N{end_row}",
-            value_input_option="USER_ENTERED",
-        )
+        try:
+            sheet.update(
+                values=rows_data,
+                range_name=f"A{start_row}:N{end_row}",
+                value_input_option="USER_ENTERED",
+            )
+            _cb_ok()
+        except Exception:
+            _cb_fail()
+            raise
         time.sleep(1)
 
         sheet.format(

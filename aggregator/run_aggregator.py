@@ -69,13 +69,13 @@ from aggregator.processors import (
     LocationProcessor,
     ValidationHelper,
     CompanyExtractor,
-    QualityScorer,
     log_detailed_rejection,
 )
 
 from aggregator.sheets_manager import SheetsManager
 
 from aggregator.utils import (
+    QualityScorer,
     PlatformDetector,
     CompanyNormalizer,
     CompanyValidator,
@@ -458,6 +458,17 @@ def _claude_sponsorship_check(company, title):
     except Exception as e:
         logging.debug(f"Claude sponsorship check failed for {company}: {e}")
         return "unknown"
+
+
+def _feed_sponsorship(job, default="Unknown"):
+    """Use the sponsorship the feed gave us (zapplyjobs Visa column, or the
+    legend emoji other repos use) instead of blanking it to Unknown. The
+    parser already extracted this; three build paths were discarding it."""
+    if isinstance(job, dict):
+        v = job.get("sponsorship")
+        if v and v != "Unknown":
+            return v
+    return default
 
 
 class UnifiedJobAggregator:
@@ -974,8 +985,12 @@ class UnifiedJobAggregator:
         _process_github_batch(speedyapply_jobs, "speedyapply_swe")
 
         # ── New sources (fault-isolated: each source independent) ──
-        for _src_name in ["speedyapply_ai",                           "vanshb03_offseason", "simplify_newgrad",
-                          "cvrve_newgrad"]:
+        # These 4 were being FETCHED every run and then silently dropped —
+        # they never appeared in this processing list. simplify_offseason
+        # alone is ~644 roles.
+        for _src_name in ["speedyapply_ai", "vanshb03_offseason", "simplify_newgrad",
+                          "cvrve_newgrad", "zapplyjobs_newgrad", "simplify_offseason",
+                          "SimplifyJobs_2026", "zapplyjobs_2026"]:
             _src_jobs = _results.get(_src_name, [])
             if _src_jobs:
                 print(f"\n  Processing {_src_name} ({len(_src_jobs)} listings)...")
@@ -1277,7 +1292,7 @@ class UnifiedJobAggregator:
                     "url": "URL_SHIFTED",
                     "job_id": "N/A",
                     "job_type": self._detect_job_type(_true_original_title, job.get("_source_name", "")),
-                    "sponsorship": "Unknown",
+                    "sponsorship": _feed_sponsorship(job),
                     "entry_date": self._format_date(),
                     "source": source,
                     "_hint_preserved": True,
@@ -1692,7 +1707,7 @@ class UnifiedJobAggregator:
                             "url": _conflict_url,
                             "job_id": "N/A",
                             "job_type": self._detect_job_type(_true_original_title, job.get("_source_name", "")),
-                            "sponsorship": "Unknown",
+                            "sponsorship": _feed_sponsorship(job),
                             "entry_date": self._format_date(),
                             "source": source,
                         }
@@ -2685,6 +2700,18 @@ class UnifiedJobAggregator:
         _ti_words = set(_ti_lower.split())
 
         try:
+            # Load discovered boards ONCE per process. The dicts below start
+            # with only the ~263 hardcoded entries; ats_discovery has found
+            # ~600 more. Without this the resolver is blind to every board the
+            # pipeline taught itself about.
+            if not getattr(UnifiedJobAggregator, "_discovery_loaded", False):
+                try:
+                    from aggregator.direct_sources import _load_discovered_companies
+                    _load_discovered_companies()
+                    logging.info("Resolver: discovered boards merged (once per run)")
+                except Exception as _de:
+                    logging.debug(f"discovery load failed: {_de}")
+                UnifiedJobAggregator._discovery_loaded = True
             from aggregator.direct_sources import GREENHOUSE_COMPANIES, LEVER_COMPANIES, ASHBY_COMPANIES
         except ImportError:
             return None
@@ -3492,6 +3519,15 @@ class UnifiedJobAggregator:
                 return None
 
             page_age = ValidationHelper.extract_page_age(soup)
+            # FALLBACK LADDER (rung 4): if the ATS API gave us a real date the
+            # job already passed the age gate upstream. Reaching here with no
+            # page date means NOTHING knows how old this job is. Log it so we
+            # can see what falls through, then drop it rather than assume fresh.
+            if page_age is None:
+                self.outcomes["skipped_no_date"] = self.outcomes.get("skipped_no_date", 0) + 1
+                logging.info(
+                    f"NO DATE | {company} | {title[:50]} | {source} | {(final_url or url)[:70]}"
+                )
             if page_age is not None and page_age > PAGE_AGE_THRESHOLD_DAYS:
                 self.outcomes["skipped_too_old"] += 1
                 self._add_discarded(
@@ -3841,12 +3877,38 @@ class UnifiedJobAggregator:
         if not age_str:
             return None
         age_str = age_str.strip().lower()
-        # Format: "1mo", "2mo" → months
-        mo_match = re.match(r"^(\d+)mo$", age_str)
+        # Format: "1mo", "2mo" → months. Must be checked BEFORE the bare
+        # minute pattern, or "1mo" would match as 1 minute.
+        mo_match = re.match(r"^(\d+)\s*mo$", age_str)
         if mo_match:
             return int(mo_match.group(1)) * 30
+        # Format: "11m" / "52m" → MINUTES (zapplyjobs regenerates its README
+        # every few minutes, so these are the freshest jobs we get). Anything
+        # under a day is age 0.
+        m_match = re.match(r"^(\d+)\s*m$", age_str)
+        if m_match:
+            return 0
+        # Format: "20h" → hours, still today
+        h_match = re.match(r"^(\d+)\s*h$", age_str)
+        if h_match:
+            return 0
+        # Format: "1w" / "2w" → weeks
+        w_match = re.match(r"^(\d+)\s*w$", age_str)
+        if w_match:
+            return int(w_match.group(1)) * 7
+        # Format: "2026-08-22" → ISO date
+        iso_match = re.match(r"^(\d{4})-(\d{2})-(\d{2})$", age_str)
+        if iso_match:
+            import datetime as _isodt
+            try:
+                _d = _isodt.date(int(iso_match.group(1)),
+                                 int(iso_match.group(2)),
+                                 int(iso_match.group(3)))
+                return (_isodt.date.today() - _d).days
+            except ValueError:
+                return 999
         # Format: "5d" → 5 days
-        match = re.match(r"^(\d+)d$", age_str)
+        match = re.match(r"^(\d+)\s*d$", age_str)
         if match:
             return int(match.group(1))
         # Format: "2mo" → 60 days

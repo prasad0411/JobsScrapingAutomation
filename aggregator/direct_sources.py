@@ -183,6 +183,9 @@ _SENIOR_KW = re.compile(
 )
 
 
+from aggregator.job_age import pick_age as _pick_age
+
+
 def _fetch_json(url: str, timeout: int = 5) -> Optional[dict]:
     """Fetch JSON from URL, return None on failure."""
     try:
@@ -234,7 +237,7 @@ def scrape_greenhouse() -> List[Dict]:
                 "url": url,
                 "job_id": job_id,
                 "source": "greenhouse_direct",
-                "age": "0d",
+                "age": _pick_age(job, ("updated_at", "first_published", "created_at")),
                 "is_closed": False,
             })
     log.info(f"Greenhouse direct: {len(jobs)} jobs from {len(GREENHOUSE_COMPANIES)} companies")
@@ -268,7 +271,7 @@ def scrape_lever() -> List[Dict]:
                 "url": url,
                 "job_id": "N/A",
                 "source": "lever_direct",
-                "age": "0d",
+                "age": _pick_age(job, ("createdAt", "created_at")),
                 "is_closed": False,
             })
     log.info(f"Lever direct: {len(jobs)} jobs from {len(LEVER_COMPANIES)} companies")
@@ -303,7 +306,7 @@ def scrape_ashby() -> List[Dict]:
                 "url": url,
                 "job_id": "N/A",
                 "source": "ashby_direct",
-                "age": "0d",
+                "age": _pick_age(job, ("publishedAt", "updatedAt", "publishedDate")),
                 "is_closed": False,
             })
     log.info(f"Ashby direct: {len(jobs)} jobs from {len(ASHBY_COMPANIES)} companies")
@@ -519,7 +522,7 @@ def scrape_workday() -> List[Dict]:
                     "url": job_url,
                     "job_id": job_id,
                     "source": "workday_direct",
-                    "age": "0d",
+                    "age": _pick_age(j, ("startDate",), fallback_key="postedOn"),
                     "is_closed": False,
                 })
 
@@ -592,7 +595,7 @@ def scrape_smartrecruiters() -> List[Dict]:
                     "url": job_url,
                     "job_id": str(job_id),
                     "source": "smartrecruiters_direct",
-                    "age": "0d",
+                    "age": _pick_age(posting, ("releasedDate", "createdOn")),
                     "is_closed": False,
                 })
 
@@ -641,7 +644,7 @@ def scrape_workable() -> List[Dict]:
                 "url": url,
                 "job_id": str(job.get("shortcode", "N/A")),
                 "source": "workable_direct",
-                "age": "0d",
+                "age": _pick_age(job, ("published_on", "created_at")),
                 "is_closed": False,
             })
     log.info(f"Workable direct: {len(jobs)} jobs from {len(WORKABLE_COMPANIES)} companies")
@@ -674,7 +677,7 @@ def scrape_rippling() -> List[Dict]:
                 "url": job.get("url", ""),
                 "job_id": str(job.get("uuid", "N/A")),
                 "source": "rippling_direct",
-                "age": "0d",
+                "age": _pick_age(job, ("createdAt", "updatedAt")),
                 "is_closed": False,
             })
     log.info(f"Rippling direct: {len(jobs)} jobs from {len(RIPPLING_COMPANIES)} companies")
@@ -734,7 +737,7 @@ def scrape_workday_tenants() -> List[Dict]:
                     "url": f"https://{tenant}.{wd}.myworkdayjobs.com/{site}{path}",
                     "job_id": str(bullets[0]) if bullets else "N/A",
                     "source": "workday_tenant",
-                    "age": "0d",
+                    "age": _pick_age(jp, ("startDate",), fallback_key="postedOn"),
                     "is_closed": False,
                 })
     log.info(f"Workday tenants: {len(jobs)} jobs from {len(WORKDAY_TENANTS)} tenants")

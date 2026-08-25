@@ -8,6 +8,7 @@ Provider-Aware Email Verification
   - Caches all results to avoid repeat lookups
 """
 import os, json, time, random, logging, hashlib
+from aggregator.atomic_json import write_json as _atomic_write_json
 
 log = logging.getLogger(__name__)
 
@@ -60,7 +61,7 @@ class ProviderVerifier:
     @staticmethod
     def _save(path, data):
         try:
-            json.dump(data, open(path, "w"), indent=2)
+            _atomic_write_json(path, data)
         except Exception:
             pass
 

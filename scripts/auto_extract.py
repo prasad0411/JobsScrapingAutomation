@@ -177,10 +177,18 @@ def main():
 
         new_val = None
 
-        # Hard reject: sponsorship = No
-        if spon.lower() == "no":
+        # Hard reject: sponsorship = No. Now that the aggregator fills the
+        # Sponsorship column from the feeds' Visa data, this rule actually has
+        # values to act on — previously almost everything was "Unknown" so this
+        # branch never fired and outreach targeted non-sponsors.
+        if spon.lower() in ("no", "does not sponsor", "no sponsorship"):
             new_val = "Skip"
             skip_count += 1
+        # Prioritise confirmed sponsors: tech-hub location is a strong signal
+        # and _is_tech_hub was written for exactly this and never called.
+        elif spon.lower() == "yes" and _is_tech_hub(sig.get("location", "")):
+            new_val = "yes"
+            yes_count += 1
         # Set Extract=yes if status is Applied
         elif status.strip().lower() == "applied":
             new_val = "yes"

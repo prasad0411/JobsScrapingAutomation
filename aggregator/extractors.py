@@ -171,6 +171,31 @@ _EMOJI_PATTERN = re.compile(
     r"[\U0001f600-\U0001f64f\U0001f300-\U0001f5ff\U0001f680-\U0001f6ff\U0001f1e0-\U0001f1ff]+",
     re.UNICODE,
 )
+def _sponsorship_from_row(row_text):
+    """zapplyjobs publishes a Visa column on every row:
+         '🏛 H-1B Co.'  -> company has sponsored H-1Bs before
+         '✅ Sponsor'   -> explicitly sponsors
+       Other repos use legend emoji in the title/company cell instead:
+         '🛂'           -> does NOT offer sponsorship
+         '🇺🇸'          -> requires US citizenship
+       This is free signal we were already fetching and discarding, and it is
+       the fastest way to fill the Sponsorship column without scraping pages.
+    """
+    if not row_text:
+        return "Unknown"
+    t = row_text
+    if "\U0001F6C2" in t:            # 🛂 does NOT sponsor
+        return "No"
+    if "\U0001F1FA\U0001F1F8" in t:  # 🇺🇸 US citizenship required
+        return "No"
+    low = t.lower()
+    if "sponsor" in low and "not" not in low and "no sponsor" not in low:
+        return "Yes"
+    if "h-1b" in low or "h1b" in low:
+        return "Yes"
+    return "Unknown"
+
+
 _HEADER_PATTERN = re.compile(
     r"Company.*(?:Role|Position|Job.?Title).*Location.*(?:Application|Link|Posting|Posted|Date|Age|Apply|Model|Visa)", re.I
 )
@@ -2832,7 +2857,17 @@ class SimplifyGitHubScraper:
         for line in lines[start:]:
             if not line.strip():
                 continue
-            parts = [p.strip() for p in line.split(delimiter) if p.strip()]
+            _cells = [p.strip() for p in line.split(delimiter)]
+            # Markdown rows are wrapped in the delimiter, so drop the OUTER
+            # empties only. Interior blanks must be kept or every column after
+            # a blank cell shifts left (company becomes title, title becomes
+            # location). That shift produced the junk company names in the sheet.
+            if delimiter == "|":
+                if _cells and _cells[0] == "":
+                    _cells = _cells[1:]
+                if _cells and _cells[-1] == "":
+                    _cells = _cells[:-1]
+            parts = _cells
             if len(parts) < 5:
                 continue
             # Strip HTML tags from company cell (SpeedyApply wraps in <a><strong>)
@@ -2886,6 +2921,7 @@ class SimplifyGitHubScraper:
                     "is_closed": False,
                     "source": source_name,
                     "github_category": "",
+                    "sponsorship": _sponsorship_from_row(line),
                 }
             )
         return jobs

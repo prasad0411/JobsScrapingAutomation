@@ -45,7 +45,7 @@ def _parse_row(row, outcome: str, headers: list = None) -> JobRecord:
             source=g(12), outcome="valid", resume_type=g(9, "SDE"),
             job_type=g(7, "Internship"), job_id=g(6, "N/A"),
             remote=g(10, "Unknown"), sponsorship=g(13, "Unknown"),
-            entry_date=g(4), processed_at=g(11) or datetime.now().isoformat(),
+            entry_date=g(11), processed_at=g(11) or datetime.now().isoformat(),
         )
     elif outcome == "discarded":
         # [0]Sr [1]DiscardReason [2]Company [3]Title [4]DateApplied [5]URL [6]JobID
@@ -86,8 +86,18 @@ def backfill(incremental: bool = False):
     ss = _get_sheets()
 
     existing_count = store.total_jobs()
+    _known_urls = set()
     if incremental and existing_count > 0:
         log.info(f"Incremental mode: {existing_count} existing jobs in analytics DB")
+        # The flag previously ONLY printed this line - every row was inserted
+        # again on each run, silently doubling the dataset. AnomalyDetector and
+        # DataQualityScorer read this table, so the nightly digest was wrong.
+        try:
+            _known_urls = {r[0] for r in store.conn.execute(
+                "SELECT DISTINCT url FROM jobs").fetchall()}
+            log.info(f"Skipping {len(_known_urls)} URLs already recorded")
+        except Exception as _e:
+            log.warning(f"Could not load existing URLs: {_e}")
 
     sheets_config = [
         ("Valid Entries", "valid"),
@@ -109,7 +119,7 @@ def backfill(incremental: bool = False):
                     continue
                 try:
                     job = _parse_row(row, outcome)
-                    if job:
+                    if job and job.url not in _known_urls:
                         jobs.append(job)
                 except Exception as e:
                     log.debug(f"Failed to parse row: {e}")

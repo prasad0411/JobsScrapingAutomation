@@ -195,6 +195,10 @@ class QualityGate:
                 if nt in title_lower:
                     rows_to_delete.add(row_num)
                     log.info(f"  DEL R{row_num}: Non-tech '{nt}' in '{title[:35]}'")
+                    try:
+                        self.brain.add_non_tech_title(nt)
+                    except Exception as _le:
+                        log.debug(f"add_non_tech_title failed: {_le}")
                     self.brain.log_issue("non_tech_slip", f"{company}: {title[:40]}")
                     break
 
@@ -249,6 +253,10 @@ class QualityGate:
             if any(c in company.lower() for c in all_clearance):
                 rows_to_delete.add(row_num)
                 log.info(f"  DEL R{row_num}: Clearance company: {company}")
+                try:
+                    self.brain.add_clearance_company(company)
+                except Exception as _le:
+                    log.debug(f"add_clearance_company failed: {_le}")
                 self.brain.log_issue("clearance_slip", company)
 
             # ── CHECK 7: Staffing agencies ──
@@ -270,6 +278,13 @@ class QualityGate:
                 self.valid.update_cell(row_num, 3, fixed_name)
                 log.info(f"  FIX R{row_num}: {company} → {fixed_name}")
                 self.fixes += 1
+                # Learn it. The aggregator's apply_learned.fix_company_slug()
+                # reads learned_slugs and applies this UPSTREAM, so the bad name
+                # never reaches the sheet again instead of being corrected after.
+                try:
+                    self.brain.add_slug_fix(co_lower, fixed_name)
+                except Exception as _le:
+                    log.debug(f"add_slug_fix failed: {_le}")
                 time.sleep(0.3)
 
             # ── CHECK 9: Garbage locations ──

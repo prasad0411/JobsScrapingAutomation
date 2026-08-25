@@ -115,9 +115,16 @@ def check_health():
     for line in lines:
         if "ACCEPTED" in line:
             # Extract source from end of line
+            # Was missing every direct-ATS source plus 4 GitHub feeds, so those
+            # could go to zero without ever raising SOURCE DOWN.
             for src in ["LinkedIn", "SimplifyJobs", "ZipRecruiter", "Jobright",
                         "speedyapply_swe", "speedyapply_ai", "simplify_newgrad",
-                        "cvrve_newgrad", "SWE List", "direct_ats"]:
+                        "cvrve_newgrad", "SWE List", "direct_ats",
+                        "vanshb03", "vanshb03_offseason", "simplify_offseason",
+                        "zapplyjobs_newgrad", "zapplyjobs_2026", "SimplifyJobs_2026",
+                        "greenhouse_direct", "ashby_direct", "lever_direct",
+                        "workday_direct", "smartrecruiters_direct",
+                        "workable_direct", "rippling_direct", "Email"]:
                 if src in line:
                     source_counts[src] = source_counts.get(src, 0) + 1
                     break

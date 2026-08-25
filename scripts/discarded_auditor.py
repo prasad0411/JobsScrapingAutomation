@@ -179,7 +179,10 @@ class DiscardedAuditor:
 
         # Step 3: Clean duplicates
         if duplicates:
-            self._delete_rows(self.discarded, duplicates)
+            # _delete_rows swallows failures with bare except:pass. A failure
+            # mid-sweep leaves every remaining row index shifted. The _safe
+            # variant right below it retries instead.
+            self._delete_rows_safe(self.discarded, duplicates)
             log.info(f"Deleted {len(duplicates)} duplicate discarded entries")
 
         # Step 4: Rescue false positives

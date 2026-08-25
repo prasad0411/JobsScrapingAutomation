@@ -29,6 +29,7 @@ Never send: < 50
 """
 
 import os, json, time, logging, datetime
+from aggregator.atomic_json import write_json as _atomic_write_json
 try:
     from outreach.brain import Brain as _Brain
 except Exception:
@@ -256,7 +257,7 @@ class CircuitBreaker:
     def save(data):
         try:
             os.makedirs(_LOCAL, exist_ok=True)
-            json.dump(data, open(CIRCUIT_BREAKER_FILE, "w"), indent=2)
+            _atomic_write_json(CIRCUIT_BREAKER_FILE, data)
         except Exception as e:
             log.error(f"Circuit breaker save failed: {e}")
 
@@ -350,7 +351,7 @@ class DomainHistory:
         _DH_CACHE = data  # invalidate in-memory cache with new data
         try:
             os.makedirs(_LOCAL, exist_ok=True)
-            json.dump(data, open(DOMAIN_HISTORY_FILE, "w"), indent=2)
+            _atomic_write_json(DOMAIN_HISTORY_FILE, data)
         except Exception as e:
             log.debug(f"DomainHistory save failed: {e}")
 

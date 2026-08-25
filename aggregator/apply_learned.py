@@ -29,7 +29,7 @@ import json
 import os
 
 BRAIN_FILE = os.path.join(
-    os.path.dirname(os.path.abspath(__file__)), ".local", "brain.json"
+    os.path.dirname(os.path.dirname(os.path.abspath(__file__))), ".local", "brain.json"
 )
 
 _cache = {"data": None, "mtime": 0}

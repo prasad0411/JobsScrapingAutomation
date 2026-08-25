@@ -17,6 +17,8 @@ if [[ -f "$LOG" ]] && [[ $(stat -f%z "$LOG" 2>/dev/null || echo 0) -gt 512000 ]]
 fi
 
 log()   { echo "  $1" >> "$LOG"; }
+send_alert() { alert "$1 - $2"; }
+
 alert() {
     echo "[$(date)] $1" >> "$ALERT_LOG"
     osascript -e "display notification \"$1\" with title \"Job Tracker Watchdog\" sound name \"Basso\"" 2>/dev/null

@@ -7,6 +7,7 @@ import json
 import base64
 import logging
 import datetime
+from aggregator.atomic_json import write_json as _atomic_write_json
 
 log = logging.getLogger(__name__)
 
@@ -69,7 +70,7 @@ class BounceScanner:
     @staticmethod
     def save_bounced(cache: dict):
         try:
-            json.dump(cache, open(BOUNCED_EMAILS_FILE, "w"), indent=2)
+            _atomic_write_json(BOUNCED_EMAILS_FILE, cache)
         except Exception as e:
             log.error(f"Failed to save bounce cache: {e}")
         BounceScanner.update_domain_reputation()
@@ -159,7 +160,7 @@ class BounceScanner:
                                     _ev = json.load(open(_ev_file))
                                     if email_lower in _ev:
                                         del _ev[email_lower]
-                                        json.dump(_ev, open(_ev_file, "w"), indent=2)
+                                        _atomic_write_json(_ev_file, _ev)
                                         log.info(f"FIX8: Invalidated stale verify cache for {email_lower}")
                             except Exception as _eve:
                                 log.debug(f"verify cache invalidation failed: {_eve}")

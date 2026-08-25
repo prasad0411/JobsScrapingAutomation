@@ -285,7 +285,7 @@ class ATSDiscoveryEngine:
             new_slugs = self.extract_slugs_from_urls(all_urls)
 
             total_new = sum(len(v) for v in new_slugs.values())
-            total_known = sum(len(v) for v in self.known_slugs.items())
+            total_known = sum(len(v) for v in self.known_slugs.values())
             log.info(f"Found {total_new} slugs ({total_known} already known)")
 
             added = self.check_and_add_new_companies(new_slugs)

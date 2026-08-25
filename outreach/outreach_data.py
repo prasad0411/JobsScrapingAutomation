@@ -2,6 +2,7 @@ import re
 #!/usr/bin/env python3
 """Outreach Pipeline — Data Layer (Sheets, Credits, NameParser, PatternCache)."""
 from outreach.brain import Brain
+from aggregator.atomic_json import write_json as _atomic_write_json
 
 import os, re, json, time, datetime, logging, unicodedata
 import gspread
@@ -944,7 +945,7 @@ class Sheets:
                     failed[domain].append(_pat)
                     break
             try:
-                json.dump(failed, open(failed_file, "w"), indent=2)
+                _atomic_write_json(failed_file, failed)
             except Exception as _e:
                 log.debug(f"sheets op failed: {_e}")
 
@@ -1364,7 +1365,7 @@ class Credits:
 
     def _save(self):
         try:
-            json.dump(self._d, open(CREDITS_FILE, "w"), indent=2)
+            _atomic_write_json(CREDITS_FILE, self._d)
         except Exception as _e:
             log.debug(f"op failed: {_e}")
 
@@ -1662,7 +1663,7 @@ class PatternCache:
 
     def _save(self):
         try:
-            json.dump(self._d, open(PATTERNS_FILE, "w"), indent=2)
+            _atomic_write_json(PATTERNS_FILE, self._d)
         except Exception as _e:
             log.debug(f"op failed: {_e}")
 

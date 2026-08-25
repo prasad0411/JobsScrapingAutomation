@@ -115,14 +115,14 @@ def main():
     for company in new_companies:
         config = re.sub(
             r"(COMPANY_BLACKLIST\s*=\s*\[)",
-            f'\1\n    "{company}",',
+            f'\\1\n    "{company}",',
             config, count=1
         )
     # Insert into COMPANY_BLACKLIST_REASONS
     for company, reason in new_reasons.items():
         config = re.sub(
             r"(COMPANY_BLACKLIST_REASONS\s*=\s*\{)",
-            f'\1\n    "{company}": "Auto-blacklisted: {reason}",',
+            f'\\1\n    "{company}": "Auto-blacklisted: {reason}",',
             config, count=1
         )
 
