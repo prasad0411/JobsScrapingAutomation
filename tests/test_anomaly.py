@@ -92,7 +92,8 @@ class TestAnomalyDetector:
     def test_check_all_sources(self, store_with_data):
         detector = AnomalyDetector(db_path=store_with_data)
         alerts = detector.check_all_sources()
-        assert isinstance(alerts, list)
+        # was: assert isinstance(alerts, list) - true even when broken
+        assert all(hasattr(a, "source") and hasattr(a, "severity") for a in alerts)
         detector.close()
 
     def test_spc_report(self, store_with_data):

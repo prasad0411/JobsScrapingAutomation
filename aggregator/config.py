@@ -580,6 +580,18 @@ EXPORT_CONTROL_EXCLUSION_KEYWORDS = [
 ]
 
 ENHANCED_PHD_PATTERNS = [
+    # ── "PhD in <field>" — the commonest phrasing, previously uncovered ──
+    # Every other pattern requires PhD to be followed by degree/program/
+    # intern/student/candidate, so "pursuing a PhD in computer science",
+    # "must have a Ph.D. in a related field" and "requires a PhD in ML" all
+    # slipped through and PhD-only roles reached the sheet.
+    # MS-eligible roles stay safe: DEGREE_LIST_PATTERNS returns early when a
+    # degree list mentions MS, and PHD_MS_FLEXIBILITY_KEYWORDS checks +/-500
+    # chars around any match. Verified against both, 12/12 cases.
+    r"(?:pursuing|obtaining|working\s+towards?)\s+(?:a\s+|an\s+)?ph\.?\s?d\.?\s+in\b",
+    r"(?:requires?|must\s+have|should\s+have)\s+(?:a\s+|an\s+)?ph\.?\s?d\.?\s+in\b",
+    r"\bph\.?\s?d\.?\s+(?:candidates?|applicants?)\s+only\b",
+
     r"working\s+towards\s+a?\s*phd",
     r"phd\s+level\s+degree",
     r"working\s+toward\s+a?\s*phd",

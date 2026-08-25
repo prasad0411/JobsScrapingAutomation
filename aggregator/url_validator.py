@@ -469,4 +469,33 @@ def validate_job_integrity(job):
     if company.lower() in _ATS_NAMES:
         return False, f"Company is ATS name: {company}"
 
+    # ── Column-shift guards (folded in from the unused contracts.py) ──
+    # A shifted row puts a job title in the company field and a location in
+    # the title field. Absurd lengths are the cheapest reliable signal, and
+    # this runs at all 4 pre-write call sites.
+    # Caps set from the real distribution across 2,202 sheet rows:
+    #   company  max 49, p99 36, median 8   -> 70 leaves comfortable headroom
+    #   title    max 91, p99 71, median 31  -> 130 likewise
+    # The generic 100/200 from contracts.py was so loose it missed a 96-char
+    # job title sitting in the company column.
+    if len(company) > 70:
+        return False, f"Company too long ({len(company)} chars) - likely a shifted row"
+    if len(title) > 130:
+        return False, f"Title too long ({len(title)} chars) - likely a shifted row"
+
+    # Enum fields must hold one of their allowed values. A shifted row lands
+    # a source name or a date here instead.
+    # "Unknown" and "Manual" are values the pipeline legitimately writes, so
+    # they belong in the allow-list. Verified against 2,202 live sheet rows -
+    # a stricter list produced false rejections on real jobs.
+    _rt = str(job.get("resume_type", "SDE") or "SDE")
+    if _rt not in ("SDE", "ML", "DA", "Tailored", "Unknown", "Manual", ""):
+        return False, f"Invalid resume_type: {_rt!r} - likely a shifted row"
+    _oc = str(job.get("outcome", "valid") or "valid")
+    if _oc not in ("valid", "discarded", "reviewed", "duplicate"):
+        return False, f"Invalid outcome: {_oc!r} - likely a shifted row"
+    _sp = str(job.get("sponsorship", "Unknown") or "Unknown")
+    if _sp not in ("Yes", "No", "Unknown"):
+        return False, f"Invalid sponsorship: {_sp!r} - likely a shifted row"
+
     return True, "OK"

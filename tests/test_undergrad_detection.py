@@ -40,9 +40,13 @@ class TestUndergradDetection:
 
     def test_reject_phd_only(self, job_page):
         soup = job_page("must be currently pursuing a phd in computer science")
-        dec, reason = ValidationHelper._check_undergraduate_only_requirements(soup)
-        # PhD pattern matching is case-sensitive on page text — test lowercase
-        assert dec == "REJECT" or dec is None  # depends on exact regex matching
+        # Production runs BOTH gates; "PhD in <field>" is caught by the
+        # dedicated PhD check, not the undergraduate one. Assert what the
+        # pipeline actually does rather than one half of it.
+        p_dec, p_why = ValidationHelper._check_phd_only_requirements(soup)
+        u_dec, u_why = ValidationHelper._check_undergraduate_only_requirements(soup)
+        assert "REJECT" in (p_dec, u_dec), \
+            "PhD-only page not rejected: phd={!r} undergrad={!r}".format(p_why, u_why)
 
     def test_reject_phd_internship_title(self, job_page):
         soup = job_page("PhD Internship - Machine Learning Research")

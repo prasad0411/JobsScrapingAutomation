@@ -120,11 +120,12 @@ class TestAnalyticsQueries:
 
     def test_source_report_text(self, queries):
         txt = queries.source_report_text()
-        assert isinstance(txt, str)
+        # was: assert isinstance(txt, str) - passes for any string, incl. ""
+        assert txt and ("Source" in txt or "No source data" in txt), txt[:80]
 
     def test_rejection_report_text(self, queries):
         txt = queries.rejection_report_text()
-        assert isinstance(txt, str)
+        assert txt and ("Rejection" in txt or "No rejections" in txt), txt[:80]
 
 
 class TestModels:

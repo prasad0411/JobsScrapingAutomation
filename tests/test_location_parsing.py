@@ -14,7 +14,9 @@ class TestLocationNormalization:
     def test_wfh_abbreviation(self):
         # WFH pattern not matched by normalize_location — only "work from home" variants
         result = LocationProcessor.normalize_location("WFH")
-        assert result in ("WFH", "Remote")  # implementation-dependent
+        # was: assert result in ("WFH","Remote") - accepted both outcomes.
+        # WFH IS normalised to Remote; assert that so a regression shows.
+        assert result == "Remote", "WFH normalisation changed: " + repr(result)
 
     def test_usa_to_remote(self):
         assert LocationProcessor.normalize_location("USA") == "Remote"
@@ -67,7 +69,8 @@ class TestLocationCleaning:
         # "Engineering" alone is short and may pass through
         # clean_location_aggressive checks DEPARTMENT_KEYWORDS which may not include bare "Engineering"
         result = LocationProcessor.clean_location_aggressive("Engineering")
-        assert isinstance(result, str)
+        # was: assert isinstance(result, str) - only checked the type
+        assert result in ("Unknown", "Engineering"), repr(result)
 
     def test_valid_city_state(self):
         result = LocationProcessor.clean_location_aggressive("Pittsburgh, PA")

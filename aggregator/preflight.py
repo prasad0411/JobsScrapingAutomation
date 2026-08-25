@@ -248,6 +248,64 @@ def check_shell_functions():
     return problems
 
 
+# ── CHECK 10 ──────────────────────────────────────────────────────────
+def check_orphaned_modules():
+    """Find modules nothing outside their own cluster imports.
+
+    The naive version of this check MISSED the validation package entirely,
+    because those 11 files imported each other. Mutually-referencing dead code
+    looks alive to a per-file check. So: build the import graph, walk out from
+    the real entry points, and anything unreachable is orphaned no matter how
+    much it references itself.
+    """
+    entry = {"run_aggregator", "scheduler", "quality_gate", "health_heartbeat",
+             "cleanup_not_applied", "ats_discovery", "nightly_digest",
+             "build_auto_blacklist", "discarded_auditor", "retry_simplify",
+             "process_bounces", "send_scheduled", "run_outreach", "status",
+             "preflight", "app", "auto_extract", "pipeline_brain",
+             "resolve_simplify_backlog", "backup_secrets", "test_ms_auth",
+             "clean_bad_drafts", "__main__",
+             # Run by hand: python3 -m analytics.etl / analytics.queries.
+             # Reachable by a human, just not by another module.
+             "etl", "queries", "store", "schema", "models",
+             "jobspy_source", "term_filter", "h1b_data", "job_age",
+             "atomic_json"}
+
+    mods, imports = {}, {}
+    for p in _iter_py():
+        rel = os.path.relpath(p, BASE)
+        if rel.startswith("tests" + os.sep):
+            continue
+        name = os.path.basename(p)[:-3]
+        if name.startswith("__"):
+            continue
+        mods[name] = rel
+        text = _read(p)
+        found = set(re.findall(r"(?:from|import)\s+([\w.]+)", text))
+        imports[name] = {f.split(".")[-1] for f in found} | {
+            f.split(".")[0] for f in found}
+
+    # walk out from the entry points
+    reachable, stack = set(), [m for m in entry if m in mods]
+    while stack:
+        cur = stack.pop()
+        if cur in reachable:
+            continue
+        reachable.add(cur)
+        for dep in imports.get(cur, ()):
+            if dep in mods and dep not in reachable:
+                stack.append(dep)
+
+    problems = []
+    for name, rel in sorted(mods.items()):
+        if name in reachable or name in entry:
+            continue
+        problems.append(
+            "{} is unreachable from any entry point - dead code, or a "
+            "feature that was never wired in".format(rel))
+    return problems
+
+
 CHECKS = [
     ("control characters",  check_control_characters),
     ("scheduler dispatch",  check_scheduler_dispatch),
@@ -258,6 +316,7 @@ CHECKS = [
     ("ATS posting dates",   check_ats_dates),
     ("config parses",       check_config_parses),
     ("shell functions",     check_shell_functions),
+    ("orphaned modules",    check_orphaned_modules),
 ]
 
 
