@@ -540,6 +540,19 @@ class UnifiedJobAggregator:
 
         # (silent)
 
+        # ── PREFLIGHT: verify every wire is connected before doing work ──
+        # Lives HERE, inside the one process that provably runs 3x daily.
+        # Every previous safety layer (config validator, watchdog, 265 tests)
+        # had the same bug it was meant to catch. This breaks that recursion.
+        # Never blocks a run - reports loudly and continues.
+        try:
+            from aggregator.preflight import run_preflight
+            _pf_ok, _pf_problems = run_preflight(verbose=True)
+            if not _pf_ok:
+                self.outcomes["preflight_problems"] = len(_pf_problems)
+        except Exception as _pfe:
+            logging.warning(f"preflight check failed to run: {_pfe}")
+
         # ── Direct ATS API sources (Greenhouse, Lever, Ashby, HackerNews) ──
         try:
             from aggregator.direct_sources import fetch_all_direct_sources

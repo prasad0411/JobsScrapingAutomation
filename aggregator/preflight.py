@@ -1,0 +1,292 @@
+"""
+Preflight wiring check — runs at the start of every aggregator run.
+
+WHY THIS EXISTS
+Across a 46-bug audit, almost every bug was one of three shapes:
+  - a module written but never wired in (quality_gate never ran for months)
+  - a path off by one character (apply_learned read aggregator/.local/)
+  - a feature described in a comment but never implemented
+
+And critically: every safety system built to catch this had the SAME bug.
+The config validator did not check the field that was wrong. The watchdog
+did not monitor the two jobs that never ran. 265 tests passed over a broken
+date filter because they tested that code EXISTED, not that it WORKED.
+
+This check breaks that recursion by living inside run_aggregator itself —
+the one process that provably executes. It verifies connections, not logic.
+
+It never raises. A broken check must not stop a run; it reports loudly and
+lets the pipeline continue.
+"""
+import ast
+import json
+import logging
+import os
+import re
+
+log = logging.getLogger(__name__)
+
+BASE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
+# Control characters that have silently destroyed code twice:
+#   \b in a regex saved as \x08  -> killed 4 filters, no error
+#   \1 in an f-string as \x01    -> killed auto-blacklist, no error
+_BAD_CHARS = {"\x01": r"\1 in an f-string", "\x08": r"\b in a non-raw string",
+              "\x02": "SOH", "\x03": "ETX", "\x07": "BEL"}
+
+_SKIP_DIRS = {"venv", ".venv", "node_modules", "__pycache__", ".git", ".local",
+              "build", "dist", ".pytest_cache"}
+
+
+def _iter_py():
+    for root, dirs, files in os.walk(BASE):
+        dirs[:] = [d for d in dirs if d not in _SKIP_DIRS]
+        for f in files:
+            if f.endswith(".py") and ".bak_" not in f:
+                yield os.path.join(root, f)
+
+
+def _read(path):
+    try:
+        with open(path, encoding="utf-8", errors="replace") as fh:
+            return fh.read()
+    except Exception:
+        return ""
+
+
+# ── CHECK 1 ───────────────────────────────────────────────────────────
+def check_control_characters():
+    """The \\b and \\1 bugs. Invisible in an editor, silently fatal."""
+    bad = []
+    for p in _iter_py():
+        text = _read(p)
+        for ch, why in _BAD_CHARS.items():
+            if ch in text:
+                bad.append("{}: contains {!r} ({})".format(
+                    os.path.relpath(p, BASE), ch, why))
+    return bad
+
+
+# ── CHECK 2 ───────────────────────────────────────────────────────────
+def check_scheduler_dispatch():
+    """quality_gate and health_heartbeat were type=post_write with no branch
+    in the loop, so they never executed once."""
+    p = os.path.join(BASE, "scripts", "scheduler.py")
+    src = _read(p)
+    if not src:
+        return ["scripts/scheduler.py unreadable"]
+    declared = set(re.findall(r'"type"\s*:\s*"(\w+)"', src))
+    handled = set(re.findall(r'job\["type"\] == "(\w+)"', src))
+    handled |= set(re.findall(r'get\("type"\)\s*!=\s*"(\w+)"', src))
+    missing = declared - handled
+    return ["scheduler job type '{}' has no dispatch branch - those jobs "
+            "will NEVER run".format(t) for t in sorted(missing)]
+
+
+# ── CHECK 3 ───────────────────────────────────────────────────────────
+def check_learning_loop():
+    """Writer, store and reader must agree on path and key names."""
+    problems = []
+    try:
+        from aggregator import apply_learned as al
+        if not os.path.exists(al.BRAIN_FILE):
+            problems.append(
+                "apply_learned points at a nonexistent brain: {}".format(al.BRAIN_FILE))
+        elif os.path.basename(os.path.dirname(al.BRAIN_FILE)) != ".local":
+            problems.append(
+                "apply_learned brain path looks wrong: {}".format(al.BRAIN_FILE))
+    except Exception as e:
+        problems.append("apply_learned import failed: {}".format(str(e)[:70]))
+        return problems
+
+    qg = _read(os.path.join(BASE, "scripts", "quality_gate.py"))
+    reader = _read(al.__file__)
+    for key in ("learned_slugs", "learned_non_tech", "learned_clearance"):
+        if key not in qg:
+            problems.append("quality_gate never writes '{}'".format(key))
+        if key not in reader:
+            problems.append("apply_learned never reads '{}'".format(key))
+
+    # A learn method that is defined but never called is a dead loop
+    for meth in ("add_slug_fix", "add_non_tech_title", "add_clearance_company"):
+        if meth in qg and len(re.findall(r"\.{}\(".format(meth), qg)) == 0:
+            problems.append("{} is defined but never called".format(meth))
+    return problems
+
+
+# ── CHECK 4 ───────────────────────────────────────────────────────────
+def check_sources_processed():
+    """4 feeds were fetched every run and silently dropped because they were
+    absent from the processing loop."""
+    src = _read(os.path.join(BASE, "aggregator", "run_aggregator.py"))
+    if not src:
+        return ["run_aggregator.py unreadable"]
+    fetched = {name for _, name in re.findall(r'\((\w+_URL),\s*"(\w+)"\)', src)}
+    m = re.search(r"for _src_name in \[(.*?)\]:", src, re.S)
+    processed = set(re.findall(r'"(\w+)"', m.group(1))) if m else set()
+    explicit = set(re.findall(r'_results\.get\("(\w+)"', src))
+    explicit |= set(re.findall(r'_results\["(\w+)"\]', src))
+    orphans = fetched - processed - explicit
+    return ["source '{}' is fetched but never processed - wasted download"
+            .format(s) for s in sorted(orphans)]
+
+
+# ── CHECK 5 ───────────────────────────────────────────────────────────
+def check_cross_module_calls():
+    """retry_simplify called ValidationHelper.passes_all(), which does not
+    exist. The AttributeError was swallowed, so it failed daily in silence."""
+    problems = []
+    pairs = [
+        ("scripts/retry_simplify.py", "aggregator/processors.py", "ValidationHelper"),
+        ("scripts/quality_gate.py", "aggregator/config.py", "COMPANY_NAME_FIXES"),
+    ]
+    for caller_rel, target_rel, symbol in pairs:
+        caller = _read(os.path.join(BASE, caller_rel))
+        target = _read(os.path.join(BASE, target_rel))
+        if not caller or not target:
+            continue
+        # Strip comments first - a fixed call left in a comment is not a bug.
+        code_only = "\n".join(
+            ln for ln in caller.splitlines() if not ln.strip().startswith("#")
+        )
+        # Skip builtins/dict methods: COMPANY_NAME_FIXES.get() is a dict, not
+        # a module function, so looking for 'def get(' in config.py is wrong.
+        _BUILTIN = {"get", "keys", "values", "items", "copy", "update", "pop",
+                    "append", "extend", "strip", "lower", "upper", "split",
+                    "join", "format", "replace", "setdefault"}
+        for meth in set(re.findall(r"{}\.(\w+)\(".format(symbol), code_only)):
+            if meth in _BUILTIN:
+                continue
+            if "def {}(".format(meth) not in target:
+                problems.append(
+                    "{} calls {}.{}() which does not exist in {}".format(
+                        caller_rel, symbol, meth, target_rel))
+    return problems
+
+
+# ── CHECK 6 ───────────────────────────────────────────────────────────
+def check_age_parser():
+    """The date filter at the centre of the original bug. Round-trip the real
+    formats every source emits."""
+    try:
+        from aggregator.run_aggregator import UnifiedJobAggregator as U
+    except Exception as e:
+        return ["cannot import aggregator for age check: {}".format(str(e)[:60])]
+    expect = {"0d": 0, "3d": 3, "11d": 11, "11m": 0, "20h": 0,
+              "1mo": 30, "1w": 7}
+    bad = []
+    for raw, want in expect.items():
+        try:
+            got = U._parse_github_age(raw)
+        except Exception as e:
+            bad.append("age parser raised on {!r}: {}".format(raw, str(e)[:40]))
+            continue
+        if got != want:
+            bad.append("age parser: {!r} -> {} (expected {})".format(raw, got, want))
+    return bad
+
+
+# ── CHECK 7 ───────────────────────────────────────────────────────────
+def check_ats_dates():
+    """All 8 scrapers hardcoded age='0d', so every direct-ATS job claimed it
+    was posted today. Only HackerNews may legitimately do this."""
+    src = _read(os.path.join(BASE, "aggregator", "direct_sources.py"))
+    problems = []
+    n = src.count('"age": "0d"')
+    if n > 1:
+        problems.append(
+            "{} ATS scrapers hardcode age='0d' - the age filter is meaningless "
+            "for them".format(n))
+    # A mismatched loop variable raises NameError that gets swallowed
+    for fn in re.finditer(r"def (scrape_\w+)\(", src):
+        i = fn.start()
+        j = src.find("\ndef ", i + 1)
+        body = src[i:j if j != -1 else len(src)]
+        loops = set(re.findall(r"for (\w+) in ", body))
+        for var in re.findall(r"_pick_age\((\w+),", body):
+            if var not in loops:
+                problems.append(
+                    "{}: _pick_age({}) but that variable is not a loop var - "
+                    "will NameError on every job".format(fn.group(1), var))
+    return problems
+
+
+# ── CHECK 8 ───────────────────────────────────────────────────────────
+def check_config_parses():
+    """build_auto_blacklist rewrites config.py at runtime. If it ever writes
+    a control character the whole pipeline dies on import."""
+    p = os.path.join(BASE, "aggregator", "config.py")
+    try:
+        ast.parse(_read(p))
+        return []
+    except SyntaxError as e:
+        return ["aggregator/config.py has a SYNTAX ERROR at line {}: {}".format(
+            e.lineno, e.msg)]
+
+
+# ── CHECK 9 ───────────────────────────────────────────────────────────
+def check_shell_functions():
+    """watchdog.sh called send_alert(), which was never defined. Bash printed
+    'command not found' and carried on, so alerts silently vanished."""
+    problems = []
+    sh_dir = os.path.join(BASE, "scripts")
+    if not os.path.isdir(sh_dir):
+        return problems
+    for f in os.listdir(sh_dir):
+        if not f.endswith(".sh"):
+            continue
+        text = _read(os.path.join(sh_dir, f))
+        defined = set(re.findall(r"^(\w+)\s*\(\)\s*\{", text, re.M))
+        called = set(re.findall(r"^\s*(\w+)\s+\"", text, re.M))
+        for fn in called:
+            if fn in defined:
+                continue
+            # only flag names that look like our own helpers
+            if fn.startswith(("send_", "alert", "notify", "log_")):
+                problems.append("scripts/{}: calls {}() which is not defined"
+                                .format(f, fn))
+    return problems
+
+
+CHECKS = [
+    ("control characters",  check_control_characters),
+    ("scheduler dispatch",  check_scheduler_dispatch),
+    ("learning loop",       check_learning_loop),
+    ("sources processed",   check_sources_processed),
+    ("cross-module calls",  check_cross_module_calls),
+    ("age parser",          check_age_parser),
+    ("ATS posting dates",   check_ats_dates),
+    ("config parses",       check_config_parses),
+    ("shell functions",     check_shell_functions),
+]
+
+
+def run_preflight(verbose=True):
+    """Run every check. Returns (ok, problems). NEVER raises."""
+    problems = []
+    for name, fn in CHECKS:
+        try:
+            found = fn() or []
+        except Exception as e:
+            found = ["check '{}' itself failed: {}".format(name, str(e)[:70])]
+        for f in found:
+            problems.append("[{}] {}".format(name, f))
+
+    if verbose:
+        if problems:
+            log.warning("=" * 64)
+            log.warning("PREFLIGHT: %d WIRING PROBLEM(S) FOUND", len(problems))
+            for p in problems:
+                log.warning("  %s", p)
+            log.warning("Pipeline continues, but these need attention.")
+            log.warning("=" * 64)
+        else:
+            log.info("PREFLIGHT: all %d wiring checks passed", len(CHECKS))
+    return (not problems), problems
+
+
+if __name__ == "__main__":
+    logging.basicConfig(level=logging.INFO, format="%(message)s")
+    ok, probs = run_preflight()
+    print("\n" + ("ALL CHECKS PASSED" if ok else "%d PROBLEM(S)" % len(probs)))
+    raise SystemExit(0 if ok else 1)

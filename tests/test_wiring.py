@@ -165,3 +165,26 @@ def test_resolver_is_actually_called():
     src = open(os.path.join(BASE, "aggregator", "run_aggregator.py"), encoding="utf-8").read()
     calls = len(re.findall(r"self\._try_ats_lookup\(", src))
     assert calls >= 2, "_try_ats_lookup called from only {} place(s)".format(calls)
+
+
+# ── 7. The preflight must be clean, and must actually detect breakage ──
+def test_preflight_passes_on_current_code():
+    from aggregator.preflight import run_preflight
+    ok, problems = run_preflight(verbose=False)
+    assert ok, "preflight found wiring problems:\n" + "\n".join(problems)
+
+
+def test_preflight_detects_control_characters(tmp_path, monkeypatch):
+    """A checker that cannot fail is worthless - prove it catches the real bug."""
+    import aggregator.preflight as pf
+    fake = tmp_path / "broken.py"
+    fake.write_text("x = 1\n# \x01 injected\n")
+    monkeypatch.setattr(pf, "_iter_py", lambda: [str(fake)])
+    found = pf.check_control_characters()
+    assert found, "control-character check failed to detect \\x01"
+
+
+def test_preflight_is_wired_into_the_aggregator():
+    """It only protects anything if it actually runs."""
+    src = open(os.path.join(BASE, "aggregator", "run_aggregator.py"), encoding="utf-8").read()
+    assert "run_preflight" in src, "preflight is never called by the aggregator"
