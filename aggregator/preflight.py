@@ -306,6 +306,57 @@ def check_orphaned_modules():
     return problems
 
 
+# ── CHECK 11 ──────────────────────────────────────────────────────────
+def check_shadowed_constants():
+    """A local copy of a config constant silently shadows the real one.
+
+    Hit three times: COMPANY_NAME_FIXES (299 entries ignored),
+    GARBAGE_COMPANY_NAMES (72 ignored, junk reached the sheet), and
+    GREENHOUSE_COMPANY_MAP. The local copy is always the smaller, staler one,
+    and nothing warns you - the import just never happens.
+    """
+    problems = []
+    cfg_path = os.path.join(BASE, "aggregator", "config.py")
+    cfg = _read(cfg_path)
+    if not cfg:
+        return ["config.py unreadable"]
+    cfg_names = set(re.findall(r"^([A-Z][A-Z0-9_]{4,})\s*=\s*[\{\[]", cfg, re.M))
+
+    for p in _iter_py():
+        rel = os.path.relpath(p, BASE)
+        if rel.endswith("config.py") or rel.startswith("tests"):
+            continue
+        t = _read(p)
+        local = set(re.findall(r"^([A-Z][A-Z0-9_]{4,})\s*=\s*[\{\[]", t, re.M))
+        for name in sorted(local & cfg_names):
+            problems.append(
+                "{} defines {} locally while config.py also defines it - the "
+                "local copy shadows config's and is usually staler".format(rel, name))
+    return problems
+
+
+def check_duplicate_definitions():
+    """The same function defined twice: the second silently wins."""
+    problems = []
+    for p in _iter_py():
+        if os.path.relpath(p, BASE).startswith("tests"):
+            continue
+        try:
+            tree = ast.parse(_read(p))
+        except SyntaxError:
+            continue
+        seen = {}
+        for n in tree.body:
+            if isinstance(n, (ast.FunctionDef, ast.ClassDef)):
+                if n.name in seen:
+                    problems.append(
+                        "{}: {} defined twice (lines {} and {}) - the second "
+                        "wins, the first is dead".format(
+                            os.path.relpath(p, BASE), n.name, seen[n.name], n.lineno))
+                seen[n.name] = n.lineno
+    return problems
+
+
 CHECKS = [
     ("control characters",  check_control_characters),
     ("scheduler dispatch",  check_scheduler_dispatch),
@@ -317,6 +368,8 @@ CHECKS = [
     ("config parses",       check_config_parses),
     ("shell functions",     check_shell_functions),
     ("orphaned modules",    check_orphaned_modules),
+    ("shadowed constants",  check_shadowed_constants),
+    ("duplicate defs",      check_duplicate_definitions),
 ]
 
 

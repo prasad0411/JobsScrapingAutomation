@@ -14,6 +14,8 @@ from bs4 import BeautifulSoup
 from aggregator.url_validator import validate_job, validate_job_integrity
 from aggregator.source_health import SourceHealthMonitor
 from aggregator.config import (
+    GREENHOUSE_COMPANY_MAP,
+    GARBAGE_COMPANY_NAMES,
     COMPANY_NAME_FIXES,
     SIMPLIFY_URL,
     VANSHB03_URL,
@@ -107,63 +109,13 @@ logging.info("=" * 80)
 logging.info(f"JOB PROCESSING LOG - {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
 
 # Greenhouse company slug extraction
-GREENHOUSE_COMPANY_MAP = {
-    "tenstorrentuniversity": "Tenstorrent",
-    "alarmcom": "Alarm.com",
-    "skyryse": "Skyryse",
-    "trumid": "Trumid",
-    "leagueinc": "League",
-    "fccincinnati": "FC Cincinnati",
-    "antora": "Antora Energy",
-    "samsungresearchamericainternship": "Samsung Research America",
-    "point72": "Point72",
-    "sonatus": "Sonatus",
-}
+# GREENHOUSE_COMPANY_MAP lives in config.py - identical copies today,
+# but two copies drift. One source of truth.
 
-GARBAGE_COMPANY_NAMES = {
-    "myworkdayjobs",
-    "www",
-    "job-boards",
-    "company",
-    "unknown",
-    "careers",
-    "jobs",
-    "external",
-    "portal",
-    "applicant",
-    "job-boards.greenhouse.io",
-    "job-boards.eu.greenhouse.io",
-    "your future starts here",
-    "t commission",
-    "corporate office",
-    "learning",
-    "insurance services",
-    "gardacp",
-    "fiveringsllc",
-    "oakland",
-    "3s business",
-    "usa",
-    "us",
-    "worldwide",
-    "intelligent solutions",
-    "caliber holdings",
-    "cardinal health 5",
-    "beone medicines usa",
-    "vernova",
-    "calix north america",
-    "sono",
-    "amr-jones lang lasalle americas",
-    "company 19 - john hancock life insurance company (u.s.a.)",
-    "laboratories",
-    "international gmbh",
-    "management services",
-    "fintech services",
-    "employment services",
-    "marketing",
-    "ats",
-    "retail markets",
-    "y99000 general electric",
-}
+# GARBAGE_COMPANY_NAMES lives in config.py (114 entries). A local
+# 42-entry copy shadowed it here, so 72 curated entries were ignored on
+# the GitHub path - 'Myworkdaysite', 'Smartrecruiters' and 'SMX' all
+# reached the sheet as a result. Verified subset: nothing local-only.
 
 
 # Company name normalization — fix common extraction errors
@@ -321,7 +273,8 @@ class _NOOP_LOCK:
     def __exit__(self, *a): pass
 _NOOP_LOCK = _NOOP_LOCK()
 
-def _load_sponsorship_from_brain(): pass
+# (a stub 'def _load_sponsorship_from_brain(): pass' lived here and was
+#  shadowed by the real definition below - removed)
 
 # Auto-prune stale failed URL cache on startup
 try:
