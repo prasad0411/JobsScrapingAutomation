@@ -2938,6 +2938,26 @@ class UnifiedJobAggregator:
             _co_lower = _co_hint.lower()
             _ti_lower = _ti_hint.lower()
 
+            # ── GATE 0: Summer 2027 term filter ──
+            # Applies to EVERY source, not just the GitHub feeds: direct ATS
+            # (~3,500/run), Indeed, email, LinkedIn all pass through here.
+            # Fail-open by design — full-time, Fall, Spring, Winter and
+            # anything ambiguous are kept; an exception keeps the job too.
+            try:
+                from aggregator.term_filter import should_drop_summer
+                if should_drop_summer(
+                    _ti_hint,
+                    job_type=self._detect_job_type(_ti_hint, source),
+                    company=_co_hint,
+                    source=source,
+                ):
+                    self.outcomes["skipped_summer_2027"] = (
+                        self.outcomes.get("skipped_summer_2027", 0) + 1
+                    )
+                    return
+            except Exception as _tfe:
+                logging.debug(f"GATE 0 term filter error (keeping job): {_tfe}")
+
             # ── GATE 1: Company blacklist (clearance + non-CS) ──
             _BLACKLIST_COMPANIES = [
                 # Defense — ALWAYS require clearance (confirmed)
