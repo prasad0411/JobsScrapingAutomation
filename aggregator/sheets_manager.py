@@ -91,8 +91,8 @@ class SheetsManager:
             if os.path.exists(_cache_file):
                 try:
                     _last = json.load(open(_cache_file)).get("last_check", 0)
-                except Exception:
-                    pass
+                except Exception as _sw:
+                    from aggregator.swallowed import swallow as _s; _s('cache.last_check_read', _sw)
             if _now - _last < _cache_ttl:
                 return  # checked recently, skip
         except Exception:
@@ -121,8 +121,8 @@ class SheetsManager:
             import json as _json
             os.makedirs(".local", exist_ok=True)
             _json.dump({"last_check": _time.time()}, open(_cache_file, "w"))
-        except Exception:
-            pass
+        except Exception as _sw:
+            from aggregator.swallowed import swallow as _s; _s('cache.last_check_write', _sw)
 
     def _initialize_sheets(self):
         sheet_configs = {
@@ -217,8 +217,8 @@ class SheetsManager:
                 for i in range(0, len(requests), 50):
                     self.spreadsheet.batch_update({"requests": requests[i:i+50]})
                 import time; time.sleep(1)
-        except Exception:
-            pass
+        except Exception as _sw:
+            from aggregator.swallowed import swallow as _s; _s('sheet.batch_format', _sw)
 
     def _fix_broken_search_links(self):
         """Fix any search links written as plain text instead of HYPERLINK formula."""
@@ -243,8 +243,8 @@ class SheetsManager:
                         value_input_option='USER_ENTERED'
                     )
             import time; time.sleep(1)
-        except Exception:
-            pass
+        except Exception as _sw:
+            from aggregator.swallowed import swallow as _s; _s('sheet.url_formula_update', _sw)
 
     def _ensure_status_dropdowns(self):
         """One-time: set dropdown validation on entire Status column."""

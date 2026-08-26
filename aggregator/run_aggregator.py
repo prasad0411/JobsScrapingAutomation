@@ -371,8 +371,8 @@ def _claude_sponsorship_check(company, title):
                 b._data["sponsorship"] = {}
             b._data["sponsorship"][cache_key] = result
             b.save()
-        except Exception:
-            pass
+        except Exception as _sw:
+            from aggregator.swallowed import swallow as _s; _s('brain.sponsorship_cache_write', _sw)
         logging.info(f"Claude sponsorship: {company} → {result} (saved to Brain)")
         return result
     except Exception as e:
@@ -603,8 +603,8 @@ class UnifiedJobAggregator:
         try:
             from outreach.brain import Brain
             Brain.get().save()
-        except Exception:
-            pass
+        except Exception as _sw:
+            from aggregator.swallowed import swallow as _s; _s('brain.job_id_registry_save', _sw)
 
         rows = self.sheets.get_next_row_numbers()
 
@@ -1089,8 +1089,8 @@ class UnifiedJobAggregator:
                         if valid2:
                             title = url_title
                             is_valid_title = True
-            except Exception:
-                pass
+            except Exception as _sw:
+                from aggregator.swallowed import swallow as _s; _s('title.url_slug_fallback', _sw)
             if not is_valid_title:
                 self.outcomes["skipped_invalid_title"] += 1
                 self.source_stats[source]["rejected"] += 1

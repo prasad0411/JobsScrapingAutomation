@@ -3609,8 +3609,8 @@ class CompanyExtractor:
                 b.data["learned_company_names"][slug] = company_name
                 b.save()
                 logging.info(f"Learned company: {slug} → {company_name}")
-        except Exception:
-            pass
+        except Exception as _sw:
+            from aggregator.swallowed import swallow as _s; _s('brain.learned_company_names', _sw)
 
     @staticmethod
     def extract_from_json_ld(soup):

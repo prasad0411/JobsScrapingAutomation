@@ -90,8 +90,8 @@ def _save_url_health_cache(cache):
             sorted_items = sorted(cache.items(), key=lambda x: x[1].get("ts", 0))
             cache = dict(sorted_items[-2000:])
         json.dump(cache, open(_URL_HEALTH_CACHE_FILE, "w"))
-    except Exception:
-        pass
+    except Exception as _sw:
+        from aggregator.swallowed import swallow as _s; _s('cache.url_health_write', _sw)
 
 _URL_HEALTH_CACHE = _load_url_health_cache()
 _SELENIUM_LAST_USED = None
@@ -127,8 +127,8 @@ def _save_http_cache(cache):
             sorted_items = sorted(cache.items(), key=lambda x: x[1].get("ts", 0))
             cache = dict(sorted_items[-500:])
         json.dump(cache, open(_HTTP_CACHE_FILE, "w"))
-    except Exception:
-        pass
+    except Exception as _sw:
+        from aggregator.swallowed import swallow as _s; _s('cache.http_response_write', _sw)
 
 _HTTP_RESPONSE_CACHE = _load_http_cache()
 
@@ -147,8 +147,8 @@ def _load_simplify_method_cache():
 def _save_simplify_method_cache():
     try:
         json.dump(_SIMPLIFY_METHOD_CACHE, open(_SIMPLIFY_METHOD_CACHE_FILE, "w"))
-    except Exception:
-        pass
+    except Exception as _sw:
+        from aggregator.swallowed import swallow as _s; _s('cache.simplify_method_write', _sw)
 
 _load_simplify_method_cache()
 
@@ -1855,8 +1855,8 @@ class PageFetcher:
             if len(pruned) < len(data):
                 json.dump(pruned, open(FAILED_URLS_FILE, "w"), indent=2)
                 logging.debug(f"Pruned failed URLs: {len(data)} → {len(pruned)}")
-        except Exception:
-            pass
+        except Exception as _sw:
+            from aggregator.swallowed import swallow as _s; _s('cache.failed_urls_prune', _sw)
 
     @classmethod
     def _save_failed_url(cls, url):
