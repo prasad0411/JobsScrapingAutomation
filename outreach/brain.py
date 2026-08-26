@@ -779,14 +779,24 @@ class Brain:
             "title": title,
             "raw": job_id,
         }
-        # Prune entries older than 90 days to keep file small
-        cutoff = time.time() - 90 * 86400
-        self._data["job_id_registry"] = {
-            k: v
-            for k, v in self._data["job_id_registry"].items()
-            if v.get("ts", 0) > cutoff
-        }
-        self.save()
+        # Prune + save used to run on EVERY registration - roughly 1,200 per
+        # run, each one rewriting a 523KB file AND rebuilding the whole
+        # registry dict. Measured at 10ms per call: ~12s of pure disk I/O per
+        # run, and it got worse as the registry grew.
+        #
+        # Now: prune only when the registry is genuinely large, and throttle
+        # saves to once per minute. run_aggregator already calls Brain.save()
+        # once at the end of the run, so nothing is lost on a clean exit.
+        if len(self._data["job_id_registry"]) > 5000:
+            cutoff = time.time() - 90 * 86400
+            self._data["job_id_registry"] = {
+                k: v
+                for k, v in self._data["job_id_registry"].items()
+                if v.get("ts", 0) > cutoff
+            }
+        if time.time() - getattr(self, "_last_jid_save", 0) > 60:
+            self._last_jid_save = time.time()
+            self.save()
 
     @staticmethod
     def _levenshtein(s1: str, s2: str) -> int:
