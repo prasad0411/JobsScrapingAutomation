@@ -249,9 +249,13 @@ class SheetsManager:
     def _ensure_status_dropdowns(self):
         """One-time: set dropdown validation on entire Status column."""
         try:
-            _STATUS_VALUES = ["Not Applied", "Tailor", "Applied", "Rejected", "Screening",
-                "OA Round 1", "OA Round 2", "Interview 1", "Interview 2",
-                "Assessment", "Offer accepted"]
+            # Single source of truth: config.STATUS_COLORS. A local copy here
+
+            # would silently drop any status added to config - exactly how
+
+            # COMPANY_NAME_FIXES and GARBAGE_COMPANY_NAMES went stale.
+
+            _STATUS_VALUES = list(STATUS_COLORS.keys())  # single source
             self.spreadsheet.batch_update({"requests": [{
                 "setDataValidation": {
                     "range": {
