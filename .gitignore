@@ -43,3 +43,4 @@ screenshots/
 .pytest_cache/
 .coverage
 htmlcov/
+*.precap_*
