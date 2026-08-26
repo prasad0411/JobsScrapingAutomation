@@ -2509,9 +2509,11 @@ class UnifiedJobAggregator:
                 try:
                     from outreach.brain import Brain
                     b = Brain.get()
-                    if "linkedin_ats_cache" not in b.data:
-                        b.data["linkedin_ats_cache"] = {}
-                    b.data["linkedin_ats_cache"][company_lower] = {
+                    # Brain exposes _data, not data - same AttributeError that
+                    # silently killed learned_company_names on every job.
+                    if "linkedin_ats_cache" not in b._data:
+                        b._data["linkedin_ats_cache"] = {}
+                    b._data["linkedin_ats_cache"][company_lower] = {
                         "ats_url": ats_url[:120],
                         "last_seen": __import__("time").strftime("%Y-%m-%d"),
                     }

@@ -1024,7 +1024,7 @@ class Brain:
 
         if migrated:
             log.info(f"Brain: migrated legacy files: {migrated}")
-            self.data["_migration_v2_done"] = True
+            self._data["_migration_v2_done"] = True
             self.save()
         # Always re-sync outreach_patterns.json regardless of migration state
         import os as _os3, json as _json3

@@ -3595,18 +3595,31 @@ class CompanyExtractor:
             from outreach.brain import Brain
             from urllib.parse import urlparse
             domain = urlparse(url).netloc.lower().replace("www.", "")
-            slug = domain.split(".")[0]
+            # Take the registrable name, not the first label. "boards" from
+            # boards.greenhouse.io and "careers" from careers.stripe.com are
+            # subdomains, not companies - the old code learned {'boards':
+            # 'Figma'} and skipped Stripe entirely.
+            _parts = [p for p in domain.split(".") if p]
+            _GENERIC_SUB = {"boards", "job-boards", "jobs", "careers", "apply",
+                            "www", "app", "my", "hire", "recruiting", "talent",
+                            "wd1", "wd3", "wd5", "wd12", "wd103", "wd108"}
+            _named = [p for p in _parts[:-1] if p not in _GENERIC_SUB]
+            slug = _named[-1] if _named else (_parts[0] if _parts else "")
             _ats = {"greenhouse", "lever", "workable", "ashbyhq", "rippling",
                     "smartrecruiters", "icims", "taleo", "bamboohr", "jobvite",
                     "myworkdayjobs", "successfactors", "oraclecloud", "adp",
                     "job-boards", "careers", "jobs", "apply", "wd1", "wd3", "wd5"}
             if slug in _ats or len(slug) < 3:
                 return
+            # Brain exposes _data, not data. This raised AttributeError on
+            # EVERY job - 145 swallowed failures in one run - so company-name
+            # learning has never once worked. Found by the swallowed-exception
+            # counter on its first run.
             b = Brain.get()
-            if "learned_company_names" not in b.data:
-                b.data["learned_company_names"] = {}
-            if slug not in b.data["learned_company_names"]:
-                b.data["learned_company_names"][slug] = company_name
+            if "learned_company_names" not in b._data:
+                b._data["learned_company_names"] = {}
+            if slug not in b._data["learned_company_names"]:
+                b._data["learned_company_names"][slug] = company_name
                 b.save()
                 logging.info(f"Learned company: {slug} → {company_name}")
         except Exception as _sw:

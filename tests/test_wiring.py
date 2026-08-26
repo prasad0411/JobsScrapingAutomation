@@ -278,3 +278,49 @@ def test_non_identifying_urls_are_not_dedup_keys():
     assert not I(a) and not I(b), "search URLs must not be dedup keys"
     assert I("https://job-boards.greenhouse.io/twitch/jobs/8459320002"), \
         "real job URLs must remain dedup keys"
+
+
+# ── 10. Brain attribute name, and company-name learning ──
+def test_brain_data_attribute_is_not_misused():
+    """outreach.brain.Brain exposes _data, not data. Three call sites used
+    .data and raised AttributeError on every job, all inside `except: pass` -
+    so company-name learning and the LinkedIn->ATS cache never once worked.
+    Found by the swallowed-exception counter on its first run: 145 failures."""
+    from outreach.brain import Brain
+    b = Brain.get()
+    assert hasattr(b, "_data"), "Brain no longer has _data"
+    assert not hasattr(b, "data"), \
+        "Brain now has .data - the guard below can be relaxed"
+
+    import re
+    for rel in ("aggregator/processors.py", "aggregator/run_aggregator.py",
+                "outreach/brain.py"):
+        src = open(os.path.join(BASE, rel), encoding="utf-8").read()
+        code = "\n".join(l for l in src.splitlines()
+                         if not l.strip().startswith("#"))
+        bad = re.findall(r"\bb\.data\[|\bBrain\.get\(\)\.data\b", code)
+        assert not bad, "{} uses Brain.data (should be _data): {}".format(rel, bad[:3])
+
+
+def test_company_slug_is_the_registrable_domain():
+    """Taking domain.split('.')[0] learned {'boards': 'Figma'} from
+    boards.greenhouse.io and skipped careers.stripe.com entirely - the
+    subdomain was being treated as the company."""
+    from outreach.brain import Brain
+    from aggregator.processors import CompanyExtractor
+
+    b = Brain.get()
+    saved = dict(b._data.get("learned_company_names", {}))
+    b._data["learned_company_names"] = {}
+    try:
+        CompanyExtractor.learn_company_name("https://careers.stripe.com/jobs/1", "Stripe")
+        CompanyExtractor.learn_company_name("https://boards.greenhouse.io/figma/jobs/1", "Figma")
+        CompanyExtractor.learn_company_name("https://jobs.lever.co/palantir/abc", "Palantir")
+        got = dict(Brain.get()._data.get("learned_company_names", {}))
+    finally:
+        b._data["learned_company_names"] = saved
+        b.save()
+
+    assert "stripe" in got, "real company domain not learned: {}".format(got)
+    for ats in ("boards", "greenhouse", "lever", "jobs", "careers"):
+        assert ats not in got, "ATS/subdomain slug wrongly learned: {}".format(got)
