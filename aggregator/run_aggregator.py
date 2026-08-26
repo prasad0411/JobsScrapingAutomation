@@ -716,6 +716,15 @@ class UnifiedJobAggregator:
         except Exception:
             pass
 
+        # Swallowed-exception summary. Each guarded site records a count;
+        # one swallow in a run is noise, 25+ means a feature stopped working.
+        # This is how a dead learning loop becomes visible instead of silent.
+        try:
+            from aggregator.swallowed import report as _sw_report
+            _sw_report(verbose=True)
+        except Exception:
+            pass
+
         self._print_summary()
         elapsed = time.time() - start_time
         print(f"\n✓ DONE: {added_valid} valid, {added_discarded} discarded")
