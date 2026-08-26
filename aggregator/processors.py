@@ -352,7 +352,21 @@ class TitleProcessor:
                 return False, "University-specific co-op"
 
         # Reject senior-level scientist/engineer roles (II, III, IV = not entry level)
-        if re.search(r"(?:scientist|engineer|developer|analyst)\s+(?:II|III|IV|V)\b", title, re.I):
+        # II is typically 1-3 years and still early career - Shield AI, Match
+        # Group and Pivotal "Software Engineer II" roles were all rejected by
+        # this. III and above genuinely is not entry level.
+        # Relaxing II let non-software "<X> Engineer II" titles through -
+        # Project Controls, Drafter/Design, Validation. A level-II title is
+        # only worth keeping when the role itself is software.
+        if re.search(r"(?:scientist|engineer|developer|analyst)\s+(?:II)\b", title, re.I):
+            if not re.search(
+                r"\b(?:software|swe|developer|programmer|full[\s-]?stack|backend|"
+                r"back[\s-]end|frontend|front[\s-]end|devops|sre|security|"
+                r"machine\s+learning|deep\s+learning|computer\s+vision|"
+                r"data\s+engineer|systems?|cloud|platform|autonomy|perception)\b",
+                title, re.I):
+                return False, f"Level II non-software role: {title[:30]}"
+        if re.search(r"(?:scientist|engineer|developer|analyst)\s+(?:III|IV|V)\b", title, re.I):
             if not re.search(r"\bintern\b|\bco-?op\b|\bnew\s+grad\b|\bentry\b|\bjunior\b", title, re.I):
                 return False, f"Senior role (Roman numeral level): {title[:30]}"
 
@@ -384,8 +398,27 @@ class TitleProcessor:
         if len(_alpha_only) < 4:
             return False, "Title too short/no alpha content"
 
+        # Some INVALID_TITLE_KEYWORDS patterns are broader than intended and
+        # catch genuine software roles: "robotics\s+(engineer|software...)"
+        # rejected Robotics Software Engineer, "test\s+engineering.*intern"
+        # rejected Software Test Engineering Intern, and "computer\s+vision.*
+        # intern" rejected Computer Vision Engineering Intern. All three are
+        # software jobs. A SOFTWARE keyword overrides these - but never the
+        # hard exclusions below (PhD, clearance, pure hardware).
+        _SOFT_OVERRIDABLE = (
+            r"robotics\s+(?:engineer|software|hardware|intern|co-op)",
+            r"test\s+engineering.*intern",
+            r"computer\s+vision.*intern",
+        )
+        _title_is_software = re.search(
+            r"\b(?:software|swe|developer|programmer|full[\s-]?stack|backend|"
+            r"back[\s-]end|frontend|front[\s-]end|devops|sre|machine\s+learning|"
+            r"computer\s+vision|data\s+engineer|perception)\b", title_lower)
+
         for pattern in INVALID_TITLE_KEYWORDS:
             if re.search(pattern, title_lower):
+                if _title_is_software and pattern in _SOFT_OVERRIDABLE:
+                    continue
                 return False, "PhD, military, hardware or non-CS role (not eligible)"
 
         # FIX 4: SkillBridge / DoD / military-only internships
@@ -419,6 +452,15 @@ class TitleProcessor:
             r"\bschematic",
             r"\bcircuit\s+design",
             r"\bpower\s+electronics",
+            r"\bmotor\s+controls",
+            # Relaxing the broad "robotics" rule let Robotics Technician
+            # through. Technician/operator/assembler/machinist are trade
+            # roles regardless of the domain in front of them.
+            r"\btechnician\b",
+            r"\boperator\b",
+            r"\bassembler\b",
+            r"\bmachinist\b",
+            r"\bfabricator\b",
             r"\brf\s+engineer",
             r"\bantenna",
             r"\bsignal\s+integrity",
@@ -451,8 +493,25 @@ class TitleProcessor:
             r"\bclinical\s+(?:data|trial)\s+intern",
             r"\breal\s+estate\s+(?:analyst|intern)",
         ]
+        # A title that says SOFTWARE is a software job, whatever it runs on.
+        # "Embedded Software Engineer" and "Sensor Software Engineer" were
+        # being rejected because \bembedded and \bsensor matched first - 28
+        # embedded-SWE roles lost in a single run. Hardware-only titles
+        # (Electrical Engineer, Motor Controls Engineer) still get rejected.
+        _IS_SOFTWARE = re.search(
+            r"\b(?:software|swe|developer|programmer|full[\s-]?stack|backend|"
+            r"back[\s-]end|frontend|front[\s-]end|devops|sre|"
+            r"machine\s+learning|computer\s+vision|data\s+engineer)\b",
+            title_lower)
+        _HARD_ONLY = re.search(
+            r"\b(?:electrical|mechanical|welding|plumbing|hvac|"
+            r"cnc|machining|soldering|corrosion|antenna|pcb|vlsi|"
+            r"power\s+electronics)\b", title_lower)
+
         for pattern in hardware_patterns:
             if re.search(pattern, title_lower):
+                if _IS_SOFTWARE and not _HARD_ONLY:
+                    break          # software role - keep it
                 return False, "Hardware/non-CS role"
 
         # Reject unpaid internships

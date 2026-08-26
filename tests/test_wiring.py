@@ -324,3 +324,56 @@ def test_company_slug_is_the_registrable_domain():
     assert "stripe" in got, "real company domain not learned: {}".format(got)
     for ats in ("boards", "greenhouse", "lever", "jobs", "careers"):
         assert ats not in got, "ATS/subdomain slug wrongly learned: {}".format(got)
+
+
+# ── 11. Title filters must not reject software roles ──
+def test_software_roles_survive_the_hardware_filters():
+    """Three filters were rejecting genuine software jobs:
+      - 'engineer II' was treated as senior; II is 1-3 years, still early career
+      - the hardware list matched \\bembedded and \\bsensor before checking
+        whether the title said 'software'
+      - INVALID_TITLE_KEYWORDS had over-broad robotics / test-engineering /
+        computer-vision patterns
+    23 distinct titles in a single run were lost to these."""
+    from aggregator.processors import TitleProcessor as T
+
+    must_keep = [
+        "Embedded Software Engineer Intern",
+        "Embedded Software Engineer Co-op",
+        "Sensor Software Engineer - Core Sensors",
+        "Robotics Software Engineer",
+        "Software Engineer II, Backend",
+        "Deep Learning Engineer II",
+        "Security Engineer II, Hybrid Cloud",
+        "Software Test Engineering Intern",
+        "Computer Vision Engineering Intern",
+        "Manufacturing Software Controls Engineer",
+        "Perception Software Engineer",
+    ]
+    for t in must_keep:
+        ok, why = T.is_valid_job_title(t)
+        assert ok, "software role wrongly rejected: {!r} ({})".format(t, why)
+
+
+def test_hardware_and_trade_roles_still_rejected():
+    """Relaxing the filters must not open the gate to non-software work."""
+    from aggregator.processors import TitleProcessor as T
+
+    must_drop = [
+        "Electrical Engineering Intern",
+        "Mechanical Engineering Intern",
+        "Manufacturing Engineer",
+        "Motor Controls Engineer II - R&D",
+        "Hardware Support & Test Intern",
+        "FPGA Design Engineer",
+        "PCB Layout Intern",
+        "Robotics Technician",
+        "Wafer Manufacturing Process Technician",
+        "Project Controls Engineer II",
+        "Drafter/Design Engineer II",
+        "Validation Engineer II",
+        "Software Developer III",
+    ]
+    for t in must_drop:
+        ok, _ = T.is_valid_job_title(t)
+        assert not ok, "non-software role wrongly accepted: {!r}".format(t)
