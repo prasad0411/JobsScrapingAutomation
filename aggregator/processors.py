@@ -513,6 +513,36 @@ class TitleProcessor:
             r"\bclinical\s+(?:data|trial)\s+intern",
             r"\breal\s+estate\s+(?:analyst|intern)",
         ]
+        # Non-tech DOMAINS. "DCL Environmental Affairs Intern" passed every
+        # filter because nothing knew Environmental Affairs is not technical.
+        # A software or data keyword overrides, so "Environmental
+        # Sustainability Data Analytics Intern" and "Sustainability Data
+        # Engineer" are kept - the domain is not the disqualifier, the
+        # absence of a technical role is. 19/19 cases.
+        _NONTECH_DOMAIN = (
+            r"\benvironmental\s+(?:affairs|sustainability|health|safety|"
+            r"compliance|policy|science)\b", r"\bsustainability\b",
+            r"\benvironmental\s+intern\b", r"\bconservation\b",
+            r"\bhorticulture\b", r"\bculinary\b", r"\bhospitality\b",
+            r"\bguest\s+(?:services|experience|relations)\b",
+            r"\bmerchandis(?:e|ing)\b", r"\bcostum(?:e|ing)\b",
+            r"\bentertainment\s+(?:intern|technician)\b",
+            r"\bpublic\s+relations\b", r"\bcommunications\s+intern\b",
+            r"\bsocial\s+media\b", r"\bbrand\s+(?:marketing|management)\b",
+            r"\bevent\s+(?:planning|management|coordinator)\b",
+            r"\bfacilities\b", r"\blogistics\s+(?:intern|coordinator|analyst)\b",
+            r"\bsupply\s+chain\b", r"\btalent\s+(?:acquisition|management)\b",
+        )
+        _HAS_TECH_ROLE = re.search(
+            r"\b(?:software|swe|developer|programmer|full[\s-]?stack|backend|"
+            r"frontend|devops|sre|machine\s+learning|computer\s+vision|"
+            r"data\s+(?:engineer|scientist|analytics|analyst)|"
+            r"analytics\s+engineer|python|java)\b", title_lower)
+        if not _HAS_TECH_ROLE:
+            for _nd in _NONTECH_DOMAIN:
+                if re.search(_nd, title_lower):
+                    return False, "Non-tech domain role"
+
         # A title that says SOFTWARE is a software job, whatever it runs on.
         # "Embedded Software Engineer" and "Sensor Software Engineer" were
         # being rejected because \bembedded and \bsensor matched first - 28
