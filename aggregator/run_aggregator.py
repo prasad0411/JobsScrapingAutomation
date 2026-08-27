@@ -3740,6 +3740,25 @@ class UnifiedJobAggregator:
         return name.lower().strip() in GARBAGE_COMPANY_NAMES
 
     def _is_duplicate(self, company, title, url, job_id="N/A"):
+        # INTERNAL ONLY. When the feed gave us no job id, derive one from the
+        # URL for deduplication. Ashby carries a uuid in the path and 154 of
+        # 167 Ashby rows had job_id "N/A", so they fell through to the weaker
+        # company+title check. Job id is the only signal that still matches
+        # when a title is reworded or a url gains tracking parameters.
+        #
+        # This value is NOT written to the sheet: an Ashby uuid is an internal
+        # identifier that appears nowhere on the posting, so it would be
+        # meaningless in a human facing column. The sheet keeps only ids a
+        # person could actually quote.
+        if not job_id or job_id in ("N/A", ""):
+            try:
+                from aggregator.job_id_extract import extract_job_id
+                _derived = extract_job_id(url)
+                if _derived:
+                    job_id = _derived
+            except Exception as _je:
+                logging.debug(f"job id derivation failed: {_je}")
+
         with getattr(self, "_github_lock", _NOOP_LOCK):
             if job_id and job_id not in ("N/A", "") and not job_id.startswith("HASH_"):
                 try:
