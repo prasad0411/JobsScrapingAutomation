@@ -407,6 +407,45 @@ def check_source_lists_cover_all_feeds():
     return problems
 
 
+# ── CHECK 14 ──────────────────────────────────────────────────────────
+def check_brain_parses():
+    """brain.json must be valid JSON and hold its expected keys.
+
+    It was found corrupted with a trailing '\n}' - one complete document
+    plus two stray characters. Every reader failed silently: the user
+    blacklist returned nothing, discovery reported zero boards, the learning
+    loop read an empty dict. Nothing logged an error, because each reader
+    wraps its json.load in a try/except and falls back to {}.
+
+    A store that every subsystem depends on should not be able to break
+    without saying so.
+    """
+    import json as _j
+    p = os.path.join(BASE, ".local", "brain.json")
+    if not os.path.exists(p):
+        return ["brain.json is missing"]
+    try:
+        with open(p, encoding="utf-8") as f:
+            data = _j.load(f)
+    except Exception as e:
+        return ["brain.json does not parse: {} - every reader is silently "
+                "getting an empty dict".format(str(e)[:80])]
+    if not isinstance(data, dict):
+        return ["brain.json is not an object"]
+    problems = []
+    for key in ("discovered_ats", "job_id_registry"):
+        if key not in data:
+            problems.append("brain.json has lost its '{}' key".format(key))
+    d = data.get("discovered_ats") or {}
+    if isinstance(d, dict) and d:
+        total = sum(len(v) for v in d.values() if hasattr(v, "__len__"))
+        if total < 50:
+            problems.append(
+                "discovered_ats holds only {} entries - discovery has lost "
+                "its learned boards".format(total))
+    return problems
+
+
 CHECKS = [
     ("control characters",  check_control_characters),
     ("scheduler dispatch",  check_scheduler_dispatch),
@@ -421,6 +460,7 @@ CHECKS = [
     ("shadowed constants",  check_shadowed_constants),
     ("duplicate defs",      check_duplicate_definitions),
     ("source list drift",   check_source_lists_cover_all_feeds),
+    ("brain integrity",     check_brain_parses),
 ]
 
 

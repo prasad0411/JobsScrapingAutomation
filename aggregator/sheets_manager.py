@@ -408,31 +408,47 @@ class SheetsManager:
                 return {"row": idx, "sr_no": idx - 1}
         return {"row": len(data) + 1, "sr_no": len(data)}
 
-    def ensure_sufficient_rows(self, sheet, min_available=250, add_count=1000):
-        """
-        NEW: Ensure sheet has sufficient empty rows before batch operations
-        If available rows < min_available, expand sheet by add_count rows
+    def ensure_capacity(self, sheet, start_row, n_rows, headroom=200):
+        """Guarantee the sheet can hold rows start_row..start_row+n_rows-1.
+
+        Returns True only when the capacity actually exists. Callers MUST
+        skip the write on False: a deferred batch is retried next run, a
+        batch written into a full sheet is gone.
+
+        The previous version read the whole sheet with get_all_values() to
+        count used rows, then swallowed any exception from that read AND from
+        the resize, and its caller swallowed the result again. When either
+        hit a rate limit - which a full-sheet read invites - the guard said
+        nothing, the write went into a sheet with 0 free rows, and the jobs
+        vanished. The sheet sat at exactly 1410 of 1410.
+
+        This needs no read: start_row and n_rows are known exactly, and
+        row_count is a cached property with no API cost. Free to run before
+        every write, and it cannot be skipped by a TTL.
         """
         try:
-            import time
-
-            current_total_rows = sheet.row_count
-
-            all_data = sheet.get_all_values()
-            used_rows = len(all_data)
-
-            available_rows = current_total_rows - used_rows
-
-            if available_rows < min_available:
-                new_total = current_total_rows + add_count
-
-                sheet.resize(rows=new_total)
-                time.sleep(2)
-            else:
-                pass
-
+            needed = start_row + max(n_rows, 0) - 1 + headroom
+            if sheet.row_count >= needed:
+                return True
+            import time as _t
+            import logging as _l
+            sheet.resize(rows=needed + 1000)
+            _t.sleep(1)
+            _l.info("Expanded %s to %d rows", sheet.title, sheet.row_count)
+            return True
         except Exception as e:
-            print(f"  Warning: Could not check/expand {sheet.title}: {e}")
+            import logging as _l
+            _l.error("CAPACITY: cannot expand %s (%s) - skipping this write, "
+                     "it will be retried next run", sheet.title, e)
+            return False
+
+    def ensure_sufficient_rows(self, sheet, min_available=250, add_count=1000):
+        """Kept for older call sites. Delegates to ensure_capacity."""
+        try:
+            return self.ensure_capacity(
+                sheet, sheet.row_count + 1, 0, headroom=min_available)
+        except Exception:
+            return False
 
     # Known H1B sponsors — auto-set sponsorship=Yes for these companies
     _KNOWN_SPONSORS = {
@@ -607,17 +623,19 @@ class SheetsManager:
         return len(jobs)
 
     def _batch_write(self, sheet, start_row, rows_data, is_valid_sheet):
-        # CAPACITY GUARD: ensure_sufficient_rows() existed but was never
-        # called, so the sheet silently filled up and writes were lost.
-        try:
-            self.ensure_sufficient_rows(
-                sheet, min_available=max(250, len(rows_data) + 50)
-            )
-        except Exception as _ce:
-            import logging as _cl
-            _cl.warning('capacity check failed: %s', _ce)
-        
         if not rows_data:
+            return
+
+        # CAPACITY: guaranteed here, immediately before the write, because
+        # this is the only place that knows exactly which rows are about to
+        # be written. Previously this called ensure_sufficient_rows and
+        # swallowed the result, so a failed expand was invisible and the
+        # write went into a full sheet - 1410 of 1410, jobs silently lost.
+        # On failure we skip: a deferred batch is retried next run.
+        if not self.ensure_capacity(sheet, start_row, len(rows_data)):
+            import logging as _cl
+            _cl.error("Skipping write of %d rows to %s - no capacity",
+                      len(rows_data), sheet.title)
             return
 
         # CIRCUIT BREAKER: Sheets has hard rate limits. After 5 consecutive
