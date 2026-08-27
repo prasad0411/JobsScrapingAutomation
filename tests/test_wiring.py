@@ -377,3 +377,37 @@ def test_hardware_and_trade_roles_still_rejected():
     for t in must_drop:
         ok, _ = T.is_valid_job_title(t)
         assert not ok, "non-software role wrongly accepted: {!r}".format(t)
+
+
+# ── 12. The user blacklist must be read, and must not over-match ──
+def test_user_blacklist_is_actually_read():
+    """user_blacklist_companies was write-only for a few hours: entries went
+    into brain.json and nothing read them, so blacklisted companies would
+    have reappeared on the next run. Same shape as the learning loop that
+    stayed dead for months."""
+    from aggregator import apply_learned
+    assert hasattr(apply_learned, "is_user_blacklisted"), \
+        "no reader for user_blacklist_companies"
+    src = open(os.path.join(BASE, "aggregator", "run_aggregator.py"),
+               encoding="utf-8").read()
+    assert "is_user_blacklisted" in src, \
+        "reader exists but the pipeline never calls it"
+
+
+def test_user_blacklist_matches_by_prefix_not_substring():
+    """A bare substring check blocked 'Phi' because 'philips' contains it.
+    Real companies must not be caught by an unrelated blacklist entry."""
+    from aggregator.apply_learned import is_user_blacklisted as B
+    from outreach.brain import Brain
+
+    b = Brain.get()
+    saved = list(b._data.get("user_blacklist_companies", []))
+    b._data["user_blacklist_companies"] = ["philips", "morse corp"]
+    try:
+        for name in ("Philips", "Philips North America", "MORSE Corp Co-op"):
+            assert B(name), "blacklisted company not blocked: " + name
+        for name in ("Phi", "Philadelphia Energy", "Morse Micro", "Stripe"):
+            assert not B(name), "unrelated company wrongly blocked: " + name
+    finally:
+        b._data["user_blacklist_companies"] = saved
+        b.save()

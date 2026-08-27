@@ -2942,6 +2942,21 @@ class UnifiedJobAggregator:
             _co_lower = _co_hint.lower()
             _ti_lower = _ti_hint.lower()
 
+            # ── GATE -2: companies YOU ruled out ──
+            # Personal decisions, not something a page check could ever find:
+            # Philips does not hire from Northeastern. Checked before anything
+            # else so a blacklisted company costs no fetch and no processing.
+            try:
+                from aggregator.apply_learned import is_user_blacklisted
+                if is_user_blacklisted(_co_hint):
+                    self.outcomes["skipped_user_blacklist"] = (
+                        self.outcomes.get("skipped_user_blacklist", 0) + 1)
+                    logging.info(
+                        f"REJECTED | {_co_hint} | {_ti_hint} | User blacklist")
+                    return None
+            except Exception as _ube:
+                logging.debug(f"user blacklist check failed: {_ube}")
+
             # ── GATE -1: truncated titles ──
             # zapplyjobs cuts titles at ~38 chars with an ellipsis, so the
             # words that would trigger a rejection are exactly the ones that

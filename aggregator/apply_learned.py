@@ -90,6 +90,40 @@ def is_learned_clearance(company: str) -> bool:
     return company.strip().lower() in set(_brain().get("learned_clearance", []))
 
 
+def is_user_blacklisted(company: str) -> bool:
+    """
+    True if YOU decided not to apply to this company, for any reason.
+
+    Distinct from learned_clearance, which is what the system discovered.
+    This is a personal decision - Philips does not hire from Northeastern,
+    so no amount of page checking would ever reveal it.
+
+    The key was write-only for a few hours after it was created: entries went
+    in and nothing read them, so blacklisted companies would have reappeared
+    on the next run. Same bug class as the learning loop that stayed dead for
+    months. A key nobody reads is a feature that does not exist.
+    """
+    if not company:
+        return False
+    c = company.strip().lower()
+    bl = set(_brain().get("user_blacklist_companies", []))
+    if c in bl:
+        return True
+    # substring both ways: "Philips" should block "Philips North America",
+    # and a blacklist entry of "morse corp" should block "MORSE Corp Co-op
+    # Opportunities" as it appears in the feeds.
+    for b in bl:
+        if len(b) < 4 or len(c) < 4:
+            continue
+        # The blacklist entry must be a prefix of the company or vice versa,
+        # not merely a substring. "philips" should block "Philips North
+        # America" but a bare "Phi" must stay allowed - checking only the
+        # entry's length let any 3 letter company match.
+        if c.startswith(b) or b.startswith(c):
+            return True
+    return False
+
+
 # ---- Where to plug this in (aggregator/extractors.py or processors.py) ----
 #
 # Wherever a job's company/title is finalized, BEFORE the hardcoded rules:
