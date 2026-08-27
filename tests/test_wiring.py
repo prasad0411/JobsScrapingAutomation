@@ -443,3 +443,37 @@ def test_summer_filter_catches_separated_year_and_season():
 
     # rule 1 is absolute: full-time never enters the filter
     assert not D("2027 Software Engineering Summer Internship", job_type="Full Time")
+
+
+# ── 14. The page title supersedes the feed's ──
+def test_page_title_supersedes_feed():
+    """Feeds rewrite titles, and every rewrite defeats a filter: JHU APL's
+    '2027 PhD Graduate' arrived as 'New Grad', Cadence's 'Electronics
+    Hardware Design' as 'Internship, Elect...'. The page is authoritative."""
+    from aggregator.title_reconcile import reconcile
+
+    used, dis, _ = reconcile(
+        "Data Scientist/Engineer New Grad - Analytic Capabilities",
+        "2027 PhD Graduate - AI/ML Data Scientist/Engineer in Laurel, Maryland "
+        "| Johns Hopkins Applied Physics Laboratory",
+        "Johns Hopkins Applied Physics Laboratory")
+    assert dis and "PhD" in used, "page title not preferred: " + used
+
+    # site furniture must never replace a real title
+    for junk in ("Careers Home | Acme", "Job Search", ""):
+        used, dis, _ = reconcile("Software Engineer Intern", junk, "Acme")
+        assert used == "Software Engineer Intern", "furniture won: " + used
+
+
+def test_phd_titles_rejected_unless_ms_eligible():
+    """Only 'phd intern' was covered, so '2027 PhD Graduate', 'Research
+    Scientist, PhD' and 'Software Engineer, PhD New Grad' all passed. A title
+    offering MS or BS alongside PhD is one you can apply to."""
+    from aggregator.processors import TitleProcessor as T
+    for t in ("2027 PhD Graduate - AI/ML Data Scientist",
+              "Research Scientist, PhD", "Software Engineer, PhD New Grad",
+              "PhD Internship - Computer Vision"):
+        assert not T.is_valid_job_title(t)[0], "PhD role accepted: " + t
+    for t in ("Research Intern - MS or PhD", "Data Scientist - MS/PhD",
+              "Machine Learning Engineer - BS/MS/PhD", "Software Engineer I"):
+        assert T.is_valid_job_title(t)[0], "MS-eligible role rejected: " + t

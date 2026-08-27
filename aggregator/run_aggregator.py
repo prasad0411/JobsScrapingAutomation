@@ -2266,6 +2266,39 @@ class UnifiedJobAggregator:
                 self.outcomes["skipped_duplicate_company_title"] += 1
                 return
 
+            # PROVENANCE: the page is authoritative, the feed is a pointer.
+            # Feeds rewrite titles, and every rewrite defeats a filter that
+            # would have fired: JHU APL's "2027 PhD Graduate" arrived as
+            # "New Grad", Cadence's "Electronics Hardware Design" as
+            # "Internship, Elect...", Kodiak's AI/ML intern as "Geographic
+            # Information Systems Intern". The PhD, hardware and dedup checks
+            # all ran on text with the disqualifying words already removed.
+            #
+            # Now the page's own title supersedes the feed's, and the filters
+            # below re-run against it. A feed can no longer hide a
+            # requirement by paraphrasing.
+            try:
+                from aggregator.title_reconcile import reconcile as _recon
+                _pt = ""
+                if soup is not None:
+                    _h1 = soup.find("h1")
+                    if _h1:
+                        _pt = _h1.get_text(strip=True)
+                    if not _pt and soup.title:
+                        _pt = soup.title.get_text(strip=True)
+                if _pt:
+                    _better, _disagreed, _why = _recon(title, _pt, company)
+                    if _disagreed and _better and _better != title:
+                        logging.info(
+                            f"TITLE FROM PAGE | {company} | feed={title[:44]!r} "
+                            f"page={_better[:44]!r} | {_why}"
+                        )
+                        self.outcomes["title_from_page"] = (
+                            self.outcomes.get("title_from_page", 0) + 1)
+                        title = _better
+            except Exception as _tre:
+                logging.debug(f"title reconcile failed: {_tre}")
+
             is_valid_title, reason = TitleProcessor.is_valid_job_title(title)
             if not is_valid_title:
                 self.outcomes["skipped_invalid_title"] += 1

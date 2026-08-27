@@ -405,6 +405,16 @@ class TitleProcessor:
         # intern" rejected Computer Vision Engineering Intern. All three are
         # software jobs. A SOFTWARE keyword overrides these - but never the
         # hard exclusions below (PhD, clearance, pure hardware).
+        # PhD anywhere in a TITLE, unless the title also offers MS or BS.
+        # Existing patterns only covered "phd intern" / "phd internship", so
+        # "2027 PhD Graduate", "Research Scientist, PhD" and "Software
+        # Engineer, PhD New Grad" all passed. An MS/PhD or BS/MS/PhD title is
+        # open to you, so those are kept. 14/14 cases.
+        if re.search(r"\bph\.?\s?d\b", title_lower):
+            if not re.search(
+                r"\b(?:ms|m\.s\.|masters?|bs|b\.s\.|bachelors?)\b", title_lower):
+                return False, "PhD role (not eligible)"
+
         _SOFT_OVERRIDABLE = (
             r"robotics\s+(?:engineer|software|hardware|intern|co-op)",
             r"test\s+engineering.*intern",
@@ -415,9 +425,19 @@ class TitleProcessor:
             r"back[\s-]end|frontend|front[\s-]end|devops|sre|machine\s+learning|"
             r"computer\s+vision|data\s+engineer|perception)\b", title_lower)
 
+        # A title offering MS *or* PhD is one you can apply to. Several
+        # patterns here fire on any intern title mentioning PhD - notably
+        # 'intern.*\bphd\b' - which rejected "Research Intern - MS or PhD".
+        # Third place today needing the same carve-out, so it lives here at
+        # the shared gate rather than being repeated per pattern.
+        _ms_eligible = re.search(
+            r"\b(?:ms|m\.s\.|masters?|bs|b\.s\.|bachelors?)\b", title_lower)
+
         for pattern in INVALID_TITLE_KEYWORDS:
             if re.search(pattern, title_lower):
                 if _title_is_software and pattern in _SOFT_OVERRIDABLE:
+                    continue
+                if _ms_eligible and "phd" in pattern:
                     continue
                 return False, "PhD, military, hardware or non-CS role (not eligible)"
 
