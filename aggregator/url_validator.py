@@ -48,46 +48,29 @@ _SLUG_NOISE = re.compile(
 )
 
 
-# Known Workday subdomain -> real company name
-_WORKDAY_COMPANY_MAP = {
-    "vst": "Vistra", "msigna": "MSIG USA", "haier": "GE Appliances",
-    "edel": "Oracle", "ulse": "UL Solutions", "kbr": "KBR",
-    "bloomenergy": "Bloom Energy", "thermofisher": "Thermo Fisher Scientific",
-    "radiancetech": "Radiance Technologies", "cambiumlearning": "Cambium Learning",
-    "geisinger": "Geisinger", "intel": "Intel", "cadence": "Cadence Design Systems",
-    "aero": "AeroVironment", "rbc": "RBC", "aptiv": "Aptiv",
-    "viavisolutions": "Viavi Solutions", "tutorperini": "Tutor Perini",
-    "nvidia": "Nvidia",
-    "novanta": "Novanta",
-    "emit": "WSP",
-    "formlabs": "Formlabs",
-    "talentmanagementsolution": "Jonas Software",
-    "bmo": "BMO",
-    "energyhub": "EnergyHub",
-    "premierautomation": "Premier Automation",
-    "luminatedata": "Luminate",
-    "kiongroup": "KION Group",
-    "flextronics": "Flex",
-    "goodrx": "GoodRx",
-    "ensemblehp": "Ensemble Health Partners",
-    "veeamsoftware": "Veeam Software",
-    "thales": "Thales",
-    "bdx": "Becton Dickinson",
-    "philips": "Philips",
-    "pattersoncompanies": "Patterson Companies",
-    "walmart": "Walmart",
-    "idexcorp": "IDEX",
-    "scanhealthplan": "Scan Health Plan",
-    "envista": "Envista",
-    "strideinc": "Stride",
-    "gfs": "Gordon Food Service",
-    "sharecare": "Sharecare",
-    "standoutforgood": "Stand Out For Good",
-    "expedia": "Expedia Group",
-    "copart": "Copart",
-    "snorkelai": "Snorkel AI",
-    "ipconfigure": "IPConfigure",
-}
+# Workday subdomain -> company. DERIVED from brain.json's
+# discovered_ats (227 tenants and growing), not a hand kept list.
+# The 48-entry dict that lived here shared only 3 slugs with the
+# 40-entry copy in run_aggregator, disagreed on 1, and neither had
+# 'disney' - which is why a Kodiak row kept Disney's title and URL.
+from aggregator.workday_map import company_for_slug as _wd_company
+
+
+class _WorkdayMapProxy(dict):
+    """Behaves like the old dict so call sites need no change."""
+    def __contains__(self, k):
+        return _wd_company(k) is not None
+    def __getitem__(self, k):
+        v = _wd_company(k)
+        if v is None:
+            raise KeyError(k)
+        return v
+    def get(self, k, default=None):
+        v = _wd_company(k)
+        return default if v is None else v
+
+
+_WORKDAY_COMPANY_MAP = _WorkdayMapProxy()
 
 # Known custom career site domains
 _CUSTOM_CAREER_DOMAINS = {

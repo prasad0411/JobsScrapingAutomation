@@ -1193,49 +1193,21 @@ class UnifiedJobAggregator:
                     pass
             _domain_slug = re.sub(r"[^a-z0-9]", "", _domain_slug)
             # Only flag mismatch if domain slug is a known company AND clearly != hint company
-            _known_workday_companies = {
-                "ingrammicro": "ingram micro",
-                "synnex": "td synnex",
-                "vishay": "vishay",
-                "cooperstandard": "cooper standard",
-                "edwards": "edwards lifesciences",
-                "biorad": "bio-rad",
-                "careers-biorad": "bio-rad",
-                "arlo": "arlo",
-                "revvity": "revvity",
-                "hyperiongrp": "hyperion",
-                "ffive": "f5",
-                "pae": "amentum",
-                "vhr-genband": "ribbon",
-                "vhr-otsuka": "otsuka",
-                "hcjy": "cooper companies",
-                "nordsonhcm": "nordson",
-                "vareximaging": "varex imaging",
-                "sonyglobal": "sony",
-                "rgare": "reinsurance group of america",
-                "statestreet": "state street",
-                "eversource": "eversource",
-                "argonne": "argonne national laboratory",
-                "primerica": "primerica",
-                "bxp": "bxp",
-                "teledyneetm": "teledyne etm",
-                "cohu": "cohu",
-                "situsaac": "situsamc",
-                "dustyrobotics": "dusty robotics",
-                "botauto": "bot auto",
-                "moog": "moog",
-                "takeda": "takeda",
-                "socure": "socure",
-                "dmatrix": "d-matrix",
-                "ashbyhq": None,  # ashby is an ATS, not a company
-                "kbr": "kbr",
-                "transunion": "transunion",
-                "ascendperformancematerials": "ascend performance materials",
-                "curtisswright": "curtiss-wright",
-                "haier": "haier",
-                "cambiumlearning": "cambium learning",
-                "salliemae": "sallie mae",
-            }
+
+            # Was a 41-entry dict rebuilt on every call, sharing only
+            # 3 slugs with url_validator's copy and missing 'disney'.
+            # Now derived from brain.json - self growing, one source.
+            from aggregator.workday_map import company_for_slug as _WD_DERIVED
+            class _WDProxy(dict):
+                def __contains__(self, k): return _WD_DERIVED(k) is not None
+                def __getitem__(self, k):
+                    v = _WD_DERIVED(k)
+                    if v is None: raise KeyError(k)
+                    return v
+                def get(self, k, d=None):
+                    v = _WD_DERIVED(k)
+                    return d if v is None else v
+            _known_workday_companies = _WDProxy()
             if _domain_slug in _known_workday_companies:
                 _expected_name = _known_workday_companies[_domain_slug]
                 if _expected_name:
