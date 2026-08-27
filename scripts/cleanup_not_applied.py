@@ -168,7 +168,12 @@ class ManualCleanup:
 
             current_cols = len(self.reviewed_sheet.row_values(1))
             if current_cols < 12:
-                self.reviewed_sheet.resize(rows=1000, cols=12)
+                # Widen columns ONLY. resize(rows=1000, cols=12) also SETS
+                # rows to 1000, and this tab holds over 5,000 rows of review
+                # history - it would have destroyed 4,000+ of them. The row
+                # count must be preserved, so pass the current value.
+                self.reviewed_sheet.resize(
+                    rows=max(self.reviewed_sheet.row_count, 1000), cols=12)
                 time.sleep(2)
 
             headers = self.reviewed_sheet.row_values(1)
