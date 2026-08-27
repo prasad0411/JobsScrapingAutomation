@@ -3677,7 +3677,16 @@ class UnifiedJobAggregator:
             # Fallback: use URL-extracted job_id if page extraction failed
             if (not job_id or job_id == "N/A") and _url_job_id:
                 job_id = _url_job_id
-            sponsorship = ValidationHelper.check_sponsorship_status(soup)
+            # Sponsorship only matters for FULL TIME roles. Internships and
+            # co-ops run on CPT, which needs no H-1B sponsorship, so a "no
+            # sponsorship" line on an internship posting is about the
+            # full-time conversion, not about whether you can do the
+            # internship. Rejecting on it costs real opportunities.
+            _sp_jt = (self._detect_job_type(title, source) or "").strip().lower()
+            if _sp_jt in ("internship", "intern", "co-op", "coop"):
+                sponsorship = "Unknown"
+            else:
+                sponsorship = ValidationHelper.check_sponsorship_status(soup)
 
             # Use original URL if redirect crossed to different domain (prevents company/URL mismatch)
             _store_url = final_url or url

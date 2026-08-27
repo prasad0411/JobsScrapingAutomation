@@ -2815,6 +2815,12 @@ class ValidationHelper:
                 r"currently\s+pursuing\s+ph\.?d",
                 r"preferably\s+a\s+current\s+3rd\s+year",
                 r"must\s+be\s+currently\s+pursuing\s+a\s+bachelor",
+                # P&G writes "In process of obtaining a Bachelors degree" -
+                # no apostrophe, and "in process of" rather than "pursuing".
+                # The PhD equivalent was already covered; the bachelor one
+                # was not, so an undergrad-only internship reached the sheet.
+                r"in\s+(?:the\s+)?process\s+of\s+obtaining\s+(?:a\s+|an\s+)?bachelor",
+                r"(?:obtaining|working\s+towards?)\s+(?:a\s+|an\s+)?bachelor'?s?\s+degree",
                 r"not\s+open\s+to\s+candidates\s+on\s+opt",
                 r"no\s+sponsorship\s+available.*not\s+open\s+to",
                 r"actively\s+pursuing.*bachelor.*computer\s+(?:science|engineering)",

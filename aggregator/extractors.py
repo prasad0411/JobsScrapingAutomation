@@ -1890,6 +1890,33 @@ class PageFetcher:
         # HEAD health check disabled — slow and redundant, failed fetches handled downstream
         # is_healthy, status = self.check_url_health(url)
 
+        # WORKDAY: use the JSON API, not a browser.
+        # Workday pages render entirely in JavaScript, so a plain fetch
+        # returns 0 characters. The Selenium branch below was meant to cover
+        # that, but chromedriver is not installed, so it fails and falls
+        # through to the plain fetch. Result: no Workday job has ever been
+        # checked for undergraduate-only, clearance, sponsorship, PhD or page
+        # age - across 227 discovered tenants.
+        #
+        # The CXS API returns the same posting as JSON in one request, no
+        # browser required. Verified on P&G: 8,622 characters containing
+        # "In process of obtaining a Bachelors degree" and "Immigration
+        # Sponsorship is not available for this role", neither of which
+        # appears in the HTML.
+        if url and "myworkdayjobs.com" in url.lower():
+            try:
+                from aggregator.workday_api import fetch_description
+                _wd = fetch_description(url)
+                if _wd and len(_wd) > 200:
+                    _resp = self._create_mock_response(_wd, url)
+                    _HTTP_RESPONSE_CACHE[url] = {
+                        "response": _resp, "final_url": url, "page_source": _wd,
+                    }
+                    logging.debug(f"Workday API: {len(_wd)} chars for {url[:60]}")
+                    return _resp, url, _wd
+            except Exception as _we:
+                logging.debug(f"Workday API failed: {_we}")
+
         if self._is_js_heavy_platform(url):
             html, final_url, page_source = self._try_selenium(url)
             if html:
