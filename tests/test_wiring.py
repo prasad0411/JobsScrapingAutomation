@@ -411,3 +411,35 @@ def test_user_blacklist_matches_by_prefix_not_substring():
     finally:
         b._data["user_blacklist_companies"] = saved
         b.save()
+
+
+# ── 13. Summer filter must catch the split year/season form ──
+def test_summer_filter_catches_separated_year_and_season():
+    """'2027 Software Engineering Summer Internship' has the year and the
+    season five words apart, so patterns anchored on 'Summer 2027' or
+    '2027 Summer' both missed it and the job reached the sheet."""
+    from aggregator.term_filter import should_drop_summer as D
+
+    must_drop = [
+        "2027 Software Engineering Summer Internship",
+        "Software Engineering Intern - Summer 2027",
+        "2027 Summer Analyst Program",
+        "Summer 2027 Data Science Internship",
+    ]
+    for t in must_drop:
+        assert D(t, job_type="Internship"), "summer role not caught: " + t
+
+    must_keep = [
+        "Software Engineer Intern - Fall 2026",
+        "SWE Intern, Spring 2027",
+        "Data Engineer Co-op - Winter 2027",
+        "Software Engineer Intern - 2027",
+        "2027 New Grad Software Engineer",
+        "SWE Intern - Summer 2027 or Fall 2026",
+        "2027 Software Engineering Co-op",
+    ]
+    for t in must_keep:
+        assert not D(t, job_type="Internship"), "wanted role wrongly dropped: " + t
+
+    # rule 1 is absolute: full-time never enters the filter
+    assert not D("2027 Software Engineering Summer Internship", job_type="Full Time")

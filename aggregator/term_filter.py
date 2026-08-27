@@ -43,6 +43,14 @@ _SUMMER_PATTERNS = [
     re.compile(r"\bsummer\s+analyst\s+20?27\b", re.I),
     re.compile(r"\bsummer\s+intern(ship)?\s+20?27\b", re.I),
     re.compile(r"\b20?27\s+summer\s+intern", re.I),
+    # Year and "summer" separated by other words, either order:
+    #   "2027 Software Engineering Summer Internship"  <- Advanced Space
+    #   "Summer Software Engineering Internship 2027"
+    # Capped at 4 intervening words so an unrelated year elsewhere in a long
+    # title cannot pair with an unrelated "summer". Rule 2 still runs first,
+    # so anything mentioning Fall/Spring/Winter/co-op is kept regardless.
+    re.compile(r"\b20?27\b(?:\s+\w+){0,4}\s+\bsummer\b", re.I),
+    re.compile(r"\bsummer\b(?:\s+\w+){0,4}\s+\b20?27\b", re.I),
 ]
 
 _INTERN_TYPES = {"internship", "intern", "co-op", "coop"}
