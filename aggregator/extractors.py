@@ -126,7 +126,31 @@ def _save_http_cache(cache):
         if len(cache) > 500:
             sorted_items = sorted(cache.items(), key=lambda x: x[1].get("ts", 0))
             cache = dict(sorted_items[-500:])
-        json.dump(cache, open(_HTTP_CACHE_FILE, "w"))
+        # Only persist what is serializable. The cache holds a live response
+        # object per entry, which json cannot encode - so json.dump raised on
+        # EVERY run. And open(path,"w") truncates before dump runs, so the
+        # failure left the file truncated: it has been destroying itself once
+        # per run since it was wired up. Write atomically and store only the
+        # html and url.
+        _safe = {}
+        for _k, _v in cache.items():
+            if not isinstance(_v, dict):
+                continue
+            _safe[_k] = {
+                "page_source": _v.get("page_source") or "",
+                "final_url": _v.get("final_url") or _k,
+                "ts": _v.get("ts", 0),
+            }
+        import tempfile as _tf
+        _fd, _tmp = _tf.mkstemp(dir=".local", suffix=".tmp")
+        try:
+            with os.fdopen(_fd, "w", encoding="utf-8") as _f:
+                json.dump(_safe, _f)
+            os.replace(_tmp, _HTTP_CACHE_FILE)
+        except Exception:
+            if os.path.exists(_tmp):
+                os.remove(_tmp)
+            raise
     except Exception as _sw:
         from aggregator.swallowed import swallow as _s; _s('cache.http_response_write', _sw)
 
