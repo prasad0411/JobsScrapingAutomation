@@ -2970,6 +2970,25 @@ class UnifiedJobAggregator:
             _co_lower = _co_hint.lower()
             _ti_lower = _ti_hint.lower()
 
+            # ── GATE -1: truncated titles ──
+            # zapplyjobs cuts titles at ~38 chars with an ellipsis, so the
+            # words that would trigger a rejection are exactly the ones that
+            # got removed. "Product Engineering Internship, Elect..." passed
+            # the hardware filter because it could not see "Electronics
+            # Hardware Design". 64 rows reached the sheet this way, including
+            # Grants Specialist II and Patient Care Associate.
+            # A title we cannot read is a title we cannot judge.
+            try:
+                from aggregator.truncated_title import is_truncated
+                if is_truncated(_ti_hint):
+                    self.outcomes["skipped_truncated_title"] = (
+                        self.outcomes.get("skipped_truncated_title", 0) + 1)
+                    logging.info(
+                        f"REJECTED | {_co_hint} | {_ti_hint} | Truncated title")
+                    return None
+            except Exception as _tte:
+                logging.debug(f"truncation check failed: {_tte}")
+
             # ── GATE 0: Summer 2027 term filter ──
             # Applies to EVERY source, not just the GitHub feeds: direct ATS
             # (~3,500/run), Indeed, email, LinkedIn all pass through here.
