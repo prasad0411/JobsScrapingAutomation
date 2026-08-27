@@ -357,6 +357,56 @@ def check_duplicate_definitions():
     return problems
 
 
+# ── CHECK 13 ──────────────────────────────────────────────────────────
+def check_source_lists_cover_all_feeds():
+    """A hardcoded set of source names that did not grow with the sources.
+
+    This bug class has now appeared four times: COMPANY_NAME_FIXES (299
+    entries ignored), GARBAGE_COMPANY_NAMES (72 ignored), GREENHOUSE_COMPANY_MAP,
+    and _GITHUB_SOURCES - which listed 8 of 19 sources, so rows from every
+    later feed fell through to URL-shift handling, lost their real ATS URL to
+    a Google search link, and then skipped every page-based check including
+    citizenship and sponsorship. 196 sheet rows were unvalidated.
+
+    So: any set literal of source-like names must cover the sources actually
+    configured, or say in a comment why it does not.
+    """
+    agg = _read(os.path.join(BASE, "aggregator", "run_aggregator.py"))
+    if not agg:
+        return ["run_aggregator.py unreadable"]
+
+    configured = {n for _, n in re.findall(r'\((\w+_URL),\s*"(\w+)"\)', agg)}
+    configured |= {"greenhouse_direct", "ashby_direct", "lever_direct",
+                   "workday_direct", "smartrecruiters_direct",
+                   "workable_direct", "rippling_direct", "indeed_direct"}
+    if not configured:
+        return []
+
+    problems = []
+    for m in re.finditer(r"^\s*(_?[A-Z][A-Z0-9_]{4,})\s*=\s*\{([^}]{20,})\}",
+                         agg, re.M):
+        name, body = m.group(1), m.group(2)
+        if "SOURCE" not in name.upper():
+            continue
+        listed = set(re.findall(r'"(\w+)"', body))
+        if not listed:
+            continue
+        # only care when it clearly IS a source list
+        if len(listed & configured) < 3:
+            continue
+        missing = configured - listed
+        # a derived list absorbs the rest at runtime; look for that
+        tail = agg[m.end():m.end() + 400]
+        if ".add(source)" in tail or "_all_feed_sources" in agg[m.start():m.end()]:
+            continue
+        if missing:
+            problems.append(
+                "{} lists {} sources but {} are configured - missing: {}"
+                .format(name, len(listed & configured), len(configured),
+                        ", ".join(sorted(missing)[:6])))
+    return problems
+
+
 CHECKS = [
     ("control characters",  check_control_characters),
     ("scheduler dispatch",  check_scheduler_dispatch),
@@ -370,6 +420,7 @@ CHECKS = [
     ("orphaned modules",    check_orphaned_modules),
     ("shadowed constants",  check_shadowed_constants),
     ("duplicate defs",      check_duplicate_definitions),
+    ("source list drift",   check_source_lists_cover_all_feeds),
 ]
 
 

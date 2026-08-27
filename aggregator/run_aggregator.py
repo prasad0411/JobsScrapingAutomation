@@ -1270,8 +1270,32 @@ class UnifiedJobAggregator:
             pass
 
         # GitHub sources: undo URL-domain override — source pairing is correct
-        _GITHUB_SOURCES = {"SimplifyJobs", "vanshb03", "speedyapply_swe", "direct_ats",
-            "speedyapply_ai",             "vanshb03_offseason", "simplify_newgrad", "cvrve_newgrad"}
+        # DERIVED, not hardcoded. This list was written when there were 8
+        # sources and never grew: simplify_offseason, zapplyjobs_*,
+        # speedyapply_*_newgrad and indeed_direct were all missing, so their
+        # rows fell through to the URL-shift logic below, lost their real
+        # Greenhouse/Workday URLs to a Google search link, and then skipped
+        # every page-based check - citizenship, clearance, sponsorship.
+        # 196 sheet rows were unvalidated because of it.
+        #
+        # A feed-derived source is any source that is not a live page fetch,
+        # so trust the company name the feed gave us. Same bug class as
+        # COMPANY_NAME_FIXES and GARBAGE_COMPANY_NAMES: a hardcoded list that
+        # did not grow with the system.
+        _LIVE_PAGE_SOURCES = {"LinkedIn", "Email", "Manual", "ZipRecruiter",
+                              "Jobright", "SWE List", "SWE List Email"}
+        _GITHUB_SOURCES = set(getattr(self, "_all_feed_sources", ()) or ()) | {
+            "SimplifyJobs", "vanshb03", "speedyapply_swe", "direct_ats",
+            "speedyapply_ai", "vanshb03_offseason", "simplify_newgrad",
+            "cvrve_newgrad", "simplify_offseason", "SimplifyJobs_2026",
+            "zapplyjobs_newgrad", "zapplyjobs_2026", "zapplyjobs_it",
+            "zapplyjobs_ml_intern", "zapplyjobs_intern_2027",
+            "speedyapply_swe_newgrad", "speedyapply_ai_newgrad",
+            "indeed_direct", "greenhouse_direct", "ashby_direct",
+            "lever_direct", "workday_direct", "smartrecruiters_direct",
+            "workable_direct", "rippling_direct"}
+        if source and source not in _LIVE_PAGE_SOURCES:
+            _GITHUB_SOURCES.add(source)
         if source in _GITHUB_SOURCES:
             company_from_github = _true_original_company
 
