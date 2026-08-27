@@ -2299,6 +2299,19 @@ class UnifiedJobAggregator:
             except Exception as _tre:
                 logging.debug(f"title reconcile failed: {_tre}")
 
+            # A truncated title is NOT a reason to drop the job. 652 of 5,089
+            # feed rows arrive truncated and 510 of them are real SWE roles -
+            # rejecting them cost far more than the unevaluable ones it kept
+            # out. "Could not verify" is not "disqualified".
+            #
+            # title_reconcile already replaces the title with the page's when
+            # a page is reachable, so most of these carry the full title by
+            # now. The rest are accepted as-is: a partial title is still a
+            # job worth seeing, and the URL is there to check.
+            #
+            # Only actual disqualifying evidence rejects - PhD required,
+            # citizenship, hardware, wrong season.
+
             is_valid_title, reason = TitleProcessor.is_valid_job_title(title)
             if not is_valid_title:
                 self.outcomes["skipped_invalid_title"] += 1
@@ -3001,11 +3014,19 @@ class UnifiedJobAggregator:
             try:
                 from aggregator.truncated_title import is_truncated
                 if is_truncated(_ti_hint):
-                    self.outcomes["skipped_truncated_title"] = (
-                        self.outcomes.get("skipped_truncated_title", 0) + 1)
-                    logging.info(
-                        f"REJECTED | {_co_hint} | {_ti_hint} | Truncated title")
-                    return None
+                    # Do NOT reject here. 652 of 5,089 feed rows arrive
+                    # truncated and 510 of them are real SWE jobs - dropping
+                    # them at this gate cost far more than the unevaluable
+                    # ones it kept out.
+                    #
+                    # The page is authoritative and title_reconcile recovers
+                    # the full title from it after the fetch, at which point
+                    # the normal filters judge the real text. So only note it
+                    # here; the post-fetch gate rejects if no page arrives.
+                    self.outcomes["truncated_title_seen"] = (
+                        self.outcomes.get("truncated_title_seen", 0) + 1)
+                    logging.debug(
+                        f"TRUNCATED (deferred to post-fetch) | {_co_hint} | {_ti_hint}")
             except Exception as _tte:
                 logging.debug(f"truncation check failed: {_tte}")
 
