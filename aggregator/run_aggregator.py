@@ -1946,15 +1946,12 @@ class UnifiedJobAggregator:
                 self.outcomes["failed_simplify_resolution"] = self.outcomes.get("failed_simplify_resolution", 0) + 1
                 logging.info(f"Simplify unresolved — queued for retry: {url[:60]}")
                 return
-                # Use metadata from Simplify page if available
-                try:
-                    from aggregator.extractors import SimplifyRedirectResolver as _SRR
-                    smeta = _SRR._last_metadata
-                    if smeta.get("location") and (not location_from_github or location_from_github == "Unknown"):
-                        location_from_github = smeta["location"]
-                        logging.info(f"Using Simplify metadata location: {location_from_github}")
-                except Exception:
-                    pass
+                # (10 unreachable lines removed here: a Simplify-metadata
+                #  location block sitting AFTER the return above, so it never
+                #  ran. It referenced location_from_github, which is not even
+                #  a parameter of this function - leftover from a different
+                #  one. The return is correct: an unresolved Simplify URL is
+                #  queued for retry and skipped.)
 
         if "jobright.ai" in url.lower():
             self._process_jobright_url(url, sender, email_html, subject)
@@ -2291,7 +2288,12 @@ class UnifiedJobAggregator:
                     actual_url, source=sender, email_html=email_html
                 )
                 if not result:
-                    result = self._try_trusted_fallback("", title, actual_url, "", sender)
+                    # was `title`, which does not exist in this function -
+                    # the signature is (url, sender, email_html, subject).
+                    # The email subject is what carries the role name here,
+                    # so the fallback was raising NameError instead of
+                    # attempting a recovery.
+                    result = self._try_trusted_fallback("", subject or "", actual_url, "", sender)
                 if result:
                     alert = RoleCategorizer.get_terminal_alert(result["title"])
                     print(f"    {result['company'][:50]}: ✓ Valid {alert} (ZipRecruiter→resolved)")
@@ -3308,6 +3310,10 @@ class UnifiedJobAggregator:
             #
             # Now: check the in-progress set as well, and CLAIM the url inside
             # the same locked block so the check and the claim are atomic.
+            # _ident was imported inside _is_duplicate, a DIFFERENT function,
+            # so it was undefined here and this check raised NameError on
+            # every job - the url half of post-fetch dedup never ran.
+            from aggregator.utils import is_identifying_url as _ident
             _clean = URLCleaner.clean_url(final_url or url)
             _norm = _dedup_key(company, title)
             with getattr(self, "_github_lock", _NOOP_LOCK):
