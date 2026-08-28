@@ -1215,10 +1215,15 @@ class Finder:
         # FALLBACK: try public web + company site (safe, no LinkedIn) as last resort.
         try:
             from outreach.public_email_finder import find_public_email
-            _dom_pf = dom or (job_url_domain or "")
+            # was `job_url_domain` and `company`, neither of which exists in
+            # _apis(self, p, dom, li, r) - so this public-web fallback raised
+            # NameError and never ran. It is the last resort when every API
+            # misses, which is exactly the case it was written for.
+            # find_public_email only uses name and domain internally.
+            _dom_pf = dom or ""
             if _dom_pf and p.get("fna") and p.get("lna"):
                 _full = f"{p['fna']} {p['lna']}"
-                _pub = find_public_email(_full, company, _dom_pf, verifier=getattr(self, 'verifier', None))
+                _pub = find_public_email(_full, _dom_pf, _dom_pf, verifier=getattr(self, 'verifier', None))
                 if _pub and _pub.get("email"):
                     log.info(f"Public-web fallback found {_pub['email']} ({_pub['source']})")
                     r["email"]=_pub["email"]; r["confidence"]=_pub["confidence"]

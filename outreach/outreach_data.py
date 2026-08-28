@@ -427,6 +427,18 @@ class Sheets:
                             log.info(f"pull: auto-filled {_role} for {co}: {_contact['email']}")
 
                     # AUTO-FILL: fallback — any non-bounced contact for this company by name
+                    # _co_contacts was never built in this function, so this
+                    # whole fallback raised NameError and never ran. Built the
+                    # same way as line ~603: company_contacts keyed on the
+                    # normalised company name.
+                    _co_contacts = {}
+                    try:
+                        import re as _cc_re
+                        _cc_key = _cc_re.sub(r"[^a-z0-9]", "", str(co).lower().strip())
+                        _co_contacts = (_b._data.get("company_contacts", {})
+                                        or {}).get(_cc_key, {}) or {}
+                    except Exception as _cce:
+                        log.debug(f"company_contacts lookup failed: {_cce}")
                     if not nr[C["hm_email"]] and not nr[C["rec_email"]] and _co_contacts:
                         for _rk, _cd in _co_contacts.items():
                             if _cd.get("email") and not _cd.get("bounced"):

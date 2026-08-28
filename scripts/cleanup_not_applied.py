@@ -14,6 +14,12 @@ import os
 import shutil
 import subprocess
 from pathlib import Path
+import logging
+# `log` was used in the capacity check and its except handler without
+# ever being defined, so a genuine failure there raised NameError on
+# top of the original error - in the script that resizes and deletes
+# sheet rows.
+log = logging.getLogger(__name__)
 
 SHEET_NAME = "H1B visa"
 WORKSHEET_NAME = "Valid Entries"
