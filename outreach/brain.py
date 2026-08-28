@@ -16,6 +16,10 @@ Usage:
 
 import os, json, time, fcntl, logging, re
 from collections import defaultdict
+import datetime  # _daily_backup() used it undefined, so every
+                 # backup raised NameError into save()'s except
+                 # and silently wrote nothing. brain.json was
+                 # corrupted today with no backup to restore.
 
 log = logging.getLogger(__name__)
 

@@ -956,8 +956,8 @@ class SheetsManager:
                 },
             )
         except Exception as _e:
-            logging.debug("suppressed: %s", _e)
-            pass
+            import logging as _lg  # was bare `logging`, undefined here
+            _lg.debug("header format suppressed: %s", _e)
 
 
     @staticmethod
