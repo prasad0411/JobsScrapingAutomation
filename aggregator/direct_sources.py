@@ -522,7 +522,10 @@ def scrape_workday() -> List[Dict]:
                     "url": job_url,
                     "job_id": job_id,
                     "source": "workday_direct",
-                    "age": _pick_age(j, ("startDate",), fallback_key="postedOn"),
+                    # was _pick_age(j, ...) - `j` is undefined in this loop,
+                    # whose variable is `posting`. Fourth instance of this
+                    # loop-variable mismatch across the ATS scrapers.
+                    "age": _pick_age(posting, ("startDate",), fallback_key="postedOn"),
                     "is_closed": False,
                 })
 
