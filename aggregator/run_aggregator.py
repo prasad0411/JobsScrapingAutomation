@@ -433,6 +433,36 @@ def _is_senior_title(title):
     return bool(_SENIOR_TITLE_RE.search(title))
 
 
+def _dedup_key(company, title):
+    """THE dedup key. One definition, used by every site that builds one.
+
+    There were three: line 3899 stripped Inc/LLC/Ltd/Corp, line 3309 called
+    normalize_company_for_dedup, and line 3819 - the one that RECORDS the key
+    after a write - used the raw company with no normalisation at all.
+
+    So a job was stored under "bosch group_software engineer" and looked up
+    under "bosch_software engineer". They never matched, and the job was
+    rewritten every run. 153 duplicate pairs in Not Applied, every one
+    appearing exactly twice, same source, same day.
+
+    COMPANY_NAME_FIXES is applied FIRST, because that is the name the sheet
+    ends up holding. Normalising after the fix is what makes the stored key
+    and the lookup key identical.
+    """
+    import re as _r
+    from aggregator.utils import URLCleaner as _U
+    c = (company or "").strip()
+    try:
+        from aggregator.config import COMPANY_NAME_FIXES as _F
+        c = _F.get(c, _F.get(c.lower(), c))
+    except Exception:
+        pass
+    c = _r.sub(r",?\s*(Inc\.?|LLC|Ltd\.?|Corp\.?|Corporation|Group|"
+               r"L\.?P\.?|Co\.?)\s*$", "", str(c), flags=_r.I).strip()
+    c = _r.sub(r"\s*\([^)]+\)\s*$", "", c).strip()
+    return _U.normalize_text("{}_{}".format(c, title or ""))
+
+
 class UnifiedJobAggregator:
     def __init__(self):
         print("=" * 80)
@@ -2281,7 +2311,7 @@ class UnifiedJobAggregator:
                 self.outcomes["failed_ziprecruiter_resolution"] = self.outcomes.get("failed_ziprecruiter_resolution", 0) + 1
                 return
 
-            ct_key = URLCleaner.normalize_text(f"{company}_{title}")
+            ct_key = _dedup_key(company, title)
             if ct_key in self.existing_jobs:
                 self.outcomes["skipped_duplicate_company_title"] += 1
                 return
@@ -2592,7 +2622,7 @@ class UnifiedJobAggregator:
         search_query = urllib.parse.quote(f"{company} {title} careers apply")
         search_url = f"https://www.google.com/search?q={search_query}"
 
-        ct_key = URLCleaner.normalize_text(f"{company}_{title}")
+        ct_key = _dedup_key(company, title)
         if ct_key in self.existing_jobs:
             self.outcomes["skipped_duplicate_company_title"] += 1
             logging.info(f"LINKEDIN STEP 4 | Duplicate ct_key: {company} | {title}")
@@ -3305,8 +3335,7 @@ class UnifiedJobAggregator:
             # Now: check the in-progress set as well, and CLAIM the url inside
             # the same locked block so the check and the claim are atomic.
             _clean = URLCleaner.clean_url(final_url or url)
-            _norm_co = TitleProcessor.normalize_company_for_dedup(company) if hasattr(TitleProcessor, "normalize_company_for_dedup") else company.lower()
-            _norm = URLCleaner.normalize_text(f"{_norm_co}_{title}")
+            _norm = _dedup_key(company, title)
             with getattr(self, "_github_lock", _NOOP_LOCK):
                 _ident_ok = _ident(final_url or url)
                 _url_dup = _ident_ok and (_clean in self.existing_urls
@@ -3816,7 +3845,7 @@ class UnifiedJobAggregator:
                 self.valid_jobs.append(job_data)
                 self.outcomes["valid"] += 1
                 self.existing_urls.add(URLCleaner.clean_url(final_url or url))
-                self.existing_jobs.add(URLCleaner.normalize_text(f"{company}_{title}"))
+                self.existing_jobs.add(_dedup_key(company, title))
             if job_id and job_id != "N/A" and not job_id.startswith("HASH_"):
                 self.existing_job_ids.add(job_id.lower())
                 try:
@@ -3894,9 +3923,7 @@ class UnifiedJobAggregator:
                 return True
             # Normalize company name for dedup: strip Inc., LLC, (SRA), etc.
             import re as _dn_re
-            _co_clean = _dn_re.sub(r",?\s*(Inc\.?|LLC|Ltd\.?|Corp\.?|L\.?P\.?)\s*$", "", company, flags=_dn_re.I).strip()
-            _co_clean = _dn_re.sub(r"\s*\([^)]+\)\s*$", "", _co_clean).strip()  # Strip (SRA), (SIG) etc.
-            norm_key = URLCleaner.normalize_text(f"{_co_clean}_{title}")
+            norm_key = _dedup_key(company, title)
             if norm_key in self.existing_jobs or norm_key in self.processing_lock:
                 self.outcomes["skipped_duplicate_company_title"] += 1
                 logging.info(f"DUPLICATE (company+title) | {company} | {title}")

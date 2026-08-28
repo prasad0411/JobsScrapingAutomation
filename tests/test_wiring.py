@@ -504,3 +504,34 @@ def test_job_type_reads_title_before_source():
     assert should_drop_summer(
         t, job_type=U._detect_job_type(t, "zapplyjobs_newgrad")), \
         "summer role still exempt"
+
+
+# ── 16. One dedup key, or jobs repeat forever ──
+def test_dedup_key_is_stable_across_name_variants():
+    """Three sites built the key differently: one stripped Inc/LLC, one called
+    normalize_company_for_dedup, and the one that RECORDS the key after a
+    write used the raw company. A job was stored as 'bosch group_...' and
+    looked up as 'bosch_...', so it was rewritten every run - 153 duplicate
+    pairs, each appearing exactly twice."""
+    from aggregator.run_aggregator import _dedup_key as K
+
+    for a, b in (("Bosch Group", "Bosch"), ("HP Inc", "HP"),
+                 ("Acme Corporation", "Acme"), ("Foo LLC", "Foo")):
+        assert K(a, "Software Engineer") == K(b, "Software Engineer"), \
+            "name variants produce different keys: {} vs {}".format(a, b)
+
+    # distinct companies must not collide
+    assert K("Bosch", "SWE") != K("Boston Dynamics", "SWE")
+    assert K("HP", "SWE") != K("HPE", "SWE")
+    assert K("Acme", "SWE") != K("Acme", "Data Engineer")
+
+
+def test_all_dedup_sites_use_the_shared_key():
+    """Every place that builds or records a company+title key must call
+    _dedup_key. A site that builds its own is how the mismatch happened."""
+    import re
+    src = open(os.path.join(BASE, "aggregator", "run_aggregator.py"),
+               encoding="utf-8").read()
+    code = "\n".join(l for l in src.splitlines() if not l.strip().startswith("#"))
+    stray = re.findall(r'normalize_text\(f"\{[a-z_]*compan[^)]*\}_\{title\}"\)', code)
+    assert not stray, "dedup key built outside _dedup_key: {}".format(stray[:3])
