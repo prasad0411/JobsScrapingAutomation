@@ -44,3 +44,4 @@ screenshots/
 .coverage
 htmlcov/
 *.precap_*
+.vscode/

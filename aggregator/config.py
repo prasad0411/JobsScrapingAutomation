@@ -1737,7 +1737,11 @@ URL_TO_COMPANY_MAPPING = {
     r"jobs\.smartrecruiters\.com/Visa": "Visa",
     r"jobs\.smartrecruiters\.com/Intuitive": "Intuitive Surgical",
     r"jobs\.smartrecruiters\.com/Experian": "Experian",
-    r"jobs\.smartrecruiters\.com/BoschGroup": "Robert Bosch Venture Capital",
+    # REMOVED duplicate key: BoschGroup -> Robert Bosch Venture Capital
+    # It silently overrode the earlier, correct entry.
+    # Bosch's smartrecruiters board is the main company, not the
+    # VC arm; and Portland in tech postings is Oregon far more
+    # often than Maine.
     r"jobs\.smartrecruiters\.com/WesternDigital": "Western Digital",
     r"jobs\.lever\.co/zoox": "Zoox",
     r"jobs\.lever\.co/tri": "Toyota Research Institute",
@@ -3472,7 +3476,9 @@ CITY_TO_STATE_EXTRA = {
     "anchorage": "AK", "juneau": "AK",
     "honolulu": "HI",
     "burlington": "VT", "montpelier": "VT",
-    "portland": "ME", "bangor": "ME",
+    # "portland": "ME" removed - it overrode the earlier "portland": "OR",
+    # and Portland in tech postings is Oregon far more often than Maine.
+    "bangor": "ME",
     "manchester": "NH", "concord": "NH",
     "providence": "RI", "newport": "RI",
     "dover": "DE", "wilmington": "DE",

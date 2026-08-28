@@ -1,0 +1,10 @@
+line-length = 100
+exclude = ["venv", ".local", "*.bak_*"]
+
+[lint]
+# Start narrow. These are the classes that actually bit us:
+#   F811  redefinition        - _load_sponsorship_from_brain defined twice
+#   F821  undefined name      - b.data when the attribute is b._data
+#   S110  try-except-pass     - 165 sites, one hid a dead learning loop
+select = ["F", "S110", "S112"]
+ignore = ["E501"]
