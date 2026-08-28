@@ -956,6 +956,26 @@ class UnifiedJobAggregator:
         def _process_github_batch(jobs, source_name):
             fresh, skipped_old = [], 0
             for job in jobs:
+                # BLACKLIST: companies you ruled out, and clearance shops.
+                # GATE -2 in _process_single_job_comprehensive covered the
+                # direct-ATS and email paths only, so GitHub feeds bypassed
+                # every company-level block entirely - MORSE Corp came back
+                # through speedyapply_swe hours after being blacklisted.
+                # Sixth time today a check existed in one path and not the
+                # other.
+                try:
+                    from aggregator.apply_learned import (
+                        is_user_blacklisted, is_learned_clearance)
+                    _bc = job.get("company", "")
+                    if is_user_blacklisted(_bc) or is_learned_clearance(_bc):
+                        self.outcomes["skipped_user_blacklist"] = (
+                            self.outcomes.get("skipped_user_blacklist", 0) + 1)
+                        logging.info(
+                            f"REJECTED | {_bc} | {job.get('title','')} | Blacklisted")
+                        continue
+                except Exception as _ble:
+                    logging.debug(f"blacklist check error (keeping job): {_ble}")
+
                 # TERM FILTER: drop ONLY unambiguous Summer 2027 internships.
                 # Full-time, Fall, Spring, Winter and anything ambiguous are
                 # kept. An exception here keeps the job — never drops it.
