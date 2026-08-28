@@ -997,7 +997,8 @@ class UnifiedJobAggregator:
                     from aggregator.apply_learned import (
                         is_user_blacklisted, is_learned_clearance)
                     _bc = job.get("company", "")
-                    if is_user_blacklisted(_bc) or is_learned_clearance(_bc):
+                    _bt = is_user_blacklisted_title(job.get("title", ""))
+                    if is_user_blacklisted(_bc) or is_learned_clearance(_bc) or _bt:
                         self.outcomes["skipped_user_blacklist"] = (
                             self.outcomes.get("skipped_user_blacklist", 0) + 1)
                         logging.info(
@@ -3043,12 +3044,17 @@ class UnifiedJobAggregator:
             # Philips does not hire from Northeastern. Checked before anything
             # else so a blacklisted company costs no fetch and no processing.
             try:
-                from aggregator.apply_learned import is_user_blacklisted
-                if is_user_blacklisted(_co_hint):
+                from aggregator.apply_learned import (
+                    is_user_blacklisted, is_user_blacklisted_title,
+                    is_learned_clearance)
+                _bt = is_user_blacklisted_title(_ti_hint)
+                if (is_user_blacklisted(_co_hint)
+                        or is_learned_clearance(_co_hint) or _bt):
                     self.outcomes["skipped_user_blacklist"] = (
                         self.outcomes.get("skipped_user_blacklist", 0) + 1)
+                    _why = "title:" + _bt if _bt else "company"
                     logging.info(
-                        f"REJECTED | {_co_hint} | {_ti_hint} | User blacklist")
+                        f"REJECTED | {_co_hint} | {_ti_hint} | User blacklist ({_why})")
                     return None
             except Exception as _ube:
                 logging.debug(f"user blacklist check failed: {_ube}")

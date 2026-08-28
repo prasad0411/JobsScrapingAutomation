@@ -124,6 +124,35 @@ def is_user_blacklisted(company: str) -> bool:
     return False
 
 
+def is_user_blacklisted_title(title: str):
+    """Terms YOU decided not to see, stored in brain.json.
+
+    Sits beside user_blacklist_companies. The point is that YOU add entries
+    rather than someone editing a pattern list in config: "robotics" is a
+    preference, not a defect, and this morning's filters deliberately KEEP
+    "Robotics Software Engineer" because it is a real SWE role at Zoox and
+    Waymo. Whether you want it is your call, not the filter's.
+
+    Whole-word matching, so "quant" does not catch "Quantitative" and
+    "ml" does not catch "HTML". Returns the matched term, or None.
+
+    Add one:
+        b = Brain.get()
+        b._data.setdefault("user_blacklist_titles", []).append("robotics")
+        b.save()
+    """
+    import re as _r
+    if not title:
+        return None
+    terms = _brain().get("user_blacklist_titles", []) or []
+    hay = " " + _r.sub(r"[^a-z0-9]+", " ", str(title).lower()).strip() + " "
+    for t in terms:
+        t = _r.sub(r"[^a-z0-9]+", " ", str(t).lower()).strip()
+        if t and " " + t + " " in hay:
+            return t
+    return None
+
+
 # ---- Where to plug this in (aggregator/extractors.py or processors.py) ----
 #
 # Wherever a job's company/title is finalized, BEFORE the hardcoded rules:

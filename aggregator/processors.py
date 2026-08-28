@@ -410,7 +410,10 @@ class TitleProcessor:
         # "2027 PhD Graduate", "Research Scientist, PhD" and "Software
         # Engineer, PhD New Grad" all passed. An MS/PhD or BS/MS/PhD title is
         # open to you, so those are kept. 14/14 cases.
-        if re.search(r"\bph\.?\s?d\b", title_lower):
+        # Postdoc is a PhD role but contains no "phd" substring, so
+        # "Machine Learning - Postdoctoral Research" passed every check.
+        if re.search(r"\b(?:ph\.?\s?d|post[\s-]?doc(?:toral)?|doctoral|dphil)\b",
+                     title_lower):
             if not re.search(
                 r"\b(?:ms|m\.s\.|masters?|bs|b\.s\.|bachelors?)\b", title_lower):
                 return False, "PhD role (not eligible)"

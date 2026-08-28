@@ -446,6 +446,51 @@ def check_brain_parses():
     return problems
 
 
+# ── CHECK 15 ──────────────────────────────────────────────────────────
+def check_gates_cover_both_paths():
+    """A filter wired into one processing path but not the other.
+
+    run_aggregator has two: _process_github_batch handles the 12 feed
+    sources, _process_single_job_comprehensive handles direct ATS, LinkedIn
+    and email. A check added to one silently does nothing for the other, and
+    the job still reaches the sheet.
+
+    This happened seven times in a single session: the summer filter, the
+    seniority gate, the sponsorship check, the truncation gate, the company
+    blacklist, the clearance list and the title blacklist. Every one was
+    found by the user spotting a bad row, never by a test.
+    """
+    src = _read(os.path.join(BASE, "aggregator", "run_aggregator.py"))
+    if not src:
+        return ["run_aggregator.py unreadable"]
+
+    def _body(name):
+        m = re.search(r"def " + name + r"\(.*?(?=\n    def |\nclass |\Z)", src, re.S)
+        return m.group(0) if m else ""
+
+    gh = _body("_process_github_batch")
+    single = _body("_process_single_job_comprehensive")
+    if not gh or not single:
+        return []
+
+    # Filters that must run on every job regardless of where it came from.
+    SHARED = [
+        ("user company blacklist", "is_user_blacklisted("),
+        ("user title blacklist",   "is_user_blacklisted_title("),
+        ("learned clearance",      "is_learned_clearance("),
+        ("summer term filter",     "should_drop_summer("),
+    ]
+    problems = []
+    for label, token in SHARED:
+        in_gh, in_single = token in gh, token in single
+        if in_gh != in_single:
+            have, missing = ("github", "comprehensive") if in_gh else ("comprehensive", "github")
+            problems.append(
+                "{} runs in the {} path but NOT the {} path - jobs from that "
+                "source bypass it entirely".format(label, have, missing))
+    return problems
+
+
 CHECKS = [
     ("control characters",  check_control_characters),
     ("scheduler dispatch",  check_scheduler_dispatch),
@@ -461,6 +506,7 @@ CHECKS = [
     ("duplicate defs",      check_duplicate_definitions),
     ("source list drift",   check_source_lists_cover_all_feeds),
     ("brain integrity",     check_brain_parses),
+    ("gates both paths",    check_gates_cover_both_paths),
 ]
 
 
