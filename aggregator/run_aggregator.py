@@ -4168,7 +4168,21 @@ class UnifiedJobAggregator:
         tl = title.lower() if title else ""
         sl = source_name.lower() if source_name else ""
 
-        # New grad sources
+        # TITLE FIRST. An explicit intern or co-op word in the title outranks
+        # any source name. The newgrad source check used to run before the
+        # title checks below, so EVERY job from a *_newgrad feed came back
+        # Full Time - including "Summer 2027 Intern - Software Engineering"
+        # from zapplyjobs_newgrad. Those feeds carry both role types.
+        #
+        # That single wrong label caused two wrong outcomes: the Job Type
+        # column said Full Time, and the summer filter skipped the row,
+        # because rule 1 never filters full-time roles.
+        if any(kw in tl for kw in ["co-op", "co op", "coop"]):
+            return "Co-op"
+        if any(kw in tl for kw in ["intern", "internship"]):
+            return "Internship"
+
+        # New grad sources - only once the title has offered no signal
         if "newgrad" in sl or "new_grad" in sl or "new-grad" in sl:
             return "Full Time"
 

@@ -477,3 +477,30 @@ def test_phd_titles_rejected_unless_ms_eligible():
     for t in ("Research Intern - MS or PhD", "Data Scientist - MS/PhD",
               "Machine Learning Engineer - BS/MS/PhD", "Software Engineer I"):
         assert T.is_valid_job_title(t)[0], "MS-eligible role rejected: " + t
+
+
+# ── 15. Job type must come from the title, not the feed name ──
+def test_job_type_reads_title_before_source():
+    """The *_newgrad source check ran before the title checks, so every job
+    from those feeds came back Full Time - including 'Summer 2027 Intern'.
+    One wrong label caused two wrong outcomes: a wrong Job Type column, and
+    the summer filter skipping the row because rule 1 exempts full-time."""
+    from aggregator.run_aggregator import UnifiedJobAggregator as U
+    from aggregator.term_filter import should_drop_summer
+
+    assert U._detect_job_type("Summer 2027 Intern - Software Engineering",
+                              "zapplyjobs_newgrad") == "Internship"
+    assert U._detect_job_type("Software Engineer Intern",
+                              "simplify_newgrad") == "Internship"
+    assert U._detect_job_type("Data Science Co-op", "cvrve_newgrad") == "Co-op"
+    # genuine full-time roles from those feeds must not regress
+    assert U._detect_job_type("New Grad Software Engineer",
+                              "zapplyjobs_newgrad") == "Full Time"
+    assert U._detect_job_type("Software Engineer",
+                              "zapplyjobs_newgrad") == "Full Time"
+    assert U._detect_job_type("Backend Engineer", "greenhouse_direct") == "Full Time"
+
+    t = "Summer 2027 Intern - Software Engineering"
+    assert should_drop_summer(
+        t, job_type=U._detect_job_type(t, "zapplyjobs_newgrad")), \
+        "summer role still exempt"
